@@ -86,7 +86,7 @@ struct link {
 	uint8_t seq;
 	uint8_t host_leds;
 	bool host_suspended;
-	bool suspend_sent;
+	uint8_t suspends_sent;
 	struct pairwin window;
 };
 

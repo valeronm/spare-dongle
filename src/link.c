@@ -5,6 +5,8 @@
 #define IDLE_AFTER_MS 1000
 #define SLOT_MS 400
 #define STATUS_EVERY_MS 100
+/* A suspend frame can be lost on air, and NuPhy's dongle writes it five times. */
+#define SUSPEND_COPIES 5
 /* A connected keyboard sends about every 40 ms, even with no key change. */
 #define GAP_MS 250
 /* The keyboard repeats a pair request that goes unanswered while a survey has the receiver off. */
@@ -59,7 +61,7 @@ static uint8_t own_slot_channel(const struct link *l)
 static void go_idle(struct link *l, uint32_t now_ms, struct link_out *out)
 {
 	l->state = LINK_STATE_IDLE;
-	l->suspend_sent = false;
+	l->suspends_sent = 0;
 	l->slot_start_ms = now_ms;
 	set_channel(l, own_slot_channel(l), out);
 }
@@ -175,10 +177,10 @@ static void on_pairing_message(struct link *l, const struct nuphy_msg *m, uint32
 
 static void on_connected_message(struct link *l, uint32_t now_ms, struct link_out *out)
 {
-	if (l->host_suspended && !l->suspend_sent) {
+	if (l->host_suspended && l->suspends_sent < SUSPEND_COPIES) {
 		reply(l, 1, out);
 		out->reply_len = nuphy_suspend(out->reply_buf, l->seq);
-		l->suspend_sent = true;
+		l->suspends_sent++;
 		l->last_status_ms = now_ms;
 	} else if (now_ms - l->last_status_ms >= STATUS_EVERY_MS) {
 		reply_status(l, now_ms, out);
@@ -326,7 +328,7 @@ void link_set_host_suspended(struct link *l, bool suspended)
 {
 	l->host_suspended = suspended;
 	if (!suspended) {
-		l->suspend_sent = false;
+		l->suspends_sent = 0;
 	}
 }
 
@@ -392,7 +394,7 @@ const uint8_t *link_forced_channels(const struct link *l)
 	return l->next_offer_kind == OFFER_FORCED ? l->next_offer : NULL;
 }
 
-/* A retune drops the replies queued on the radio, and the suspend frame is queued once. */
+/* A retune drops the replies queued on the radio, suspend frames among them. */
 static bool movable(const struct link *l, uint32_t now_ms)
 {
 	return l->own_known && !link_pairing_open(l, now_ms) && !l->host_suspended &&

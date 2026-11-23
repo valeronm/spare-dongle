@@ -451,13 +451,17 @@ static void test_status_carries_host_leds(void)
 	expect_status(1, 0x02);
 }
 
-static void test_suspend_goes_out_on_the_next_packet_then_status_resumes(void)
+static void test_suspend_goes_out_on_the_next_packets_then_status_resumes(void)
 {
 	connect_and_suspend();
-	message(NUPHY_KEEPALIVE, 1, 90);
+	for (uint8_t copy = 1; copy < 5; copy++) {
+		message(NUPHY_KEEPALIVE, 1, 50 + 10 * copy);
+		expect_suspend(2 + copy);
+	}
+	message(NUPHY_KEEPALIVE, 1, 130);
 	CHECK(!out.reply);
-	message(NUPHY_KEEPALIVE, 1, 150);
-	expect_status(3, 0);
+	message(NUPHY_KEEPALIVE, 1, 190);
+	expect_status(7, 0);
 }
 
 static void test_suspend_is_resent_after_a_reconnect(void)
@@ -1138,7 +1142,7 @@ int main(void)
 	RUN(test_rebooted_dongle_connects_on_home_and_sends_status_every_100_ms);
 	RUN(test_a_status_dropped_from_the_radio_goes_out_on_the_next_packet);
 	RUN(test_status_carries_host_leds);
-	RUN(test_suspend_goes_out_on_the_next_packet_then_status_resumes);
+	RUN(test_suspend_goes_out_on_the_next_packets_then_status_resumes);
 	RUN(test_suspend_is_resent_after_a_reconnect);
 	RUN(test_resume_then_suspend_sends_it_again);
 	RUN(test_silence_for_1_s_loses_the_link);

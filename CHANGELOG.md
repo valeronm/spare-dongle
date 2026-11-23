@@ -4,6 +4,8 @@
 
 - In Bluetooth mode the dongle disconnects its devices when the PC sleeps, so they sleep too, and a
   device that reconnects wakes the PC.
+- In NuPhy mode the dongle repeats its notice that the PC suspended, so the keyboard still sleeps
+  with the PC when one notice is lost.
 
 ## [0.5.0] - 2026-11-21
 
