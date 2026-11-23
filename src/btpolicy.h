@@ -9,6 +9,10 @@
 #define BTPOLICY_STORED_MAX 8
 #define BTPOLICY_RETRY_MS 1000
 #define BTPOLICY_QUICK_RETRIES 3
+/* Assumed longer than the advertising interval of a device that lost its link; not measured. */
+#define BTPOLICY_QUIET_MS 5000
+/* Outlasts the 120 s an Air75 V2 spends linking after it loses its link. */
+#define BTPOLICY_FAST_SCAN_MS 180000
 /* The address type, then the six address bytes. */
 #define BTPOLICY_ADDR_LEN 7
 #define BTPOLICY_NAME_MAX 32
@@ -45,6 +49,8 @@ enum btpolicy_want {
 enum btpolicy_scan {
 	BTPOLICY_SCAN_OFF,
 	BTPOLICY_SCAN_PASSIVE,
+	/* At the active scan's duty. */
+	BTPOLICY_SCAN_PASSIVE_FAST,
 	BTPOLICY_SCAN_ACTIVE,
 };
 
@@ -80,8 +86,17 @@ struct btpolicy_slot {
 	uint32_t retry_at_ms;
 };
 
+struct btpolicy_hush {
+	bool on;
+	uint8_t addr[BTPOLICY_ADDR_LEN];
+	uint32_t dropped_ms;
+	uint32_t heard_ms;
+};
+
 struct btpolicy {
 	struct btpolicy_slot slots[DEVICE_KINDS];
+	/* Kept by address, past the slot's own connection. */
+	struct btpolicy_hush hushes[DEVICE_KINDS];
 	bool window_open;
 	bool passkey_demanded;
 	/* Devices that refused to pair in the open window. */
@@ -95,7 +110,7 @@ void btpolicy_init(struct btpolicy *p);
 bool btpolicy_interesting(const struct btpolicy_advert *a);
 /* A stored device is not connected to while a pairing window is open, and only one device is set
  * up at a time. */
-enum btpolicy_want btpolicy_wants(const struct btpolicy *p, const struct btpolicy_advert *a,
+enum btpolicy_want btpolicy_wants(struct btpolicy *p, const struct btpolicy_advert *a,
 				  bool window_open, uint8_t stored_count, uint32_t now_ms);
 void btpolicy_connecting(struct btpolicy *p, const struct btpolicy_advert *a);
 void btpolicy_dropping(struct btpolicy *p, enum device_kind kind);
@@ -118,8 +133,15 @@ enum btpolicy_security btpolicy_security_failed(struct btpolicy *p, enum device_
 						enum btpolicy_failure why);
 /* Told the pairing window's state every tick; the refusals are forgotten when it closes. */
 void btpolicy_window(struct btpolicy *p, bool open, bool passkey_demanded);
+/* The slot's device is to be dropped and not wanted until it has gone BTPOLICY_QUIET_MS without
+ * advertising, since a device that lost its link keeps advertising until it sleeps; an idle slot
+ * is left alone. */
+void btpolicy_hush(struct btpolicy *p, enum device_kind kind, uint32_t now_ms);
+void btpolicy_unhush(struct btpolicy *p);
 /* Active while a pairing window is open, since a new device may give its appearance only in its
- * scan response. */
-enum btpolicy_scan btpolicy_scan(const struct btpolicy *p);
+ * scan response; fast while a hushed device may still be advertising, up to BTPOLICY_FAST_SCAN_MS
+ * after its drop, since the slow scan can miss a device's adverts for longer than
+ * BTPOLICY_QUIET_MS. */
+enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, uint32_t now_ms);
 
 #endif

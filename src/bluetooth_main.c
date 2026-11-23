@@ -188,6 +188,26 @@ static enum chanmove_result no_move(uint8_t channel, uint8_t *from)
 	return CHANMOVE_NOT_MOVABLE;
 }
 
+static void drop_link(enum device_kind kind)
+{
+	btpolicy_hush(&policy, kind, k_uptime_get_32());
+	ble_power_off(kind);
+}
+
+/* Losing its link is the only notice of a suspend some keyboards act on. */
+static void host_suspended(bool suspended)
+{
+	if (!suspended) {
+		btpolicy_unhush(&policy);
+		return;
+	}
+	for (int k = 0; k < DEVICE_KINDS; k++) {
+		if (btpolicy_peer(&policy, k)) {
+			drop_link(k);
+		}
+	}
+}
+
 static const struct core_loop loop = {
 	.home = no_home,
 	.take_noise = ble_take_noise,
@@ -199,6 +219,7 @@ static const struct core_loop loop = {
 	.candidates = no_candidates,
 	.replies_dropped = nothing,
 	.move = no_move,
+	.host_suspended = host_suspended,
 };
 
 static const char *map_fault(enum hidmap_result result)
@@ -346,6 +367,9 @@ static void on_failed(const struct ble_event *ev)
 static void device_ready(enum device_kind kind)
 {
 	btpolicy_ready(&policy, kind);
+	if (usb_suspended() && usb_wakeup() != 0) {
+		drop_link(kind);
+	}
 	log_device((struct diag_detail){.tag = DIAG_DETAIL_BT_CONNECTED}, kind);
 	save_list(btlist_connected(&list, btpolicy_peer(&policy, kind), devices[kind].name));
 }
@@ -742,7 +766,7 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 		}
 		btpolicy_window(&policy, pairwin_is_open(&window, now), passkey_asked);
 		if (start_err == 0) {
-			int err = ble_scan(btpolicy_scan(&policy));
+			int err = ble_scan(btpolicy_scan(&policy, now));
 
 			if (err) {
 				printk("bluetooth scan not switched: %d\n", err);

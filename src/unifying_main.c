@@ -362,6 +362,11 @@ static void serve_diag(const struct diag_request *req, uint64_t now)
 	}
 }
 
+static void ignore_host(bool suspended)
+{
+	ARG_UNUSED(suspended);
+}
+
 static const struct core_loop loop = {
 	.home = home,
 	.take_noise = core_take_radio_noise,
@@ -373,6 +378,7 @@ static const struct core_loop loop = {
 	.candidates = unifying_session_channels,
 	.replies_dropped = replies_dropped,
 	.move = move_on_request,
+	.host_suspended = ignore_host,
 };
 
 FUNC_NORETURN void unifying_run(int store_err)

@@ -40,17 +40,41 @@ static bool setting_up(const struct btpolicy *p)
 	return false;
 }
 
+static bool hush_running(const struct btpolicy_hush *h, uint32_t now_ms)
+{
+	return h->on && now_ms - h->heard_ms < BTPOLICY_QUIET_MS;
+}
+
+/* Each advert a running hush ignores restarts its quiet time. */
+static bool hushed(struct btpolicy *p, const struct btpolicy_advert *a, uint32_t now_ms)
+{
+	for (int k = 0; k < DEVICE_KINDS; k++) {
+		struct btpolicy_hush *h = &p->hushes[k];
+
+		if (!h->on || memcmp(h->addr, a->addr, BTPOLICY_ADDR_LEN) != 0) {
+			continue;
+		}
+		if (hush_running(h, now_ms)) {
+			h->heard_ms = now_ms;
+			return true;
+		}
+		h->on = false;
+	}
+	return false;
+}
+
 bool btpolicy_interesting(const struct btpolicy_advert *a)
 {
 	return a->connectable && (a->stored || (a->hid_service && a->kind != DEVICE_NO_KIND));
 }
 
-enum btpolicy_want btpolicy_wants(const struct btpolicy *p, const struct btpolicy_advert *a,
+enum btpolicy_want btpolicy_wants(struct btpolicy *p, const struct btpolicy_advert *a,
 				  bool window_open, uint8_t stored_count, uint32_t now_ms)
 {
 	const struct btpolicy_slot *s;
 
-	if (!btpolicy_interesting(a) || a->kind == DEVICE_NO_KIND || setting_up(p)) {
+	if (!btpolicy_interesting(a) || hushed(p, a, now_ms) || a->kind == DEVICE_NO_KIND ||
+	    setting_up(p)) {
 		return BTPOLICY_IGNORE;
 	}
 	s = &p->slots[a->kind];
@@ -166,9 +190,10 @@ void btpolicy_window(struct btpolicy *p, bool open, bool passkey_demanded)
 	p->passkey_demanded = open && passkey_demanded;
 }
 
-enum btpolicy_scan btpolicy_scan(const struct btpolicy *p)
+enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, uint32_t now_ms)
 {
 	bool slot_free = false;
+	bool fast = false;
 
 	if (setting_up(p)) {
 		return BTPOLICY_SCAN_OFF;
@@ -177,7 +202,35 @@ enum btpolicy_scan btpolicy_scan(const struct btpolicy *p)
 		return BTPOLICY_SCAN_ACTIVE;
 	}
 	for (int k = 0; k < DEVICE_KINDS; k++) {
+		const struct btpolicy_hush *h = &p->hushes[k];
+
 		slot_free |= p->slots[k].state == BTPOLICY_IDLE;
+		fast |= hush_running(h, now_ms) && now_ms - h->dropped_ms < BTPOLICY_FAST_SCAN_MS;
+	}
+	if (fast) {
+		return BTPOLICY_SCAN_PASSIVE_FAST;
 	}
 	return slot_free ? BTPOLICY_SCAN_PASSIVE : BTPOLICY_SCAN_OFF;
+}
+
+void btpolicy_hush(struct btpolicy *p, enum device_kind kind, uint32_t now_ms)
+{
+	struct btpolicy_slot *s = &p->slots[kind];
+	struct btpolicy_hush *h = &p->hushes[kind];
+
+	if (s->state == BTPOLICY_IDLE) {
+		return;
+	}
+	s->dropping = true;
+	h->on = true;
+	memcpy(h->addr, s->peer, BTPOLICY_ADDR_LEN);
+	h->dropped_ms = now_ms;
+	h->heard_ms = now_ms;
+}
+
+void btpolicy_unhush(struct btpolicy *p)
+{
+	for (int k = 0; k < DEVICE_KINDS; k++) {
+		p->hushes[k].on = false;
+	}
 }

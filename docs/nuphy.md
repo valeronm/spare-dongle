@@ -33,6 +33,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | **Back to the keyboard** | | | |
 | Lock LEDs | yes | yes | ⚪ |
 | Wakes a suspended PC | on the keyboard's hello or any key | the same | ⚪ |
+| Tells the keyboard the PC suspended | yes | yes | ⚪ |
 | **Pairing** | | | |
 | Pairing opens | 30 s after plugging in | 30 s after plugging in, or on request | 🟢 |
 | Forgets a device | no: a new pairing replaces the keyboard | yes, with the tool | 🟢 |
@@ -52,8 +53,6 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | **[Logitech HID++](unifying.md#hid)** | | | |
 | HID++ used by the dongle | no: the keyboard speaks none | the same | ⚪ |
 | HID++ passed to Logitech Options and Solaar | no: the keyboard speaks none | the same | ⚪ |
-| **NuPhy only** | | | |
-| Tells the keyboard the PC suspended | yes | yes | ⚪ |
 
 Both close pairing once the paired keyboard connects. With no keyboard paired, SpareDongle keeps
 it open until one pairs.

@@ -350,6 +350,11 @@ static enum chanmove_result move_on_request(uint8_t channel, uint8_t *from)
 	return link_move(&link, channel, k_uptime_get_32());
 }
 
+static void host_suspended(bool suspended)
+{
+	link_set_host_suspended(&link, suspended);
+}
+
 static const struct core_loop loop = {
 	.home = home,
 	.take_noise = core_take_radio_noise,
@@ -361,6 +366,7 @@ static const struct core_loop loop = {
 	.candidates = candidates,
 	.replies_dropped = replies_dropped,
 	.move = move_on_request,
+	.host_suspended = host_suspended,
 };
 
 FUNC_NORETURN void nuphy_run(int store_err)
@@ -401,7 +407,6 @@ FUNC_NORETURN void nuphy_run(int store_err)
 	for (;;) {
 		struct rx_item item;
 		struct diag_request req;
-		bool suspended;
 		uint32_t now;
 		uint8_t leds;
 
@@ -411,8 +416,6 @@ FUNC_NORETURN void nuphy_run(int store_err)
 		now = k_uptime_get_32();
 		core_take_leds(&leds);
 		link_set_host_leds(&link, leds);
-		suspended = usb_suspended();
-		link_set_host_suspended(&link, suspended);
 		core_poll();
 		out = (struct link_out){0};
 		link_tick(&link, now, &out);

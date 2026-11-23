@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- In Bluetooth mode the dongle disconnects its devices when the PC sleeps, so they sleep too, and a
+  device that reconnects wakes the PC.
+
 ## [0.5.0] - 2026-11-21
 
 - In Bluetooth mode the `noise` command no longer lets go of held keys.

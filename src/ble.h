@@ -96,6 +96,8 @@ size_t ble_copy_map(enum device_kind kind, uint8_t *out, size_t cap);
  * none. */
 void ble_copy_name(enum device_kind kind, char out[BLE_NAME_MAX + 1]);
 void ble_disconnect(enum device_kind kind);
+/* Disconnects as a host that is powering off does. */
+void ble_power_off(enum device_kind kind);
 /* Writes the slot's output report with this ID, data excluding the ID; fails until the device's
  * reports are discovered and while an earlier write to that report is still being sent. */
 int ble_write_report(enum device_kind kind, uint8_t report_id, const uint8_t *data, uint8_t len);

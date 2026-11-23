@@ -30,7 +30,8 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | Vendor-specific keys | yes | no, besides the brightness keys it diverts | 🔴 |
 | **Back to the keyboard** | | | |
 | Lock LEDs | yes | yes, where the device has them | ⚪ |
-| Wakes a suspended PC | on any key or mouse movement | the same | ⚪ |
+| Wakes a suspended PC | on any key or mouse movement | the same, once the device has stopped reconnecting after the PC slept | ⚪ |
+| Tells the keyboard the PC suspended | on Linux | yes | ⚪ |
 | **Pairing** | | | |
 | Pairing opens | in the PC's settings | at plug-in while nothing is paired, or on request | ⚪ |
 | Forgets a device | in the PC's settings | yes, with the tool | ⚪ |
@@ -57,9 +58,13 @@ A report map the dongle cannot parse refuses the device, and so does a keyboard'
 keyboard in it or a mouse's map with no relative pointer, such as a tablet's.
 
 The dongle switches a Logitech mouse's vertical wheel to high resolution when the PC turns on the
-dongle's high-resolution wheel, and the thumb wheel stays in notches. Whether input wakes the PC
-depends on its Bluetooth settings for its own Bluetooth and on its USB settings for the dongle. On
-the PC, Logitech Options, Solaar or Linux's HID++ driver[^hidpp-driver] speaks HID++.
+dongle's high-resolution wheel, and the thumb wheel stays in notches.
+
+The devices go to sleep when the PC does. A keyboard that keeps trying to reconnect after the PC
+sleeps, as the Air75 V2 does until it goes to sleep itself, cannot wake the PC until it stops.
+Whether input wakes the PC depends on its Bluetooth settings for its own Bluetooth and on its USB
+settings for the dongle. On the PC, Logitech Options, Solaar or Linux's HID++
+driver[^hidpp-driver] speaks HID++.
 
 ## Reliability
 
@@ -119,8 +124,9 @@ pairing policy in `src/btpolicy.c`, the report-map parse in `src/hidmap.c`, and 
 
 What the code does not show:
 
-- While a slot is free and pairing is closed, the dongle scans for a few milliseconds a second: a
-  scan of 30 ms every 60 ms took about an eighth of a moving mouse's reports.
+- While a slot is free and pairing is closed, the dongle scans for a few milliseconds a second,
+  except while it waits for a dropped device to go quiet: a scan of 30 ms every 60 ms took about an
+  eighth of a moving mouse's reports.
 - The MX Keys reconnects to its bonded host with a short burst of directed adverts only, which
   Zephyr's host drops unless the central scans under its identity address, and which the slow scan
   can miss after the dongle restarts. The Air75 V2 reconnects with undirected adverts carrying the
@@ -131,6 +137,13 @@ What the code does not show:
   20 and the MX Master 3S to 11.25 ms with latency 44.
 - A key pressed on the MX Keys while it is disconnected is sent once the dongle has subscribed,
   late by the connection setup.
+- When the PC suspends, the dongle drops every link with reason `0x15`, as Linux does with its own
+  Bluetooth. The Air75 V2's radio module ignores the HID Control Point's suspend, so losing its
+  link is the only notice of a suspend it acts on.
+- A device whose link was dropped keeps advertising until it sleeps, and the Air75 V2 reconnected
+  within seconds. The dongle ignores a dropped device until its adverts stop, and scans at the fast
+  duty meanwhile for at most three minutes, since the slow scan can miss a device's adverts for
+  several seconds.
 
 ### Pairing
 

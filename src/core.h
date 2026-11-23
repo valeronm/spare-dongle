@@ -46,6 +46,8 @@ struct core_loop {
 	void (*replies_dropped)(void);
 	/* Moves the protocol state for a requested or noise move; *from is the channel before it. */
 	enum chanmove_result (*move)(uint8_t channel, uint8_t *from);
+	/* Runs on each change of the USB suspend state, which starts as awake. */
+	void (*host_suspended)(bool suspended);
 };
 
 struct rx_item {

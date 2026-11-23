@@ -31,6 +31,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | **Back to the keyboard** | | | |
 | Lock LEDs | yes[^dj] | yes ([After pairing](#after-pairing)) | ⚪ |
 | Wakes a suspended PC | on any key | the same | ⚪ |
+| Tells the keyboard the PC suspended | no: the link carries no such message | the same | ⚪ |
 | **Pairing** | | | |
 | Pairing opens | on request from Logitech Options or Solaar | 30 s after plugging in, or on request | 🟢 |
 | Forgets a device | with Logitech Options or Solaar | yes, with the tool | ⚪ |

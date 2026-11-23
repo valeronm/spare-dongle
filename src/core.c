@@ -405,6 +405,7 @@ void core_poll(void)
 							     : DIAG_DETAIL_USB_RESUME});
 		}
 		usb_was_suspended = suspended;
+		loop->host_suspended(suspended);
 	}
 	take_noise();
 	scan();
