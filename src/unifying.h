@@ -135,12 +135,12 @@ size_t unifying_pairing_rx(struct unifying_pairing *p, const struct unifying_rec
 bool unifying_pairing_expired(struct unifying_pairing *p, uint64_t now_ms);
 
 /*
- * Returns the channel to listen on: while pairing is open and no attempt runs it steps through the
- * pairing channels every UNIFYING_SWEEP_DWELL_MS, since the keyboard hops them too; otherwise it
- * holds the current one.
+ * Returns the channel to listen on: while pairing is open with no keyboard stored and no attempt
+ * running it steps through the pairing channels every UNIFYING_SWEEP_DWELL_MS, since the keyboard
+ * hops them too; otherwise it is current.
  */
 uint8_t unifying_sweep_channel(struct unifying_sweep *s, const struct unifying_pairing *p,
-			       uint64_t now_ms);
+			       uint8_t current, uint64_t now_ms);
 
 /* False, with the window left closed, when every place is stored. */
 bool unifying_pairing_open(struct unifying_pairing *p, enum pairwin_cause cause, uint64_t now_ms);
@@ -397,12 +397,11 @@ enum unifying_status unifying_session_status(const struct unifying_session *s, u
 /* Points *out at the channels unifying_session_move accepts and returns how many. */
 size_t unifying_session_channels(const uint8_t **out);
 
-/* The channel whose noise counts as home's; CHANMOVE_NO_HOME while pairing is open or no keyboard
- * is paired. */
-int unifying_session_home(const struct unifying_session *s, uint64_t now_ms);
+/* The channel whose noise counts as home's; CHANMOVE_NO_HOME while no keyboard is stored. */
+int unifying_session_home(const struct unifying_session *s);
 
 /* The home channel while a noise move may leave it; CHANMOVE_NO_HOME also while a handshake
  * runs. */
-int unifying_session_movable(const struct unifying_session *s, uint64_t now_ms);
+int unifying_session_movable(const struct unifying_session *s);
 
 #endif

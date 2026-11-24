@@ -43,7 +43,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | Battery | with Logitech Options, Solaar or Linux's HID++ driver[^hidpp-driver] | yes, with charging ([HID++](#hid)) | ⚪ |
 | Signal | no | yes | 🟢 |
 | Signal history | no | per minute | 🟢 |
-| Noise history | no | per minute, on the channel it listens on, while pairing is closed | 🟢 |
+| Noise history | no | per minute, on the channel it listens on, while a keyboard is stored | 🟢 |
 | Noise on the keyboard's channels | no | yes | 🟢 |
 | Noise map | no | yes | 🟢 |
 | Latency | no | yes | 🟢 |

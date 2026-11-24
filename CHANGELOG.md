@@ -12,6 +12,8 @@
 - In Unifying mode `forget` removes one keyboard and leaves the others, and the forgotten keyboard
   sees its link drop.
 - In Unifying mode `pair` is refused while six keyboards are stored.
+- In Unifying mode a stored keyboard keeps typing normally while pairing is open, and `move` works
+  then too.
 - In Unifying mode `devices` and `forget` show each keyboard's address.
 - A Unifying keyboard paired with an earlier version has to be paired again.
 

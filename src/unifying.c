@@ -156,13 +156,15 @@ bool unifying_pairing_window_open(const struct unifying_pairing *p, uint64_t now
 }
 
 uint8_t unifying_sweep_channel(struct unifying_sweep *s, const struct unifying_pairing *p,
-			       uint64_t now_ms)
+			       uint8_t current, uint64_t now_ms)
 {
-	if (unifying_pairing_window_open(p, now_ms) && !attempting(p) &&
-	    now_ms - s->last_ms >= UNIFYING_SWEEP_DWELL_MS) {
-		s->index = (s->index + 1) % UNIFYING_PAIRING_CHANNELS;
-		s->last_ms = now_ms;
+	/* A stored keyboard types on current, and a pairing keyboard hops until it finds it. */
+	if (!unifying_pairing_window_open(p, now_ms) || attempting(p) || unifying_has_device(p) ||
+	    now_ms - s->last_ms < UNIFYING_SWEEP_DWELL_MS) {
+		return current;
 	}
+	s->index = (s->index + 1) % UNIFYING_PAIRING_CHANNELS;
+	s->last_ms = now_ms;
 	return diag_unifying_channels[s->index];
 }
 
@@ -660,7 +662,7 @@ static bool quiet_too_long(const struct unifying_session *s, uint64_t now_ms)
 		since = s->search_until_ms;
 	}
 
-	/* deaf_until_ms and search_until_ms can lie after now_ms. */
+	/* search_until_ms can lie after now_ms. */
 	if (now_ms <= since) {
 		return false;
 	}
@@ -715,7 +717,7 @@ void unifying_session_init(struct unifying_session *s, const struct unifying_rec
 	for (uint8_t place = 0; place < UNIFYING_PLACES; place++) {
 		unifying_link_reset(&s->links[place]);
 	}
-	s->channel = unifying_sweep_channel(&s->sweep, &s->pairing, now_ms);
+	s->channel = diag_unifying_channels[s->sweep.index];
 }
 
 void unifying_session_restore(struct unifying_session *s, uint8_t place,
@@ -892,10 +894,6 @@ bool unifying_session_frame(struct unifying_session *s, uint8_t pipe, const uint
 	} else if (pipe == UNIFYING_PIPE_RECEIVER) {
 		handled = receiver_frame(s, frame, len, out);
 	}
-	/* A frame can close the window early, while the tick sets deaf_until_ms to its full end. */
-	if (!unifying_pairing_window_open(&s->pairing, now_ms) && s->deaf_until_ms > now_ms) {
-		s->deaf_until_ms = now_ms;
-	}
 	out->pipes = unifying_listen_pipes(&s->pairing);
 	out->listen |= out->pipes != pipes;
 	take_hidpp_event(s, out);
@@ -906,15 +904,11 @@ void unifying_session_tick(struct unifying_session *s, uint64_t now_ms, bool led
 			   uint8_t host_leds, uint32_t taken_count, struct unifying_out *out)
 {
 	uint8_t step = (uint8_t)s->pairing.attempt.state;
-	bool open = unifying_pairing_window_open(&s->pairing, now_ms);
 	uint8_t pipes = unifying_listen_pipes(&s->pairing);
+	uint8_t next;
 	bool pending;
 
 	*out = (struct unifying_out){0};
-	/* The pairing sweep leaves the keyboard's channel, so the window is deaf time. */
-	if (open && !s->silent) {
-		s->deaf_until_ms = now_ms + pairwin_left_ms(&s->pairing.window, (uint32_t)now_ms);
-	}
 	if (s->heard && !s->silent && unifying_has_device(&s->pairing) &&
 	    quiet_too_long(s, now_ms)) {
 		s->silent = true;
@@ -953,14 +947,11 @@ void unifying_session_tick(struct unifying_session *s, uint64_t now_ms, bool led
 	}
 	pending = step != UNIFYING_IDLE && !out->attempt_expired;
 	out->window_closed = !pending && pairwin_ran_out(&s->pairing.window, (uint32_t)now_ms);
-	if (open) {
-		uint8_t next = unifying_sweep_channel(&s->sweep, &s->pairing, now_ms);
-
-		if (next != s->channel) {
-			out->set_channel = true;
-			out->channel = next;
-			s->channel = next;
-		}
+	next = unifying_sweep_channel(&s->sweep, &s->pairing, s->channel, now_ms);
+	if (next != s->channel) {
+		out->set_channel = true;
+		out->channel = next;
+		s->channel = next;
 	}
 	out->pipes = unifying_listen_pipes(&s->pairing);
 	out->listen = out->pipes != pipes;
@@ -1007,17 +998,14 @@ void unifying_session_radio_resumed(struct unifying_session *s, uint64_t now_ms)
 	}
 }
 
-int unifying_session_home(const struct unifying_session *s, uint64_t now_ms)
+int unifying_session_home(const struct unifying_session *s)
 {
-	bool home = unifying_has_device(&s->pairing) &&
-		    !unifying_pairing_window_open(&s->pairing, now_ms);
-
-	return home ? s->channel : CHANMOVE_NO_HOME;
+	return unifying_has_device(&s->pairing) ? s->channel : CHANMOVE_NO_HOME;
 }
 
-int unifying_session_movable(const struct unifying_session *s, uint64_t now_ms)
+int unifying_session_movable(const struct unifying_session *s)
 {
-	return attempting(&s->pairing) ? CHANMOVE_NO_HOME : unifying_session_home(s, now_ms);
+	return attempting(&s->pairing) ? CHANMOVE_NO_HOME : unifying_session_home(s);
 }
 
 size_t unifying_session_channels(const uint8_t **out)
@@ -1035,7 +1023,7 @@ enum chanmove_result unifying_session_move(struct unifying_session *s, uint8_t c
 	if (memchr(channels, channel, n) == NULL) {
 		return CHANMOVE_NOT_A_CHANNEL;
 	}
-	if (unifying_session_movable(s, now_ms) == CHANMOVE_NO_HOME) {
+	if (unifying_session_movable(s) == CHANMOVE_NO_HOME) {
 		return CHANMOVE_NOT_MOVABLE;
 	}
 	if (channel != s->channel) {

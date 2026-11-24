@@ -256,12 +256,12 @@ static struct radio_config unifying_radio(const struct unifying_receiver *r, uin
 
 static int home(void)
 {
-	return unifying_session_home(&session, (uint64_t)k_uptime_get());
+	return unifying_session_home(&session);
 }
 
 static int movable(void)
 {
-	return unifying_session_movable(&session, (uint64_t)k_uptime_get());
+	return unifying_session_movable(&session);
 }
 
 static void replies_dropped(void)
