@@ -34,7 +34,12 @@ fn device_address(d: &StoredDevice, protocol: Protocol) -> String {
     match protocol {
         Protocol::Bluetooth => bluetooth_address(d),
         Protocol::Nuphy => format!("ID {}", hex(&d.addr[..4])),
-        Protocol::Unifying => format!("serial {}, WPID {}", hex(&d.addr[2..6]), hex(&d.addr[..2])),
+        Protocol::Unifying => format!(
+            "serial {}, WPID {}, address {:02x}",
+            hex(&d.addr[2..6]),
+            hex(&d.addr[..2]),
+            d.addr[6]
+        ),
     }
 }
 
@@ -1174,11 +1179,27 @@ mod tests {
         );
         assert_eq!(
             texts(device_lines(
-                &[keyboard([0x70, 0x15, 0xb8, 0xbc, 0xd5, 0xb3, 0])],
+                &[keyboard([0x70, 0x15, 0xb8, 0xbc, 0xd5, 0xb3, 0x07])],
                 Protocol::Unifying
             )),
-            ["1  keyboard  MX Keys  serial b8bcd5b3, WPID 7015  slot 0"]
+            ["1  keyboard  MX Keys  serial b8bcd5b3, WPID 7015, address 07  slot 0"]
         );
+    }
+
+    #[test]
+    fn two_places_holding_one_unifying_keyboard_read_differently() {
+        let mut keyboard = StoredDevice {
+            addr: [0x40, 0x8a, 0xb8, 0xbc, 0xd5, 0xb3, 0x07],
+            kind: DeviceKind::Keyboard,
+            name: Some("MX Keys".into()),
+            slot: Some(0),
+            pairing: None,
+        };
+        let a = device_address(&keyboard, Protocol::Unifying);
+        keyboard.addr[6] = 0x08;
+        let b = device_address(&keyboard, Protocol::Unifying);
+        assert_eq!(a, "serial b8bcd5b3, WPID 408a, address 07");
+        assert_eq!(b, "serial b8bcd5b3, WPID 408a, address 08");
     }
 
     #[test]
@@ -1241,12 +1262,12 @@ mod tests {
             "Forget MX Keys (EB:BB:49:A6:9A:D9)? It has to be paired again to be used."
         );
         let k = StoredDevice {
-            addr: [0x40, 0x8a, 0xb8, 0xbc, 0xd5, 0xb3, 0],
+            addr: [0x40, 0x8a, 0xb8, 0xbc, 0xd5, 0xb3, 0x07],
             ..k
         };
         assert_eq!(
             forget_question(&k, Protocol::Unifying),
-            "Forget MX Keys (serial b8bcd5b3, WPID 408a)? It has to be paired again to be used."
+            "Forget MX Keys (serial b8bcd5b3, WPID 408a, address 07)? It has to be paired again to be used."
         );
         let k = StoredDevice {
             addr: [0x70, 0x15, 0xa3, 0x29, 0, 0, 0],

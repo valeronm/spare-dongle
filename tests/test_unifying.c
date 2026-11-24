@@ -2,9 +2,10 @@
 #include "test.h"
 #include "unifying.h"
 
+#define PIPE_0 unifying_place_pipe(0)
+
 static const struct unifying_receiver receiver = {
 	.base = {0xa1, 0xb2, 0xc3, 0xd4},
-	.device_octet = 0x07,
 	.wpid = {0x88, 0x02},
 };
 static const uint8_t nonce[4] = {0x11, 0x22, 0x33, 0x44};
@@ -83,7 +84,7 @@ static struct unifying_pairing open_pairing_with_device(void)
 	static const struct unifying_device d = {0};
 	struct unifying_pairing p = {0};
 
-	unifying_pairing_restore(&p, &d);
+	unifying_pairing_restore(&p, 0, &d);
 	unifying_pairing_open(&p, PAIRWIN_REQUEST, 0);
 	return p;
 }
@@ -112,8 +113,9 @@ static void restore_paired(struct unifying_pairing *p, struct unifying_device *d
 	struct unifying_pairing done = open_pairing();
 
 	pair_fully(&done);
-	*d = done.device;
-	unifying_pairing_restore(p, d);
+	*p = (struct unifying_pairing){0};
+	*d = done.devices[0];
+	unifying_pairing_restore(p, 0, d);
 	unifying_pairing_open(p, PAIRWIN_REQUEST, 0);
 }
 
@@ -250,7 +252,7 @@ static void test_request_3_gets_the_final_response_and_completes(void)
 	CHECK_EQ(ev, UNIFYING_RX_PAIRED);
 	CHECK_MEM(reply, want, 10);
 	CHECK(unifying_has_device(&p));
-	CHECK_MEM(p.device.key, p.attempt.dev.key, UNIFYING_KEY_LEN);
+	CHECK_MEM(p.devices[0].key, p.attempt.dev.key, UNIFYING_KEY_LEN);
 	CHECK_EQ(p.attempt.state, UNIFYING_IDLE);
 }
 
@@ -260,9 +262,9 @@ static void test_a_paired_device_holds_what_the_keyboard_reported_about_itself(v
 	struct unifying_pairing p = open_pairing();
 
 	pair_fully(&p);
-	CHECK_MEM(p.device.serial, serial, sizeof(serial));
-	CHECK_EQ(p.device.type, 0x01);
-	CHECK_MEM(p.device.name, mx_keys, sizeof(mx_keys));
+	CHECK_MEM(p.devices[0].serial, serial, sizeof(serial));
+	CHECK_EQ(p.devices[0].type, 0x01);
+	CHECK_MEM(p.devices[0].name, mx_keys, sizeof(mx_keys));
 }
 
 static void test_a_name_longer_than_the_frame_holds_is_cut(void)
@@ -276,7 +278,7 @@ static void test_a_name_longer_than_the_frame_holds_is_cut(void)
 	memset(&f[5], 'A', UNIFYING_NAME_MAX);
 	seal(f, UNIFYING_FRAME_MAX);
 	feed(&p, f, sizeof(f), 20, reply);
-	CHECK_MEM(p.device.name, "AAAAAAAAAAAAAAAA", UNIFYING_NAME_MAX);
+	CHECK_MEM(p.devices[0].name, "AAAAAAAAAAAAAAAA", UNIFYING_NAME_MAX);
 }
 
 static void test_request_3_is_accepted_though_its_id_byte_is_zero(void)
@@ -399,7 +401,7 @@ static void test_device_address_is_the_base_then_the_device_octet(void)
 	static const uint8_t expected[5] = {0xa1, 0xb2, 0xc3, 0xd4, 0x07};
 	uint8_t address[5];
 
-	unifying_device_address(&receiver, address);
+	unifying_device_address(&receiver, 0, address);
 	CHECK_MEM(address, expected, 5);
 }
 
@@ -519,32 +521,14 @@ static void test_pairing_closes_the_window(void)
 	CHECK(!unifying_pairing_window_open(&p, 30));
 }
 
-static void test_a_restored_device_leaves_the_window_closed(void)
-{
-	struct unifying_pairing p = open_pairing();
-	struct unifying_device d = {0};
-
-	unifying_pairing_restore(&p, &d);
-	CHECK(!unifying_pairing_window_open(&p, 10));
-}
-
-static void test_a_restored_record_leaves_the_window_closed(void)
-{
-	struct unifying_pairing p = open_pairing();
-	uint8_t rec[UNIFYING_RECORD_LEN] = {0};
-
-	unifying_record_restore(&p, rec);
-	CHECK(!unifying_pairing_window_open(&p, 10));
-}
-
 static void test_a_paired_dongle_sweeps_while_pairing_is_open(void)
 {
 	static const struct unifying_device d = {0};
 	struct unifying_sweep s = {0};
-	struct unifying_pairing p;
+	struct unifying_pairing p = {0};
 	uint8_t first;
 
-	unifying_pairing_restore(&p, &d);
+	unifying_pairing_restore(&p, 0, &d);
 	unifying_pairing_open(&p, PAIRWIN_REQUEST, 1000);
 	first = unifying_sweep_channel(&s, &p, 1000);
 	CHECK(unifying_sweep_channel(&s, &p, 1000 + UNIFYING_SWEEP_DWELL_MS) != first);
@@ -554,10 +538,10 @@ static void test_a_paired_dongle_holds_its_channel_with_pairing_closed(void)
 {
 	static const struct unifying_device d = {0};
 	struct unifying_sweep s = {0};
-	struct unifying_pairing p;
+	struct unifying_pairing p = {0};
 	uint8_t first;
 
-	unifying_pairing_restore(&p, &d);
+	unifying_pairing_restore(&p, 0, &d);
 	first = unifying_sweep_channel(&s, &p, 1000);
 	CHECK_EQ(unifying_sweep_channel(&s, &p, 1000 + 5 * UNIFYING_SWEEP_DWELL_MS), first);
 }
@@ -570,7 +554,7 @@ static void test_a_restored_device_is_paired_and_a_new_request_still_starts_an_a
 
 	restore_paired(&q, &d);
 	CHECK(unifying_has_device(&q));
-	CHECK_MEM(&q.device, &d, sizeof(d));
+	CHECK_MEM(&q.devices[0], &d, sizeof(d));
 	request_1(f, 0xe7, 0x05);
 	CHECK_EQ(feed(&q, f, sizeof(f), 1000, reply), UNIFYING_FRAME_MAX);
 	CHECK_EQ(q.attempt.state, UNIFYING_ANSWERED_1);
@@ -588,7 +572,7 @@ static void test_a_refused_request_keeps_the_restored_device_paired(void)
 	CHECK_EQ(feed_ev(&p, f, sizeof(f), 1000, reply, &ev), 0);
 	CHECK_EQ(ev, UNIFYING_RX_REFUSED);
 	CHECK(unifying_has_device(&p));
-	CHECK_MEM(&p.device, &d, sizeof(d));
+	CHECK_MEM(&p.devices[0], &d, sizeof(d));
 }
 
 static void test_an_expired_attempt_returns_to_the_restored_device(void)
@@ -600,7 +584,7 @@ static void test_an_expired_attempt_returns_to_the_restored_device(void)
 	start_second_attempt(&p);
 	CHECK(unifying_pairing_expired(&p, 1011 + UNIFYING_PAIRING_TIMEOUT_MS));
 	CHECK(unifying_has_device(&p));
-	CHECK_MEM(&p.device, &d, sizeof(d));
+	CHECK_MEM(&p.devices[0], &d, sizeof(d));
 }
 
 static void test_an_expired_attempt_can_be_retried_with_its_id(void)
@@ -626,7 +610,7 @@ static void test_the_paired_device_is_kept_while_an_attempt_runs(void)
 	start_second_attempt(&p);
 	CHECK_EQ(p.attempt.state, UNIFYING_ANSWERED_2);
 	CHECK(unifying_has_device(&p));
-	CHECK_MEM(&p.device, &d, sizeof(d));
+	CHECK_MEM(&p.devices[0], &d, sizeof(d));
 }
 
 static void test_a_refused_request_during_an_attempt_keeps_the_paired_device(void)
@@ -642,10 +626,10 @@ static void test_a_refused_request_during_an_attempt_keeps_the_paired_device(voi
 	CHECK_EQ(feed_ev(&p, f, sizeof(f), 1020, reply, &ev), 0);
 	CHECK_EQ(ev, UNIFYING_RX_REFUSED);
 	CHECK(unifying_has_device(&p));
-	CHECK_MEM(&p.device, &d, sizeof(d));
+	CHECK_MEM(&p.devices[0], &d, sizeof(d));
 	request_3(f, 0x00);
 	CHECK_EQ(feed_ev(&p, f, sizeof(f), 1030, reply, &ev), 0);
-	CHECK_MEM(&p.device, &d, sizeof(d));
+	CHECK_MEM(&p.devices[0], &d, sizeof(d));
 }
 
 static void test_request_1_with_the_id_of_a_completed_attempt_starts_a_new_one(void)
@@ -661,29 +645,134 @@ static void test_request_1_with_the_id_of_a_completed_attempt_starts_a_new_one(v
 	CHECK_EQ(ev, UNIFYING_RX_ANSWERED_1);
 }
 
-static void test_a_completed_attempt_replaces_the_paired_device(void)
+static void test_a_completed_attempt_takes_the_next_place_and_keeps_the_first(void)
 {
 	struct unifying_pairing p;
-	struct unifying_device old, now;
+	struct unifying_device old;
 	uint8_t f[UNIFYING_FRAME_MAX], reply[UNIFYING_FRAME_MAX];
 	enum unifying_rx_event ev;
 
 	restore_paired(&p, &old);
 	start_second_attempt(&p);
+	CHECK_EQ(p.attempt.place, 1);
 	request_3(f, 0x00);
 	feed_ev(&p, f, sizeof(f), 1020, reply, &ev);
 	CHECK_EQ(ev, UNIFYING_RX_PAIRED);
-	CHECK(unifying_has_device(&p));
+	CHECK_EQ(p.attempt.place, 1);
+	CHECK(p.stored[1]);
+	CHECK_MEM(&p.devices[0], &old, sizeof(old));
+	CHECK(memcmp(p.devices[1].key, old.key, UNIFYING_KEY_LEN) != 0);
 	CHECK_EQ(feed_ev(&p, f, sizeof(f), 1030, reply, &ev), 0);
 	CHECK_EQ(ev, UNIFYING_RX_NONE);
-	now = p.device;
-	CHECK(memcmp(now.key, old.key, UNIFYING_KEY_LEN) != 0);
-	unifying_pairing_open(&p, PAIRWIN_REQUEST, 2000);
-	request_1(f, 0xe8, 0x05);
-	feed_ev(&p, f, sizeof(f), 2000, reply, &ev);
-	CHECK(unifying_pairing_expired(&p, 2001 + UNIFYING_PAIRING_TIMEOUT_MS));
+}
+
+static void test_a_place_has_a_fixed_pipe_and_octet(void)
+{
+	for (uint8_t place = 0; place < UNIFYING_PLACES; place++) {
+		CHECK_EQ(unifying_pipe_place(unifying_place_pipe(place)), place);
+		CHECK_EQ(unifying_octet_place(unifying_place_octet(place)), place);
+		CHECK(unifying_place_octet(place) != 0x00);
+	}
+	CHECK_EQ(unifying_place_pipe(0), 1);
+	CHECK_EQ(unifying_place_octet(0), 0x07);
+	CHECK_EQ(unifying_pipe_place(UNIFYING_PIPE_PAIRING), UNIFYING_NO_PLACE);
+	CHECK_EQ(unifying_pipe_place(UNIFYING_PIPE_RECEIVER), UNIFYING_NO_PLACE);
+	CHECK_EQ(unifying_octet_place(0x00), UNIFYING_NO_PLACE);
+	CHECK_EQ(unifying_octet_place(0x06), UNIFYING_NO_PLACE);
+	CHECK_EQ(unifying_octet_place(0x0d), UNIFYING_NO_PLACE);
+}
+
+static void test_request_1_is_answered_with_the_lowest_empty_places_address(void)
+{
+	struct unifying_pairing p;
+	struct unifying_device d;
+	uint8_t f[UNIFYING_FRAME_MAX], reply[UNIFYING_FRAME_MAX];
+
+	restore_paired(&p, &d);
+	request_1(f, 0xe7, 0x05);
+	CHECK_EQ(feed(&p, f, sizeof(f), 1000, reply), UNIFYING_FRAME_MAX);
+	CHECK_MEM(&reply[3], receiver.base, sizeof(receiver.base));
+	CHECK_EQ(reply[7], unifying_place_octet(1));
+}
+
+static void store_every_place(struct unifying_pairing *p)
+{
+	static const struct unifying_device d = {0};
+
+	for (uint8_t place = 0; place < UNIFYING_PLACES; place++) {
+		unifying_pairing_restore(p, place, &d);
+	}
+}
+
+static void test_pairing_does_not_open_with_every_place_stored(void)
+{
+	struct unifying_pairing p = {0};
+	uint8_t f[UNIFYING_FRAME_MAX], reply[UNIFYING_FRAME_MAX];
+
+	store_every_place(&p);
+	CHECK(!unifying_pairing_open(&p, PAIRWIN_REQUEST, 0));
+	CHECK(!unifying_pairing_window_open(&p, 10));
+	request_1(f, 0xe1, 0x05);
+	CHECK_EQ(feed(&p, f, sizeof(f), 10, reply), 0);
+	CHECK_EQ(p.attempt.state, UNIFYING_IDLE);
+}
+
+static void test_a_forgotten_place_is_the_next_one_paired(void)
+{
+	struct unifying_pairing p = {0};
+	uint8_t f[UNIFYING_FRAME_MAX], reply[UNIFYING_FRAME_MAX];
+
+	store_every_place(&p);
+	unifying_pairing_forget(&p, 3);
+	CHECK(!p.stored[3]);
 	CHECK(unifying_has_device(&p));
-	CHECK_MEM(&p.device, &now, sizeof(now));
+	CHECK(unifying_pairing_open(&p, PAIRWIN_REQUEST, 0));
+	request_1(f, 0xe1, 0x05);
+	CHECK_EQ(feed(&p, f, sizeof(f), 10, reply), UNIFYING_FRAME_MAX);
+	CHECK_EQ(p.attempt.place, 3);
+}
+
+static void test_forgetting_the_only_place_leaves_no_device(void)
+{
+	struct unifying_pairing p;
+	struct unifying_device d;
+	static const uint8_t zero[UNIFYING_KEY_LEN];
+
+	restore_paired(&p, &d);
+	unifying_pairing_forget(&p, 0);
+	CHECK(!unifying_has_device(&p));
+	CHECK_MEM(p.devices[0].key, zero, sizeof(zero));
+}
+
+static void test_the_radio_listens_on_stored_places_and_the_attempts(void)
+{
+	const uint8_t always = 1u << UNIFYING_PIPE_PAIRING | 1u << UNIFYING_PIPE_RECEIVER;
+	struct unifying_pairing p = open_pairing();
+	struct unifying_device d;
+
+	CHECK_EQ(unifying_listen_pipes(&p), always);
+	restore_paired(&p, &d);
+	CHECK_EQ(unifying_listen_pipes(&p), always | 1u << unifying_place_pipe(0));
+	start_second_attempt(&p);
+	CHECK_EQ(unifying_listen_pipes(&p),
+		 always | 1u << unifying_place_pipe(0) | 1u << unifying_place_pipe(1));
+	CHECK(unifying_pairing_expired(&p, 1011 + UNIFYING_PAIRING_TIMEOUT_MS));
+	CHECK_EQ(unifying_listen_pipes(&p), always | 1u << unifying_place_pipe(0));
+}
+
+static void test_a_record_is_kept_per_place(void)
+{
+	struct unifying_pairing done = open_pairing();
+	struct unifying_pairing p = {0};
+	uint8_t record[UNIFYING_RECORD_LEN], back[UNIFYING_RECORD_LEN];
+
+	pair_fully(&done);
+	unifying_record_of(&done, 0, record);
+	unifying_record_restore(&p, 4, record);
+	CHECK(p.stored[4]);
+	CHECK(!p.stored[0]);
+	unifying_record_of(&p, 4, back);
+	CHECK_MEM(back, record, sizeof(record));
 }
 
 static void session_paired(struct unifying_session *s);
@@ -707,7 +796,8 @@ static void test_a_window_that_ran_out_stays_closed_past_32_bits_of_uptime(void)
 static const uint8_t aes_key[UNIFYING_KEY_LEN] = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
 						  0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f};
 static const uint8_t stream[UNIFYING_AES_BLOCK_LEN] = {
-	0x3a, 0x91, 0x07, 0xc4, 0x55, 0xe2, 0x18, 0x6b, 0xf0, 0x2d, 0x8e, 0x73, 0x49, 0xb6, 0x0c, 0xa5};
+	0x3a, 0x91, 0x07, 0xc4, 0x55, 0xe2, 0x18, 0x6b,
+	0xf0, 0x2d, 0x8e, 0x73, 0x49, 0xb6, 0x0c, 0xa5};
 static const uint8_t press_a[REPORT_KEYBOARD_LEN] = {0x00, 0x04, 0x00, 0x00,
 						     0x00, 0x00, 0x00, 0xc9};
 static const uint8_t media_volume_up[] = {0x00, 0xc3, 0xe9, 0x00, 0x00,
@@ -793,7 +883,8 @@ static void sync_at(struct unifying_link *l, uint32_t next_counter)
 static void test_keystroke_passes_the_key_and_the_counter_block_to_aes(void)
 {
 	static const uint8_t expected[UNIFYING_AES_BLOCK_LEN] = {
-		0x04, 0x14, 0x1d, 0x1f, 0x27, 0x28, 0x0d, 0x5f, 0x66, 0xf4, 0x59, 0x0a, 0x0d, 0x13, 0x26, 0x0e};
+		0x04, 0x14, 0x1d, 0x1f, 0x27, 0x28, 0x0d, 0x5f,
+		0x66, 0xf4, 0x59, 0x0a, 0x0d, 0x13, 0x26, 0x0e};
 	struct unifying_link l;
 	struct report r;
 
@@ -1001,7 +1092,8 @@ static void test_under_attack_a_pair_ending_at_the_window_edge_types_the_first(v
 	start_attack(&l);
 	CHECK(!receive_keystroke_at(&l, 1001 + UNIFYING_COUNTER_WINDOW - 1, press_a,
 				    ATTACK_START + 10, &r));
-	CHECK(receive_keystroke_at(&l, 1001 + UNIFYING_COUNTER_WINDOW, press_b, ATTACK_START + 20, &r));
+	CHECK(receive_keystroke_at(&l, 1001 + UNIFYING_COUNTER_WINDOW, press_b, ATTACK_START + 20,
+				   &r));
 	CHECK(reports_key_held(&r, 0x04));
 	CHECK_EQ(l.next_counter, 1001 + UNIFYING_COUNTER_WINDOW);
 }
@@ -1455,7 +1547,7 @@ static void test_the_record_is_the_wpid_the_key_then_the_keyboards_own_report(vo
 
 	CHECK_EQ(UNIFYING_RECORD_LEN, 39);
 	restore_paired(&p, &d);
-	unifying_record_of(&p, rec);
+	unifying_record_of(&p, 0, rec);
 	CHECK_MEM(&rec[0], d.wpid, 2);
 	CHECK_MEM(&rec[2], d.key, UNIFYING_KEY_LEN);
 	CHECK_MEM(&rec[18], d.serial, UNIFYING_SERIAL_LEN);
@@ -1469,10 +1561,10 @@ static void test_a_restored_record_pairs_the_device(void)
 	uint8_t rec[UNIFYING_RECORD_LEN];
 
 	pair_fully(&p);
-	unifying_record_of(&p, rec);
-	unifying_record_restore(&q, rec);
+	unifying_record_of(&p, 0, rec);
+	unifying_record_restore(&q, 0, rec);
 	CHECK(unifying_has_device(&q));
-	CHECK_MEM(&q.device, &p.device, sizeof(p.device));
+	CHECK_MEM(&q.devices[0], &p.devices[0], sizeof(p.devices[0]));
 	CHECK_EQ(q.attempt.state, UNIFYING_IDLE);
 }
 
@@ -1556,25 +1648,34 @@ static void session_paired(struct unifying_session *s)
 	uint8_t record[UNIFYING_RECORD_LEN];
 
 	pair_fully(&done);
-	unifying_record_of(&done, record);
-	unifying_session_init(s, &receiver, record, 0);
+	unifying_record_of(&done, 0, record);
+	unifying_session_init(s, &receiver, 0);
+	unifying_session_restore(s, 0, record);
 }
 
 static void test_a_session_without_a_record_is_not_paired(void)
 {
 	struct unifying_session s;
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	CHECK_EQ(unifying_session_status(&s, 0), UNIFYING_STATUS_NOT_PAIRED);
 }
 
 static void test_a_forgotten_keyboard_leaves_the_session_unpaired_and_pairing_open(void)
 {
 	struct unifying_session s;
+	struct unifying_out out;
+	uint8_t channel;
 
 	session_paired(&s);
+	channel = s.channel;
 	CHECK_EQ(unifying_session_status(&s, 0), UNIFYING_STATUS_SILENT);
-	unifying_session_forget(&s, 100);
+	unifying_session_forget(&s, 0, 100, &out);
+	CHECK(out.release_all);
+	CHECK(out.window_opened);
+	CHECK(out.listen);
+	CHECK_EQ(out.pipes, unifying_listen_pipes(&s.pairing));
+	CHECK_EQ(out.set_channel, s.channel != channel);
 	CHECK_EQ(unifying_session_status(&s, 100), UNIFYING_STATUS_NOT_PAIRED);
 	CHECK(unifying_pairing_window_open(&s.pairing, 100000));
 	CHECK_MEM(s.receiver.base, receiver.base, sizeof(receiver.base));
@@ -1586,7 +1687,7 @@ static void test_a_session_answers_pairing_on_the_frames_pipe(void)
 	struct unifying_out out;
 	uint8_t f[UNIFYING_FRAME_MAX];
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 0);
 	CHECK(unifying_pairing_window_open(&s.pairing, 10));
 	request_1(f, 0xe1, 0x05);
@@ -1602,7 +1703,7 @@ static void test_a_refused_request_gets_no_reply_from_the_session(void)
 	struct unifying_out out;
 	uint8_t f[UNIFYING_FRAME_MAX];
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 0);
 	request_1(f, 0xe1, 0x01);
 	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, 10, nonce, NULL, &out);
@@ -1616,15 +1717,15 @@ static void test_completing_pairing_through_the_session_closes_the_window(void)
 	struct unifying_out out;
 	uint8_t f[UNIFYING_FRAME_MAX];
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 0);
 	request_1(f, 0xe1, 0x05);
 	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, 0, nonce, NULL, &out);
 	request_2(f, 0xe1);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
 	CHECK_EQ(out.event, UNIFYING_RX_ANSWERED_2);
 	request_3(f, 0x00);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 20, nonce, fake_aes, &out);
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 20, nonce, fake_aes, &out);
 	CHECK_EQ(out.event, UNIFYING_RX_PAIRED);
 	CHECK(!unifying_pairing_window_open(&s.pairing, 30));
 }
@@ -1653,8 +1754,8 @@ static void test_a_forgotten_keyboard_still_sending_is_ignored(void)
 	struct unifying_out out;
 
 	session_paired(&s);
-	unifying_session_forget(&s, 0);
-	CHECK(!unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, keep_alive_1100,
+	unifying_session_forget(&s, 0, 0, &out);
+	CHECK(!unifying_session_frame(&s, PIPE_0, keep_alive_1100,
 				      sizeof(keep_alive_1100), -60, 1000, nonce, fake_aes, &out));
 	CHECK_EQ(out.heard, UNIFYING_HEARD_NONE);
 	CHECK(!unifying_session_frame(&s, UNIFYING_PIPE_RECEIVER, connect_10, sizeof(connect_10), 0,
@@ -1672,12 +1773,13 @@ static void test_a_heard_paired_keyboard_is_connected_then_silent(void)
 
 	session_paired(&s);
 	CHECK_EQ(unifying_session_status(&s, 0), UNIFYING_STATUS_SILENT);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, keep_alive_1100, sizeof(keep_alive_1100),
+	unifying_session_frame(&s, PIPE_0, keep_alive_1100, sizeof(keep_alive_1100),
 			       -60, 1000, nonce, fake_aes, &out);
 	CHECK_EQ(s.rssi, -60);
-	CHECK_EQ(unifying_session_status(&s, 1000 + 2 * s.link.keepalive_ms - 1),
+	CHECK_EQ(unifying_session_status(&s, 1000 + 2 * s.links[0].keepalive_ms - 1),
 		 UNIFYING_STATUS_CONNECTED);
-	CHECK_EQ(unifying_session_status(&s, 1000 + 2 * s.link.keepalive_ms), UNIFYING_STATUS_SILENT);
+	CHECK_EQ(unifying_session_status(&s, 1000 + 2 * s.links[0].keepalive_ms),
+		 UNIFYING_STATUS_SILENT);
 }
 
 static void test_the_tick_moves_the_channel_while_pairing_is_open(void)
@@ -1685,7 +1787,7 @@ static void test_the_tick_moves_the_channel_while_pairing_is_open(void)
 	struct unifying_session s;
 	struct unifying_out out;
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 0);
 	unifying_session_tick(&s, UNIFYING_SWEEP_DWELL_MS, false, 0, 0, &out);
 	CHECK(out.set_channel);
@@ -1752,7 +1854,7 @@ static void holding_a_key(struct unifying_session *s)
 	struct unifying_out out;
 
 	session_holding_a_key(s);
-	unifying_session_frame(s, UNIFYING_PIPE_DEVICE, set_keep_alive_88,
+	unifying_session_frame(s, PIPE_0, set_keep_alive_88,
 			       sizeof(set_keep_alive_88), -60, 30, nonce, fake_aes, &out);
 }
 
@@ -1769,9 +1871,9 @@ static void test_a_move_holds_keys_and_silence_while_the_keyboard_searches(void)
 	CHECK(!out.went_silent);
 	unifying_session_tick(&s, found_by, false, 0, 0, &out);
 	CHECK(out.release_all);
-	unifying_session_tick(&s, found_by + 2 * s.link.keepalive_ms - 1, false, 0, 0, &out);
+	unifying_session_tick(&s, found_by + 2 * s.links[0].keepalive_ms - 1, false, 0, 0, &out);
 	CHECK(!out.went_silent);
-	unifying_session_tick(&s, found_by + 2 * s.link.keepalive_ms, false, 0, 0, &out);
+	unifying_session_tick(&s, found_by + 2 * s.links[0].keepalive_ms, false, 0, 0, &out);
 	CHECK(out.went_silent);
 }
 
@@ -1782,11 +1884,11 @@ static void test_hearing_the_keyboard_after_a_move_ends_the_wait(void)
 
 	holding_a_key(&s);
 	CHECK_EQ(unifying_session_move(&s, 41, 100), CHANMOVE_DONE);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, keep_alive_1100, sizeof(keep_alive_1100),
+	unifying_session_frame(&s, PIPE_0, keep_alive_1100, sizeof(keep_alive_1100),
 			       -60, 150, nonce, fake_aes, &out);
-	unifying_session_tick(&s, 150 + 2 * s.link.keepalive_ms, false, 0, 0, &out);
+	unifying_session_tick(&s, 150 + 2 * s.links[0].keepalive_ms, false, 0, 0, &out);
 	CHECK(out.went_silent);
-	unifying_session_tick(&s, 150 + 2 * s.link.keepalive_ms + 1, false, 0, 0, &out);
+	unifying_session_tick(&s, 150 + 2 * s.links[0].keepalive_ms + 1, false, 0, 0, &out);
 	CHECK(out.release_all);
 }
 
@@ -1797,7 +1899,7 @@ static void test_a_move_to_the_current_channel_keeps_the_silence_timer(void)
 
 	holding_a_key(&s);
 	CHECK_EQ(unifying_session_move(&s, s.channel, 100), CHANMOVE_DONE);
-	unifying_session_tick(&s, 30 + 2 * s.link.keepalive_ms, false, 0, 0, &out);
+	unifying_session_tick(&s, 30 + 2 * s.links[0].keepalive_ms, false, 0, 0, &out);
 	CHECK(out.went_silent);
 }
 
@@ -1817,7 +1919,7 @@ static void test_a_move_needs_a_paired_keyboard_and_pairing_closed(void)
 {
 	struct unifying_session s;
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	CHECK_EQ(unifying_session_move(&s, 41, 100), CHANMOVE_NOT_MOVABLE);
 	session_paired(&s);
 	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 100);
@@ -1853,10 +1955,10 @@ static void test_a_session_types_a_keystroke_from_the_device_pipe(void)
 
 	session_paired(&s);
 	keystroke(f, 0x5f66f458, release);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
 	CHECK_EQ(out.reports, 1);
 	keystroke(f, 0x5f66f459, press_a);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 20, nonce, fake_aes, &out);
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 20, nonce, fake_aes, &out);
 	CHECK_EQ(out.reports, 1);
 	CHECK_EQ(out.report[0].kind, REPORT_KEYBOARD);
 	CHECK(reports_key_held(&out.report[0], 0x04));
@@ -1864,13 +1966,13 @@ static void test_a_session_types_a_keystroke_from_the_device_pipe(void)
 
 static void hear(struct unifying_session *s, uint64_t now, struct unifying_out *out)
 {
-	unifying_session_frame(s, UNIFYING_PIPE_DEVICE, keep_alive_1100, sizeof(keep_alive_1100),
+	unifying_session_frame(s, PIPE_0, keep_alive_1100, sizeof(keep_alive_1100),
 			       -60, now, nonce, fake_aes, out);
 }
 
 static uint64_t silence_after(const struct unifying_session *s, uint64_t heard)
 {
-	return heard + 2 * (uint64_t)s->link.keepalive_ms;
+	return heard + 2 * (uint64_t)s->links[0].keepalive_ms;
 }
 
 static const uint8_t find_request[] = {0x00, 0x10, 0x07, 0x00, 0x01, 0x1b, 0x04, 0x00, 0x00, 0xc9};
@@ -1919,7 +2021,7 @@ static void divert_refusal(uint8_t f[UNIFYING_FRAME_MAX])
 static void session_feed(struct unifying_session *s, const uint8_t *f, size_t len, uint64_t now,
 			 struct unifying_out *out)
 {
-	unifying_session_frame(s, UNIFYING_PIPE_DEVICE, f, len, 0, now, nonce, fake_aes, out);
+	unifying_session_frame(s, PIPE_0, f, len, 0, now, nonce, fake_aes, out);
 }
 
 static void session_heard(struct unifying_session *s)
@@ -1987,7 +2089,7 @@ static void tick_queue(struct unifying_session *s, uint64_t now, uint32_t taken,
 static uint64_t run_out_retries(struct unifying_session *s, uint64_t now, uint32_t *taken,
 				const uint8_t *want, size_t len)
 {
-	uint64_t retry = 2 * (uint64_t)s->link.keepalive_ms;
+	uint64_t retry = 2 * (uint64_t)s->links[0].keepalive_ms;
 	struct unifying_out out;
 
 	for (int i = 0; i < HIDPP_TRIES; i++) {
@@ -2574,6 +2676,7 @@ static void test_pairing_a_keyboard_forgets_the_old_ones_battery(void)
 	struct unifying_session s;
 	struct unifying_out out;
 	uint8_t f[UNIFYING_FRAME_MAX];
+	uint8_t request[sizeof(find_request)];
 
 	session_battery_read(&s);
 	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 200);
@@ -2581,13 +2684,21 @@ static void test_pairing_a_keyboard_forgets_the_old_ones_battery(void)
 	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, 210, nonce, fake_aes,
 			       &out);
 	request_2(f, 0xe1);
-	session_feed(&s, f, sizeof(f), 220, &out);
+	unifying_session_frame(&s, unifying_place_pipe(1), f, sizeof(f), 0, 220, nonce, fake_aes,
+			       &out);
 	request_3(f, 0x00);
-	session_feed(&s, f, sizeof(f), 230, &out);
+	unifying_session_frame(&s, unifying_place_pipe(1), f, sizeof(f), 0, 230, nonce, fake_aes,
+			       &out);
 	CHECK_EQ(out.event, UNIFYING_RX_PAIRED);
 	CHECK_EQ(s.battery.level, DEVICE_NO_BATTERY);
 	unifying_session_tick(&s, 240, false, 0, 0, &out);
-	check_hidpp(&out, find_request, sizeof(find_request));
+	CHECK(out.send_led);
+	unifying_session_led_queued(&s, out.leds, 0);
+	unifying_session_tick(&s, 250, false, 0, 1, &out);
+	memcpy(request, find_request, sizeof(request));
+	request[2] = unifying_place_octet(1);
+	seal(request, sizeof(request));
+	check_hidpp(&out, request, sizeof(request));
 }
 
 static void session_holding_a_key(struct unifying_session *s)
@@ -2597,9 +2708,9 @@ static void session_holding_a_key(struct unifying_session *s)
 
 	session_paired(s);
 	keystroke(f, 0x5f66f458, release);
-	unifying_session_frame(s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
+	unifying_session_frame(s, PIPE_0, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
 	keystroke(f, 0x5f66f459, press_a);
-	unifying_session_frame(s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 20, nonce, fake_aes, &out);
+	unifying_session_frame(s, PIPE_0, f, sizeof(f), 0, 20, nonce, fake_aes, &out);
 	CHECK_EQ(out.reports, 1);
 }
 
@@ -2610,7 +2721,7 @@ static void test_a_session_releases_a_held_key_once_after_twice_the_keep_alive(v
 	uint64_t limit;
 
 	session_holding_a_key(&s);
-	limit = 20 + 2 * (uint64_t)s.link.keepalive_ms;
+	limit = 20 + 2 * (uint64_t)s.links[0].keepalive_ms;
 	unifying_session_tick(&s, limit, false, 0, 0, &out);
 	CHECK(!out.release_all);
 	unifying_session_tick(&s, limit + 1, false, 0, 0, &out);
@@ -2715,7 +2826,7 @@ static void test_an_unpaired_session_never_goes_silent(void)
 	struct unifying_session s;
 	struct unifying_out out;
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	hear(&s, 1000, &out);
 	unifying_session_tick(&s, 100000, false, 0, 0, &out);
 	CHECK(!out.went_silent);
@@ -2731,7 +2842,8 @@ static void test_a_radio_pause_postpones_the_silence(void)
 	unifying_session_radio_resumed(&s, 2500);
 	unifying_session_tick(&s, silence_after(&s, 2500) - 1, false, 0, 0, &out);
 	CHECK(!out.went_silent);
-	CHECK_EQ(unifying_session_status(&s, silence_after(&s, 2500) - 1), UNIFYING_STATUS_CONNECTED);
+	CHECK_EQ(unifying_session_status(&s, silence_after(&s, 2500) - 1),
+		 UNIFYING_STATUS_CONNECTED);
 	unifying_session_tick(&s, silence_after(&s, 2500), false, 0, 0, &out);
 	CHECK(out.went_silent);
 }
@@ -2763,15 +2875,15 @@ static void test_completing_pairing_ends_the_postponed_silence_at_once(void)
 	struct unifying_out out;
 	uint8_t f[UNIFYING_FRAME_MAX];
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 0);
 	request_1(f, 0xe1, 0x05);
 	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, 0, nonce, NULL, &out);
 	unifying_session_tick(&s, 5, false, 0, 0, &out);
 	request_2(f, 0xe1);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
 	request_3(f, 0x00);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 20, nonce, fake_aes, &out);
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 20, nonce, fake_aes, &out);
 	CHECK_EQ(out.event, UNIFYING_RX_PAIRED);
 	unifying_session_tick(&s, silence_after(&s, 20) - 1, false, 0, 0, &out);
 	CHECK(!out.went_silent);
@@ -2779,7 +2891,7 @@ static void test_completing_pairing_ends_the_postponed_silence_at_once(void)
 	CHECK(out.went_silent);
 }
 
-static void test_replacing_a_keyboard_ends_the_postponed_silence_at_once(void)
+static void test_pairing_another_keyboard_ends_the_postponed_silence_at_once(void)
 {
 	struct unifying_session s;
 	struct unifying_out out;
@@ -2791,9 +2903,11 @@ static void test_replacing_a_keyboard_ends_the_postponed_silence_at_once(void)
 	request_1(f, 0xe1, 0x05);
 	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, 2, nonce, NULL, &out);
 	request_2(f, 0xe1);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
+	unifying_session_frame(&s, unifying_place_pipe(1), f, sizeof(f), 0, 10, nonce, fake_aes,
+			       &out);
 	request_3(f, 0x00);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 20, nonce, fake_aes, &out);
+	unifying_session_frame(&s, unifying_place_pipe(1), f, sizeof(f), 0, 20, nonce, fake_aes,
+			       &out);
 	CHECK_EQ(out.event, UNIFYING_RX_PAIRED);
 	unifying_session_tick(&s, 30, false, 0, 0, &out);
 	unifying_session_tick(&s, silence_after(&s, 20) - 1, false, 0, 0, &out);
@@ -2827,13 +2941,13 @@ static void test_a_refused_keystroke_and_a_bad_checksum_are_invalid(void)
 
 	session_holding_a_key(&s);
 	keystroke(f, 0x5f66f400, press_a);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 30, nonce, fake_aes, &out);
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 30, nonce, fake_aes, &out);
 	CHECK(out.invalid);
 	hear(&s, 40, &out);
 	CHECK(!out.invalid);
 	memcpy(bad, keep_alive_1100, sizeof(bad));
 	bad[sizeof(bad) - 1] ^= 0x10;
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, bad, sizeof(bad), 0, 50, nonce, fake_aes,
+	unifying_session_frame(&s, PIPE_0, bad, sizeof(bad), 0, 50, nonce, fake_aes,
 			       &out);
 	CHECK(out.invalid);
 }
@@ -2846,14 +2960,14 @@ static void test_a_forged_keystroke_starts_the_attack_once(void)
 
 	session_holding_a_key(&s);
 	keystroke(f, 0x5f66f45a, forged);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 30, nonce, fake_aes, &out);
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 30, nonce, fake_aes, &out);
 	CHECK(out.attack_started);
 	CHECK(out.invalid);
 	keystroke(f, 0x5f66f45b, forged);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 40, nonce, fake_aes, &out);
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 40, nonce, fake_aes, &out);
 	CHECK(!out.attack_started);
 	keystroke(f, 0x5f66f45c, forged);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 40 + UNIFYING_ATTACK_MS,
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 40 + UNIFYING_ATTACK_MS,
 			       nonce, fake_aes, &out);
 	CHECK(out.attack_started);
 }
@@ -2879,14 +2993,14 @@ static void test_a_window_closed_by_pairing_is_not_reported(void)
 	struct unifying_out out;
 	uint8_t f[UNIFYING_FRAME_MAX];
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 0);
 	request_1(f, 0xe1, 0x05);
 	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, 0, nonce, NULL, &out);
 	request_2(f, 0xe1);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
 	request_3(f, 0x00);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 20, nonce, fake_aes, &out);
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, 20, nonce, fake_aes, &out);
 	CHECK_EQ(out.event, UNIFYING_RX_PAIRED);
 	unifying_session_tick(&s, 30, false, 0, 0, &out);
 	CHECK(!out.window_closed);
@@ -2898,7 +3012,7 @@ static void test_an_expired_attempt_reports_the_step_it_reached(void)
 	struct unifying_out out;
 	uint8_t f[UNIFYING_FRAME_MAX];
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 0);
 	request_1(f, 0xe1, 0x05);
 	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, 0, nonce, NULL, &out);
@@ -2914,17 +3028,18 @@ static void test_a_window_is_not_reported_closed_while_an_attempt_finishes(void)
 	uint8_t f[UNIFYING_FRAME_MAX];
 	uint64_t end = PAIRWIN_MS;
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 0);
 	request_1(f, 0xe1, 0x05);
-	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, end - 1, nonce, NULL, &out);
+	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, end - 1, nonce, NULL,
+			       &out);
 	unifying_session_tick(&s, end, false, 0, 0, &out);
 	CHECK(!out.window_closed);
 	request_2(f, 0xe1);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, end + 10, nonce, fake_aes,
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, end + 10, nonce, fake_aes,
 			       &out);
 	request_3(f, 0x00);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, end + 20, nonce, fake_aes,
+	unifying_session_frame(&s, PIPE_0, f, sizeof(f), 0, end + 20, nonce, fake_aes,
 			       &out);
 	CHECK_EQ(out.event, UNIFYING_RX_PAIRED);
 	unifying_session_tick(&s, end + 30, false, 0, 0, &out);
@@ -3013,7 +3128,8 @@ static void test_a_pairing_attempt_is_not_the_keyboard_connecting(void)
 	request_1(f, 0xe1, 0x05);
 	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, 0, nonce, NULL, &out);
 	request_2(f, 0xe1);
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, f, sizeof(f), 0, 10, nonce, fake_aes, &out);
+	unifying_session_frame(&s, unifying_place_pipe(1), f, sizeof(f), 0, 10, nonce, fake_aes,
+			       &out);
 	CHECK_EQ(out.event, UNIFYING_RX_ANSWERED_2);
 	CHECK(unifying_pairing_window_open(&s.pairing, 20));
 	unifying_session_tick(&s, 10 + UNIFYING_PAIRING_TIMEOUT_MS + 1, false, 0, 0, &out);
@@ -3032,7 +3148,7 @@ static void test_a_frame_with_a_bad_checksum_leaves_the_boot_window_open(void)
 	unifying_session_open_pairing(&s, PAIRWIN_BOOT, 0);
 	memcpy(bad, keep_alive_1100, sizeof(bad));
 	bad[sizeof(bad) - 1] ^= 0x80;
-	unifying_session_frame(&s, UNIFYING_PIPE_DEVICE, bad, sizeof(bad), 0, 10, nonce, fake_aes,
+	unifying_session_frame(&s, PIPE_0, bad, sizeof(bad), 0, 10, nonce, fake_aes,
 			       &out);
 	CHECK(unifying_pairing_window_open(&s.pairing, 20));
 }
@@ -3042,12 +3158,490 @@ static void test_a_session_with_no_keyboard_stays_in_pairing(void)
 	struct unifying_session s;
 	struct unifying_out out;
 
-	unifying_session_init(&s, &receiver, NULL, 0);
+	unifying_session_init(&s, &receiver, 0);
 	unifying_session_open_pairing(&s, PAIRWIN_BOOT, 0);
 	unifying_session_tick(&s, 10 * PAIRWIN_MS, false, 0, 0, &out);
 	CHECK(!out.window_closed);
 	CHECK(unifying_pairing_window_open(&s.pairing, 10 * PAIRWIN_MS));
 	CHECK_EQ(unifying_session_status(&s, 10 * PAIRWIN_MS), UNIFYING_STATUS_NOT_PAIRED);
+}
+
+static void give_place_key(uint8_t record[UNIFYING_RECORD_LEN], uint8_t place)
+{
+	record[sizeof(((struct unifying_device *)0)->wpid)] = 0x10 + place;
+}
+
+static void session_with_places(struct unifying_session *s, uint8_t n)
+{
+	struct unifying_pairing done = open_pairing();
+	uint8_t record[UNIFYING_RECORD_LEN];
+
+	pair_fully(&done);
+	unifying_record_of(&done, 0, record);
+	unifying_session_init(s, &receiver, 0);
+	for (uint8_t place = 0; place < n; place++) {
+		give_place_key(record, place);
+		unifying_session_restore(s, place, record);
+	}
+}
+
+static void send(struct unifying_session *s, uint8_t place, const uint8_t *f, size_t len,
+		 uint64_t now, struct unifying_out *out)
+{
+	unifying_session_frame(s, unifying_place_pipe(place), f, len, -60, now, nonce, fake_aes,
+			       out);
+}
+
+static void send_key(struct unifying_session *s, uint8_t place, uint32_t counter,
+		     const uint8_t plain[REPORT_KEYBOARD_LEN], uint64_t now,
+		     struct unifying_out *out)
+{
+	uint8_t f[UNIFYING_FRAME_MAX];
+
+	keystroke(f, counter, plain);
+	send(s, place, f, sizeof(f), now, out);
+}
+
+static void test_the_lowest_stored_place_is_active_after_boot(void)
+{
+	struct unifying_session s;
+
+	unifying_session_init(&s, &receiver, 0);
+	CHECK_EQ(s.active, UNIFYING_NO_PLACE);
+	session_with_places(&s, 3);
+	CHECK_EQ(s.active, 0);
+	CHECK_EQ(unifying_session_status(&s, 0), UNIFYING_STATUS_SILENT);
+}
+
+static void test_a_stored_keyboard_takes_over_with_a_key_press(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 2);
+	hear(&s, 1000, &out);
+	CHECK(out.from_active);
+	send_key(&s, 1, 500, release, 1010, &out);
+	CHECK_EQ(s.active, 0);
+	CHECK(!out.from_active);
+	CHECK_EQ(out.reports, 0);
+	CHECK_EQ(out.heard, UNIFYING_HEARD_NONE);
+	send_key(&s, 1, 501, press_a, 1020, &out);
+	CHECK_EQ(s.active, 1);
+	CHECK(out.from_active);
+	CHECK_EQ(out.reports, 1);
+	CHECK(reports_key_held(&out.report[0], 0x04));
+	CHECK_EQ(out.heard, UNIFYING_HEARD_AGAIN);
+	CHECK_EQ(out.down_ms, 20);
+	CHECK_MEM(aes_seen_key, s.pairing.devices[1].key, UNIFYING_KEY_LEN);
+}
+
+static void test_a_takeover_releases_the_keys_the_old_keyboard_held(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 2);
+	send_key(&s, 0, 100, release, 1000, &out);
+	send_key(&s, 0, 101, press_a, 1010, &out);
+	CHECK_EQ(out.reports, 1);
+	send_key(&s, 1, 500, release, 1020, &out);
+	CHECK(!out.release_all);
+	send_key(&s, 1, 501, press_a, 1030, &out);
+	CHECK(out.release_all);
+	CHECK_EQ(out.reports, 1);
+	CHECK(!s.links[0].keyboard_down);
+}
+
+static void test_a_takeover_with_nothing_held_releases_nothing(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 2);
+	hear(&s, 1000, &out);
+	send_key(&s, 1, 500, release, 1010, &out);
+	send_key(&s, 1, 501, press_a, 1020, &out);
+	CHECK(!out.release_all);
+}
+
+static void test_a_keep_alive_does_not_take_over_from_a_connected_keyboard(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 2);
+	hear(&s, 1000, &out);
+	send(&s, 1, keep_alive_1100, sizeof(keep_alive_1100), 1010, &out);
+	CHECK_EQ(s.active, 0);
+	CHECK(!out.from_active);
+	CHECK_EQ(s.heard_ms, 1000);
+}
+
+static void test_any_valid_frame_takes_over_before_the_active_keyboard_is_heard(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+	uint8_t bad[sizeof(keep_alive_1100)];
+
+	session_with_places(&s, 2);
+	memcpy(bad, keep_alive_1100, sizeof(bad));
+	bad[sizeof(bad) - 1] ^= 0x10;
+	send(&s, 1, bad, sizeof(bad), 990, &out);
+	CHECK_EQ(s.active, 0);
+	CHECK(out.invalid);
+	send(&s, 1, keep_alive_1100, sizeof(keep_alive_1100), 1000, &out);
+	CHECK_EQ(s.active, 1);
+	CHECK_EQ(out.heard, UNIFYING_HEARD_FIRST);
+	CHECK_EQ(out.down_ms, 1000);
+	CHECK_EQ(unifying_session_status(&s, 1000), UNIFYING_STATUS_CONNECTED);
+}
+
+static void test_any_valid_frame_takes_over_from_a_silent_keyboard(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+	uint64_t silent_at;
+
+	session_with_places(&s, 2);
+	hear(&s, 1000, &out);
+	silent_at = 1000 + 2 * (uint64_t)s.links[0].keepalive_ms;
+	unifying_session_tick(&s, silent_at, false, 0, 0, &out);
+	CHECK(out.went_silent);
+	send(&s, 1, keep_alive_1100, sizeof(keep_alive_1100), silent_at + 10, &out);
+	CHECK_EQ(s.active, 1);
+	CHECK_EQ(out.heard, UNIFYING_HEARD_AGAIN);
+	CHECK_EQ(out.down_ms, 10);
+}
+
+static void test_a_place_outside_the_table_changes_nothing(void)
+{
+	struct unifying_session s, before;
+	struct unifying_out out;
+	uint8_t record[UNIFYING_RECORD_LEN];
+	uint8_t address[DIAG_ADDR_LEN];
+	static const uint8_t zero[UNIFYING_RECORD_LEN];
+
+	session_with_places(&s, 2);
+	unifying_record_of(&s.pairing, 0, record);
+	memcpy(&before, &s, sizeof(s));
+	unifying_session_restore(&s, UNIFYING_PLACES, record);
+	CHECK(memcmp(&s, &before, sizeof(s)) == 0);
+	unifying_session_forget(&s, UNIFYING_NO_PLACE, 2000, &out);
+	CHECK(memcmp(&s, &before, sizeof(s)) == 0);
+	CHECK(!out.release_all);
+	CHECK(!out.window_opened);
+	CHECK(!out.set_channel);
+	CHECK_EQ(out.pipes, unifying_listen_pipes(&s.pairing));
+	memset(record, 0xff, sizeof(record));
+	unifying_record_of(&s.pairing, UNIFYING_PLACES, record);
+	CHECK_MEM(record, zero, sizeof(record));
+	memset(address, 0xff, sizeof(address));
+	unifying_list_address(&s.pairing, UNIFYING_PLACES, address);
+	CHECK_MEM(address, zero, sizeof(address));
+}
+
+static void test_a_media_key_takes_over_and_its_release_does_not(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 2);
+	hear(&s, 1000, &out);
+	send(&s, 1, media_release, sizeof(media_release), 1010, &out);
+	CHECK_EQ(s.active, 0);
+	CHECK_EQ(out.reports, 0);
+	send(&s, 1, media_volume_up, sizeof(media_volume_up), 1020, &out);
+	CHECK_EQ(s.active, 1);
+	CHECK_EQ(out.reports, 1);
+	CHECK_EQ(out.report[0].usage, 0xe9);
+}
+
+static void test_each_place_keeps_its_counter_across_takeovers(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 2);
+	send_key(&s, 0, 100, release, 1000, &out);
+	send_key(&s, 0, 101, press_a, 1010, &out);
+	send_key(&s, 0, 102, release, 1020, &out);
+	send_key(&s, 1, 500, release, 1030, &out);
+	send_key(&s, 1, 501, press_a, 1040, &out);
+	send_key(&s, 1, 502, release, 1050, &out);
+	CHECK_EQ(s.active, 1);
+	send_key(&s, 0, 101, press_a, 1060, &out);
+	CHECK(out.invalid);
+	CHECK_EQ(s.active, 1);
+	CHECK_EQ(out.reports, 0);
+	send_key(&s, 0, 103, press_a, 1070, &out);
+	CHECK_EQ(s.active, 0);
+	CHECK_EQ(out.reports, 1);
+}
+
+static void test_a_connect_frame_resets_only_its_own_places_counter(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+	uint8_t connect[sizeof(connect_10)];
+
+	session_with_places(&s, 2);
+	send_key(&s, 0, 100, release, 1000, &out);
+	send_key(&s, 1, 500, release, 1010, &out);
+	CHECK(s.links[0].synced);
+	CHECK(s.links[1].synced);
+	memcpy(connect, connect_10, sizeof(connect));
+	connect[0] = unifying_place_octet(1);
+	seal(connect, sizeof(connect));
+	unifying_session_frame(&s, UNIFYING_PIPE_RECEIVER, connect, sizeof(connect), 0, 1020, nonce,
+			       fake_aes, &out);
+	CHECK(!s.links[1].synced);
+	CHECK(s.links[0].synced);
+	CHECK(!out.reconnected);
+	CHECK_EQ(s.active, 0);
+}
+
+static void test_a_new_pairing_takes_a_place_beside_the_stored_one(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+	uint8_t f[UNIFYING_FRAME_MAX];
+	uint8_t with_place_1;
+
+	session_with_places(&s, 1);
+	CHECK(unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 0));
+	with_place_1 = unifying_listen_pipes(&s.pairing) | 1u << unifying_place_pipe(1);
+	request_1(f, 0xe1, 0x05);
+	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, 10, nonce, fake_aes,
+			       &out);
+	CHECK_EQ(out.event, UNIFYING_RX_ANSWERED_1);
+	CHECK(out.listen);
+	CHECK_EQ(out.pipes, with_place_1);
+	CHECK_EQ(out.reply[7], unifying_place_octet(1));
+	request_2(f, 0xe1);
+	send(&s, 1, f, sizeof(f), 20, &out);
+	CHECK_EQ(out.event, UNIFYING_RX_ANSWERED_2);
+	CHECK_EQ(out.reply_pipe, unifying_place_pipe(1));
+	CHECK(!out.from_active);
+	request_3(f, 0x00);
+	send(&s, 1, f, sizeof(f), 30, &out);
+	CHECK_EQ(out.event, UNIFYING_RX_PAIRED);
+	CHECK_EQ(out.heard, UNIFYING_HEARD_FIRST);
+	CHECK_EQ(out.paired_place, 1);
+	CHECK_EQ(s.active, 1);
+	CHECK(s.pairing.stored[0]);
+}
+
+static void test_an_expired_attempt_stops_listening_on_its_place(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+	uint8_t f[UNIFYING_FRAME_MAX];
+	uint8_t before;
+
+	session_with_places(&s, 1);
+	before = unifying_listen_pipes(&s.pairing);
+	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 0);
+	request_1(f, 0xe1, 0x05);
+	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, 10, nonce, fake_aes,
+			       &out);
+	unifying_session_tick(&s, 11 + UNIFYING_PAIRING_TIMEOUT_MS, false, 0, 0, &out);
+	CHECK(out.attempt_expired);
+	CHECK(out.listen);
+	CHECK_EQ(out.pipes, before);
+}
+
+static void test_pairing_does_not_open_on_a_full_session(void)
+{
+	struct unifying_session s;
+
+	session_with_places(&s, UNIFYING_PLACES);
+	CHECK(!unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 0));
+	CHECK(!unifying_pairing_window_open(&s.pairing, 10));
+}
+
+static void test_forgetting_another_place_leaves_the_active_keyboard(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 3);
+	hear(&s, 1000, &out);
+	unifying_session_forget(&s, 1, 1010, &out);
+	CHECK(!out.release_all);
+	CHECK(!out.set_channel);
+	CHECK(!out.window_opened);
+	CHECK(out.listen);
+	CHECK_EQ(out.pipes, unifying_listen_pipes(&s.pairing));
+	CHECK(!(out.pipes & 1u << unifying_place_pipe(1)));
+	CHECK_EQ(s.active, 0);
+	CHECK(s.heard);
+	CHECK(!s.pairing.stored[1]);
+	CHECK(!unifying_pairing_window_open(&s.pairing, 1010));
+	CHECK(!unifying_session_frame(&s, unifying_place_pipe(1), keep_alive_1100,
+				      sizeof(keep_alive_1100), -60, 1020, nonce, fake_aes, &out));
+}
+
+static void test_forgetting_the_active_place_makes_the_lowest_stored_one_active(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 3);
+	hear(&s, 1000, &out);
+	unifying_session_forget(&s, 0, 1010, &out);
+	CHECK(out.release_all);
+	CHECK(!out.window_opened);
+	CHECK_EQ(s.active, 1);
+	CHECK(!s.heard);
+	CHECK_EQ(unifying_session_status(&s, 1010), UNIFYING_STATUS_SILENT);
+	CHECK(!unifying_pairing_window_open(&s.pairing, 1010));
+}
+
+static void test_a_takeover_drops_a_reply_queued_for_the_old_keyboard(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 2);
+	hear(&s, 1000, &out);
+	unifying_session_tick(&s, 1001, true, 0x02, 0, &out);
+	CHECK(out.send_led);
+	unifying_session_led_queued(&s, out.leds, 0);
+	send_key(&s, 1, 500, release, 1010, &out);
+	CHECK(!out.listen);
+	send_key(&s, 1, 501, press_a, 1020, &out);
+	CHECK(out.listen);
+	CHECK_EQ(out.pipes, unifying_listen_pipes(&s.pairing));
+	unifying_session_replies_dropped(&s);
+	unifying_session_tick(&s, 1030, false, 0x02, 0, &out);
+	CHECK(out.send_led);
+	CHECK_EQ(out.leds, 0x02);
+}
+
+static void test_hidpp_requests_carry_the_active_places_octet(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 2);
+	send(&s, 1, keep_alive_1100, sizeof(keep_alive_1100), 1000, &out);
+	CHECK_EQ(s.active, 1);
+	unifying_session_tick(&s, 1001, false, 0, 0, &out);
+	CHECK(out.send_led);
+	unifying_session_led_queued(&s, out.leds, 0);
+	unifying_session_tick(&s, 1002, false, 0, 1, &out);
+	CHECK(out.hidpp_len != 0);
+	CHECK_EQ(out.hidpp[2], unifying_place_octet(1));
+}
+
+static void test_the_old_keyboard_does_not_take_back_a_just_paired_one(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+	uint8_t f[UNIFYING_FRAME_MAX];
+
+	session_with_places(&s, 1);
+	hear(&s, 1000, &out);
+	unifying_session_open_pairing(&s, PAIRWIN_REQUEST, 1005);
+	request_1(f, 0xe1, 0x05);
+	unifying_session_frame(&s, UNIFYING_PIPE_PAIRING, f, sizeof(f), 0, 1010, nonce, fake_aes,
+			       &out);
+	request_2(f, 0xe1);
+	send(&s, 1, f, sizeof(f), 1020, &out);
+	request_3(f, 0x00);
+	send(&s, 1, f, sizeof(f), 1030, &out);
+	CHECK_EQ(out.event, UNIFYING_RX_PAIRED);
+	CHECK_EQ(out.heard, UNIFYING_HEARD_FIRST);
+	CHECK(out.from_active);
+	CHECK_EQ(s.active, 1);
+	hear(&s, 1040, &out);
+	CHECK_EQ(s.active, 1);
+	CHECK(!out.from_active);
+	CHECK_EQ(unifying_session_status(&s, 1040), UNIFYING_STATUS_CONNECTED);
+}
+
+static void test_a_takeover_forgets_the_battery_and_restarts_hidpp(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+	struct unifying_pairing done = open_pairing();
+	uint8_t record[UNIFYING_RECORD_LEN];
+	uint8_t request[sizeof(find_request)];
+
+	session_battery_read(&s);
+	CHECK(s.battery.level != DEVICE_NO_BATTERY);
+	pair_fully(&done);
+	unifying_record_of(&done, 0, record);
+	give_place_key(record, 1);
+	unifying_session_restore(&s, 1, record);
+	send_key(&s, 1, 500, release, 200, &out);
+	send_key(&s, 1, 501, press_a, 210, &out);
+	CHECK_EQ(s.active, 1);
+	CHECK_EQ(s.battery.level, DEVICE_NO_BATTERY);
+	unifying_session_tick(&s, 220, false, 0, 0, &out);
+	CHECK(out.send_led);
+	unifying_session_led_queued(&s, out.leds, 0);
+	unifying_session_tick(&s, 230, false, 0, 1, &out);
+	memcpy(request, find_request, sizeof(request));
+	request[2] = unifying_place_octet(1);
+	seal(request, sizeof(request));
+	check_hidpp(&out, request, sizeof(request));
+}
+
+static void test_a_frame_from_an_inactive_keyboard_leaves_the_signal(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 2);
+	hear(&s, 1000, &out);
+	unifying_session_frame(&s, unifying_place_pipe(1), keep_alive_1100,
+			       sizeof(keep_alive_1100), -30, 1010, nonce, fake_aes, &out);
+	CHECK_EQ(s.rssi, -60);
+	CHECK_EQ(s.active, 0);
+}
+
+static void test_stored_places_with_one_id_and_serial_have_their_own_list_addresses(void)
+{
+	struct unifying_session s;
+	uint8_t first[DIAG_ADDR_LEN];
+	uint8_t second[DIAG_ADDR_LEN];
+
+	session_with_places(&s, 2);
+	unifying_list_address(&s.pairing, 0, first);
+	unifying_list_address(&s.pairing, 1, second);
+	CHECK_MEM(first, s.pairing.devices[0].wpid, sizeof(s.pairing.devices[0].wpid));
+	CHECK_MEM(&first[2], s.pairing.devices[0].serial, UNIFYING_SERIAL_LEN);
+	CHECK_EQ(first[2 + UNIFYING_SERIAL_LEN], unifying_place_octet(0));
+	CHECK(memcmp(first, second, sizeof(first)) != 0);
+	CHECK_EQ(unifying_find_place(&s.pairing, first), 0);
+	CHECK_EQ(unifying_find_place(&s.pairing, second), 1);
+}
+
+static void test_a_list_address_of_an_unstored_place_finds_no_place(void)
+{
+	struct unifying_session s;
+	uint8_t addr[DIAG_ADDR_LEN];
+
+	session_with_places(&s, 1);
+	unifying_list_address(&s.pairing, 1, addr);
+	CHECK_EQ(unifying_find_place(&s.pairing, addr), UNIFYING_NO_PLACE);
+	unifying_list_address(&s.pairing, 0, addr);
+	addr[2 + UNIFYING_SERIAL_LEN] = unifying_place_octet(1);
+	CHECK_EQ(unifying_find_place(&s.pairing, addr), UNIFYING_NO_PLACE);
+}
+
+static void test_the_prefix_table_has_the_pairing_receiver_and_place_octets(void)
+{
+	uint8_t prefixes[UNIFYING_PIPES];
+
+	unifying_prefixes(prefixes);
+	CHECK_EQ(prefixes[UNIFYING_PIPE_PAIRING], unifying_pairing_address[4]);
+	CHECK_EQ(prefixes[UNIFYING_PIPE_RECEIVER], 0x00);
+	for (uint8_t place = 0; place < UNIFYING_PLACES; place++) {
+		CHECK_EQ(prefixes[unifying_place_pipe(place)], unifying_place_octet(place));
+	}
 }
 
 int main(void)
@@ -3081,8 +3675,6 @@ int main(void)
 	RUN(test_request_1_before_pairing_opens_is_ignored);
 	RUN(test_the_window_runs_30_s_from_opening);
 	RUN(test_pairing_closes_the_window);
-	RUN(test_a_restored_device_leaves_the_window_closed);
-	RUN(test_a_restored_record_leaves_the_window_closed);
 	RUN(test_a_paired_dongle_sweeps_while_pairing_is_open);
 	RUN(test_a_paired_dongle_holds_its_channel_with_pairing_closed);
 	RUN(test_a_restored_device_is_paired_and_a_new_request_still_starts_an_attempt);
@@ -3092,7 +3684,14 @@ int main(void)
 	RUN(test_the_paired_device_is_kept_while_an_attempt_runs);
 	RUN(test_a_refused_request_during_an_attempt_keeps_the_paired_device);
 	RUN(test_request_1_with_the_id_of_a_completed_attempt_starts_a_new_one);
-	RUN(test_a_completed_attempt_replaces_the_paired_device);
+	RUN(test_a_completed_attempt_takes_the_next_place_and_keeps_the_first);
+	RUN(test_a_place_has_a_fixed_pipe_and_octet);
+	RUN(test_request_1_is_answered_with_the_lowest_empty_places_address);
+	RUN(test_pairing_does_not_open_with_every_place_stored);
+	RUN(test_a_forgotten_place_is_the_next_one_paired);
+	RUN(test_forgetting_the_only_place_leaves_no_device);
+	RUN(test_the_radio_listens_on_stored_places_and_the_attempts);
+	RUN(test_a_record_is_kept_per_place);
 	RUN(test_a_window_that_ran_out_stays_closed_past_32_bits_of_uptime);
 	RUN(test_keystroke_passes_the_key_and_the_counter_block_to_aes);
 	RUN(test_keystroke_report_is_the_decrypted_modifier_and_keys);
@@ -3224,7 +3823,31 @@ int main(void)
 	RUN(test_a_pairing_attempt_is_not_the_keyboard_connecting);
 	RUN(test_a_frame_with_a_bad_checksum_leaves_the_boot_window_open);
 	RUN(test_a_session_with_no_keyboard_stays_in_pairing);
-	RUN(test_replacing_a_keyboard_ends_the_postponed_silence_at_once);
+	RUN(test_pairing_another_keyboard_ends_the_postponed_silence_at_once);
 	RUN(test_the_keyboard_closing_the_boot_window_ends_the_postponed_silence);
+	RUN(test_the_lowest_stored_place_is_active_after_boot);
+	RUN(test_a_stored_keyboard_takes_over_with_a_key_press);
+	RUN(test_a_takeover_releases_the_keys_the_old_keyboard_held);
+	RUN(test_a_takeover_with_nothing_held_releases_nothing);
+	RUN(test_a_keep_alive_does_not_take_over_from_a_connected_keyboard);
+	RUN(test_any_valid_frame_takes_over_before_the_active_keyboard_is_heard);
+	RUN(test_any_valid_frame_takes_over_from_a_silent_keyboard);
+	RUN(test_a_place_outside_the_table_changes_nothing);
+	RUN(test_a_media_key_takes_over_and_its_release_does_not);
+	RUN(test_each_place_keeps_its_counter_across_takeovers);
+	RUN(test_a_connect_frame_resets_only_its_own_places_counter);
+	RUN(test_a_new_pairing_takes_a_place_beside_the_stored_one);
+	RUN(test_an_expired_attempt_stops_listening_on_its_place);
+	RUN(test_pairing_does_not_open_on_a_full_session);
+	RUN(test_forgetting_another_place_leaves_the_active_keyboard);
+	RUN(test_forgetting_the_active_place_makes_the_lowest_stored_one_active);
+	RUN(test_a_takeover_drops_a_reply_queued_for_the_old_keyboard);
+	RUN(test_hidpp_requests_carry_the_active_places_octet);
+	RUN(test_the_old_keyboard_does_not_take_back_a_just_paired_one);
+	RUN(test_a_takeover_forgets_the_battery_and_restarts_hidpp);
+	RUN(test_a_frame_from_an_inactive_keyboard_leaves_the_signal);
+	RUN(test_stored_places_with_one_id_and_serial_have_their_own_list_addresses);
+	RUN(test_a_list_address_of_an_unstored_place_finds_no_place);
+	RUN(test_the_prefix_table_has_the_pairing_receiver_and_place_octets);
 	return TEST_EXIT();
 }

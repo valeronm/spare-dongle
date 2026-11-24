@@ -25,7 +25,7 @@ each device's signal over time, its latency through the dongle, and the dongle's
 | Protocol | Security | Support |
 |---|---|---|
 | NuPhy 2.4G, QMK keyboards | [❌ no protection](docs/nuphy.md#security) | [🟢 full](docs/nuphy.md) |
-| Logitech Unifying | [🔴 weak at any time](docs/unifying.md#security) | [🟡 partial](docs/unifying.md): one keyboard |
+| Logitech Unifying | [🔴 weak at any time](docs/unifying.md#security) | [🟡 partial](docs/unifying.md): up to six keyboards, one at a time |
 | Bluetooth LE | [🔴 to 🟢, by how the device paired](docs/bluetooth.md#security) | [🟡 partial](docs/bluetooth.md): one keyboard and one mouse at a time |
 | NuPhy 2.4G, NuPhyIO keyboards | ❌ no protection | 🔴 none yet |
 | Logitech Bolt | 🟡 to 🟢, by how the device paired | 🔴 none yet |
@@ -112,10 +112,11 @@ Unifying link key or Bluetooth bond keys.
 paired keeps pairing open from the moment it is plugged in until a device pairs.
 
 In NuPhy and Unifying mode, plugging the dongle in also opens pairing while a keyboard is paired,
-until that keyboard connects or 30 seconds pass. Its connecting closes the window, so to pair then,
-switch it off first or put it in pairing mode.
+until that keyboard connects or 30 seconds pass; in Unifying mode it stays closed while six
+keyboards are stored. Its connecting closes the window, so to pair then, switch it off first or put
+it in pairing mode.
 A connected NuPhy keyboard keeps `spare-dongle pair` from hearing another one, so switch it off too.
-A new keyboard replaces the one paired before.
+In NuPhy mode a new keyboard replaces the one paired before; in Unifying mode it takes a free place.
 
 **NuPhy:** in 2.4G mode, hold Fn+4 for 3 seconds. Keep the keyboard close, since it transmits at
 low power while pairing. If the link gets worse after the Wi-Fi around you changes, pair again.

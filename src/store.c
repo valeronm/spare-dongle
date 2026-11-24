@@ -1,9 +1,12 @@
+#include <stdio.h>
 #include <zephyr/settings/settings.h>
 #include "store.h"
 
 #define NUPHY_KEY "dongle/channels"
 #define FORCED_KEY "dongle/forced"
-#define UNIFYING_KEY "dongle/unifying"
+#define UNIFYING_KEY_FORMAT "dongle/uni/%u"
+#define UNIFYING_KEY_MAX sizeof("dongle/uni/255")
+#define UNIFYING_SINGLE_KEY "dongle/unifying"
 #define PROTOCOL_KEY "dongle/protocol"
 #define BLUETOOTH_KEY "dongle/bluetooth"
 
@@ -43,19 +46,38 @@ int store_save_forced(const uint8_t *channels)
 				: settings_save_one(FORCED_KEY, channels, 3);
 }
 
-bool store_load_unifying(void *out, size_t len)
+static void unifying_key(char key[UNIFYING_KEY_MAX], uint8_t place)
 {
-	return load_exact(UNIFYING_KEY, out, len);
+	snprintf(key, UNIFYING_KEY_MAX, UNIFYING_KEY_FORMAT, place);
 }
 
-int store_save_unifying(const void *in, size_t len)
+int store_delete_single_unifying(void)
 {
-	return settings_save_one(UNIFYING_KEY, in, len);
+	return settings_delete(UNIFYING_SINGLE_KEY);
 }
 
-int store_delete_unifying(void)
+bool store_load_unifying(uint8_t place, void *out, size_t len)
 {
-	return settings_delete(UNIFYING_KEY);
+	char key[UNIFYING_KEY_MAX];
+
+	unifying_key(key, place);
+	return load_exact(key, out, len);
+}
+
+int store_save_unifying(uint8_t place, const void *in, size_t len)
+{
+	char key[UNIFYING_KEY_MAX];
+
+	unifying_key(key, place);
+	return settings_save_one(key, in, len);
+}
+
+int store_delete_unifying(uint8_t place)
+{
+	char key[UNIFYING_KEY_MAX];
+
+	unifying_key(key, place);
+	return settings_delete(key);
 }
 
 bool store_load_protocol(uint8_t *out)

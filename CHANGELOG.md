@@ -6,6 +6,14 @@
   device that reconnects wakes the PC.
 - In NuPhy mode the dongle repeats its notice that the PC suspended, so the keyboard still sleeps
   with the PC when one notice is lost.
+- In Unifying mode the dongle stores up to six keyboards instead of one, and pairing another no
+  longer replaces the stored one.
+- In Unifying mode a stored keyboard takes over when a key is pressed on it.
+- In Unifying mode `forget` removes one keyboard and leaves the others, and the forgotten keyboard
+  sees its link drop.
+- In Unifying mode `pair` is refused while six keyboards are stored.
+- In Unifying mode `devices` and `forget` show each keyboard's address.
+- A Unifying keyboard paired with an earlier version has to be paired again.
 
 ## [0.5.0] - 2026-11-21
 

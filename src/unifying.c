@@ -20,13 +20,45 @@
 #define SET_KEEPALIVE_LEN 10
 #define CONNECT_SHORT_LEN 10
 #define HIDPP_SHORT_FRAME_LEN 10
+#define FIRST_OCTET 0x07
 
 const uint8_t unifying_pairing_address[UNIFYING_ADDRESS_LEN] = {0xbb, 0x0a, 0xdc, 0xa5, 0x75};
 
-void unifying_device_address(const struct unifying_receiver *r, uint8_t out[UNIFYING_ADDRESS_LEN])
+uint8_t unifying_place_pipe(uint8_t place)
+{
+	return place + 1;
+}
+
+uint8_t unifying_place_octet(uint8_t place)
+{
+	return FIRST_OCTET + place;
+}
+
+uint8_t unifying_pipe_place(uint8_t pipe)
+{
+	return pipe >= 1 && pipe <= UNIFYING_PLACES ? pipe - 1 : UNIFYING_NO_PLACE;
+}
+
+uint8_t unifying_octet_place(uint8_t octet)
+{
+	return octet >= FIRST_OCTET && octet < FIRST_OCTET + UNIFYING_PLACES ? octet - FIRST_OCTET
+									      : UNIFYING_NO_PLACE;
+}
+
+void unifying_prefixes(uint8_t out[UNIFYING_PIPES])
+{
+	out[UNIFYING_PIPE_PAIRING] = unifying_pairing_address[UNIFYING_ADDRESS_LEN - 1];
+	out[UNIFYING_PIPE_RECEIVER] = 0x00;
+	for (uint8_t place = 0; place < UNIFYING_PLACES; place++) {
+		out[unifying_place_pipe(place)] = unifying_place_octet(place);
+	}
+}
+
+void unifying_device_address(const struct unifying_receiver *r, uint8_t place,
+			     uint8_t out[UNIFYING_ADDRESS_LEN])
 {
 	memcpy(out, r->base, sizeof(r->base));
-	out[4] = r->device_octet;
+	out[4] = unifying_place_octet(place);
 }
 
 static bool attempting(const struct unifying_pairing *p)
@@ -34,9 +66,88 @@ static bool attempting(const struct unifying_pairing *p)
 	return p->attempt.state != UNIFYING_IDLE;
 }
 
-void unifying_pairing_open(struct unifying_pairing *p, enum pairwin_cause cause, uint64_t now_ms)
+static uint8_t first_place(const struct unifying_pairing *p, bool stored)
 {
-	pairwin_open(&p->window, cause, p->has_device, (uint32_t)now_ms);
+	for (uint8_t place = 0; place < UNIFYING_PLACES; place++) {
+		if (p->stored[place] == stored) {
+			return place;
+		}
+	}
+	return UNIFYING_NO_PLACE;
+}
+
+bool unifying_has_device(const struct unifying_pairing *p)
+{
+	return first_place(p, true) != UNIFYING_NO_PLACE;
+}
+
+_Static_assert(DIAG_ADDR_LEN >= 2 + UNIFYING_SERIAL_LEN + 1, "device list address");
+
+void unifying_list_address(const struct unifying_pairing *p, uint8_t place,
+			   uint8_t out[DIAG_ADDR_LEN])
+{
+	const struct unifying_device *d = &p->devices[place];
+
+	memset(out, 0, DIAG_ADDR_LEN);
+	if (place >= UNIFYING_PLACES) {
+		return;
+	}
+	memcpy(out, d->wpid, sizeof(d->wpid));
+	memcpy(&out[sizeof(d->wpid)], d->serial, sizeof(d->serial));
+	out[sizeof(d->wpid) + sizeof(d->serial)] = unifying_place_octet(place);
+}
+
+uint8_t unifying_find_place(const struct unifying_pairing *p, const uint8_t addr[DIAG_ADDR_LEN])
+{
+	for (uint8_t place = 0; place < UNIFYING_PLACES; place++) {
+		uint8_t listed[DIAG_ADDR_LEN];
+
+		unifying_list_address(p, place, listed);
+		if (p->stored[place] && memcmp(addr, listed, sizeof(listed)) == 0) {
+			return place;
+		}
+	}
+	return UNIFYING_NO_PLACE;
+}
+
+bool unifying_pairing_open(struct unifying_pairing *p, enum pairwin_cause cause, uint64_t now_ms)
+{
+	if (first_place(p, false) == UNIFYING_NO_PLACE) {
+		return false;
+	}
+	pairwin_open(&p->window, cause, unifying_has_device(p), (uint32_t)now_ms);
+	return true;
+}
+
+uint8_t unifying_listen_pipes(const struct unifying_pairing *p)
+{
+	uint8_t pipes = 1u << UNIFYING_PIPE_PAIRING | 1u << UNIFYING_PIPE_RECEIVER;
+
+	for (uint8_t place = 0; place < UNIFYING_PLACES; place++) {
+		if (p->stored[place] || (attempting(p) && p->attempt.place == place)) {
+			pipes |= 1u << unifying_place_pipe(place);
+		}
+	}
+	return pipes;
+}
+
+void unifying_pairing_restore(struct unifying_pairing *p, uint8_t place,
+			      const struct unifying_device *d)
+{
+	if (place >= UNIFYING_PLACES) {
+		return;
+	}
+	p->stored[place] = true;
+	p->devices[place] = *d;
+}
+
+void unifying_pairing_forget(struct unifying_pairing *p, uint8_t place)
+{
+	if (place >= UNIFYING_PLACES) {
+		return;
+	}
+	p->stored[place] = false;
+	p->devices[place] = (struct unifying_device){0};
 }
 
 bool unifying_pairing_window_open(const struct unifying_pairing *p, uint64_t now_ms)
@@ -112,7 +223,7 @@ static size_t response_1(const struct unifying_attempt *a, const struct unifying
 	out[1] = MARKER_RESPONSE;
 	out[2] = 0x01;
 	memcpy(&out[3], r->base, 4);
-	out[7] = r->device_octet;
+	out[7] = unifying_place_octet(a->place);
 	out[8] = 0x08;
 	memcpy(&out[9], r->wpid, 2);
 	out[13] = a->dev.type;
@@ -152,7 +263,7 @@ static uint8_t request_step(const uint8_t *frame, size_t len)
 	return frame[2];
 }
 
-static size_t start(struct unifying_attempt *a, const struct unifying_receiver *r,
+static size_t start(struct unifying_attempt *a, const struct unifying_receiver *r, uint8_t place,
 		    const uint8_t nonce[UNIFYING_NONCE_LEN], const uint8_t *frame, uint64_t now_ms,
 		    uint8_t *reply, enum unifying_rx_event *event)
 {
@@ -164,6 +275,7 @@ static size_t start(struct unifying_attempt *a, const struct unifying_receiver *
 	*a = (struct unifying_attempt){
 		.state = UNIFYING_ANSWERED_1,
 		.id = frame[0],
+		.place = place,
 		.last_ms = now_ms,
 		.dev = {.wpid = {frame[9], frame[10]}, .type = frame[13]},
 		.caps = frame[14],
@@ -183,10 +295,12 @@ size_t unifying_pairing_rx(struct unifying_pairing *p, const struct unifying_rec
 	*event = UNIFYING_RX_NONE;
 	if (step == 1) {
 		bool repeat = attempting(p) && frame[0] == a->id;
+		uint8_t place = first_place(p, false);
 
-		return !unifying_pairing_window_open(p, now_ms) || repeat
+		return !unifying_pairing_window_open(p, now_ms) || repeat ||
+				       place == UNIFYING_NO_PLACE
 			       ? 0
-			       : start(a, r, nonce, frame, now_ms, reply, event);
+			       : start(a, r, place, nonce, frame, now_ms, reply, event);
 	}
 	if (step == 2 && a->state == UNIFYING_ANSWERED_1 && frame[0] == a->id) {
 		memcpy(a->device_nonce, &frame[3], UNIFYING_NONCE_LEN);
@@ -203,8 +317,7 @@ size_t unifying_pairing_rx(struct unifying_pairing *p, const struct unifying_rec
 		memcpy(a->dev.name, &frame[5],
 		       frame[4] < UNIFYING_NAME_MAX ? frame[4] : UNIFYING_NAME_MAX);
 		a->state = UNIFYING_IDLE;
-		p->has_device = true;
-		p->device = a->dev;
+		unifying_pairing_restore(p, a->place, &a->dev);
 		pairwin_close(&p->window);
 		*event = UNIFYING_RX_PAIRED;
 		return response_final(a, reply);
@@ -219,16 +332,6 @@ bool unifying_pairing_expired(struct unifying_pairing *p, uint64_t now_ms)
 		return true;
 	}
 	return false;
-}
-
-bool unifying_has_device(const struct unifying_pairing *p)
-{
-	return p->has_device;
-}
-
-void unifying_pairing_restore(struct unifying_pairing *p, const struct unifying_device *d)
-{
-	*p = (struct unifying_pairing){.has_device = true, .device = *d};
 }
 
 static bool shaped(const uint8_t *frame, size_t len, size_t want_len, uint8_t want_type)
@@ -526,17 +629,27 @@ bool unifying_link_silent(struct unifying_link *l, uint64_t now_ms)
 	return silent;
 }
 
-void unifying_record_of(const struct unifying_pairing *p, uint8_t out[UNIFYING_RECORD_LEN])
+void unifying_record_of(const struct unifying_pairing *p, uint8_t place,
+			uint8_t out[UNIFYING_RECORD_LEN])
 {
-	memcpy(out, &p->device, UNIFYING_RECORD_LEN);
+	memset(out, 0, UNIFYING_RECORD_LEN);
+	if (place < UNIFYING_PLACES) {
+		memcpy(out, &p->devices[place], UNIFYING_RECORD_LEN);
+	}
 }
 
-void unifying_record_restore(struct unifying_pairing *p, const uint8_t in[UNIFYING_RECORD_LEN])
+void unifying_record_restore(struct unifying_pairing *p, uint8_t place,
+			     const uint8_t in[UNIFYING_RECORD_LEN])
 {
 	struct unifying_device d;
 
 	memcpy(&d, in, UNIFYING_RECORD_LEN);
-	unifying_pairing_restore(p, &d);
+	unifying_pairing_restore(p, place, &d);
+}
+
+static struct unifying_link *active_link(struct unifying_session *s)
+{
+	return &s->links[s->active];
 }
 
 static bool quiet_too_long(const struct unifying_session *s, uint64_t now_ms)
@@ -551,7 +664,7 @@ static bool quiet_too_long(const struct unifying_session *s, uint64_t now_ms)
 	if (now_ms <= since) {
 		return false;
 	}
-	return now_ms - since >= 2 * (uint64_t)s->link.keepalive_ms;
+	return now_ms - since >= 2 * (uint64_t)s->links[s->active].keepalive_ms;
 }
 
 static void take_hidpp_event(struct unifying_session *s, struct unifying_out *out)
@@ -559,27 +672,200 @@ static void take_hidpp_event(struct unifying_session *s, struct unifying_out *ou
 	hidpp_take_event(&s->hidpp, &out->hidpp_event);
 }
 
+static bool pressed(const struct report *r, size_t n)
+{
+	for (size_t i = 0; i < n; i++) {
+		if (r[i].kind == REPORT_KEYBOARD ? !reports_keys_empty(&r[i]) : r[i].usage != 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void activate(struct unifying_session *s, uint8_t place, uint64_t now_ms,
+		     struct unifying_out *out)
+{
+	if (s->active != UNIFYING_NO_PLACE && any_held(active_link(s))) {
+		forget_held(active_link(s));
+		out->release_all = true;
+	}
+	/* A reply still queued would be taken by the old keyboard and counted as this one's. */
+	out->listen = s->queue.frame != UNIFYING_QUEUED_NONE;
+	s->active = place;
+	s->heard = false;
+	s->silent = false;
+	s->connect_in_silence = false;
+	s->search_until_ms = 0;
+	s->started_ms = now_ms;
+	s->battery = DEVICE_BATTERY_UNKNOWN;
+	hidpp_init(&s->hidpp, DEVICE_KIND_KEYBOARD);
+	hidpp_start(&s->hidpp);
+	unifying_led_resend(&s->led);
+}
+
 void unifying_session_init(struct unifying_session *s, const struct unifying_receiver *r,
-			   const uint8_t *record, uint64_t now_ms)
+			   uint64_t now_ms)
 {
 	memset(s, 0, sizeof(*s));
 	hidpp_init(&s->hidpp, DEVICE_KIND_KEYBOARD);
 	s->receiver = *r;
+	s->active = UNIFYING_NO_PLACE;
 	s->started_ms = now_ms;
 	s->battery = DEVICE_BATTERY_UNKNOWN;
-	unifying_link_reset(&s->link);
-	if (record != NULL) {
-		unifying_record_restore(&s->pairing, record);
+	for (uint8_t place = 0; place < UNIFYING_PLACES; place++) {
+		unifying_link_reset(&s->links[place]);
 	}
 	s->channel = unifying_sweep_channel(&s->sweep, &s->pairing, now_ms);
 }
 
-void unifying_session_forget(struct unifying_session *s, uint64_t now_ms)
+void unifying_session_restore(struct unifying_session *s, uint8_t place,
+			      const uint8_t record[UNIFYING_RECORD_LEN])
 {
-	struct unifying_receiver r = s->receiver;
+	if (place >= UNIFYING_PLACES) {
+		return;
+	}
+	unifying_record_restore(&s->pairing, place, record);
+	if (s->active == UNIFYING_NO_PLACE) {
+		s->active = place;
+	}
+}
 
-	unifying_session_init(s, &r, NULL, now_ms);
-	unifying_session_open_pairing(s, PAIRWIN_REQUEST, now_ms);
+void unifying_session_forget(struct unifying_session *s, uint8_t place, uint64_t now_ms,
+			     struct unifying_out *out)
+{
+	bool was_active = place == s->active;
+	uint8_t channel = s->channel;
+
+	*out = (struct unifying_out){0};
+	out->pipes = unifying_listen_pipes(&s->pairing);
+	if (place >= UNIFYING_PLACES) {
+		return;
+	}
+	unifying_pairing_forget(&s->pairing, place);
+	unifying_link_reset(&s->links[place]);
+	if (!unifying_has_device(&s->pairing)) {
+		struct unifying_receiver r = s->receiver;
+
+		unifying_session_init(s, &r, now_ms);
+		unifying_session_open_pairing(s, PAIRWIN_REQUEST, now_ms);
+		out->window_opened = true;
+	} else if (was_active) {
+		activate(s, first_place(&s->pairing, true), now_ms, out);
+	}
+	out->release_all = was_active;
+	out->set_channel = s->channel != channel;
+	out->channel = s->channel;
+	out->listen = true;
+	out->pipes = unifying_listen_pipes(&s->pairing);
+}
+
+bool unifying_session_open_pairing(struct unifying_session *s, enum pairwin_cause cause,
+				   uint64_t now_ms)
+{
+	return unifying_pairing_open(&s->pairing, cause, now_ms);
+}
+
+static void take_over(struct unifying_session *s, uint8_t place, uint64_t now_ms,
+		      struct unifying_out *out)
+{
+	bool heard = s->heard;
+	uint64_t quiet_since_ms = s->silent ? s->silent_since_ms : s->heard_ms;
+	uint64_t started_ms = s->started_ms;
+
+	activate(s, place, now_ms, out);
+	/* A gap in the host's link began with the old keyboard. */
+	s->heard = heard;
+	s->silent = heard;
+	s->silent_since_ms = quiet_since_ms;
+	s->started_ms = started_ms;
+}
+
+static void mark_heard(struct unifying_session *s, int8_t rssi, uint64_t now_ms,
+		       struct unifying_out *out)
+{
+	out->from_active = true;
+	if (!s->heard) {
+		out->heard = UNIFYING_HEARD_FIRST;
+		out->down_ms = (uint32_t)(now_ms - s->started_ms);
+	} else if (s->silent) {
+		out->heard = s->connect_in_silence ? UNIFYING_HEARD_WOKE : UNIFYING_HEARD_AGAIN;
+		out->down_ms = (uint32_t)(now_ms - s->silent_since_ms);
+	}
+	/* The keyboard forgets a divert whenever it reconnects, which a silence can hide. */
+	if (out->heard != UNIFYING_HEARD_NONE) {
+		hidpp_start(&s->hidpp);
+	}
+	s->silent = false;
+	s->connect_in_silence = false;
+	s->search_until_ms = 0;
+	s->heard = true;
+	s->heard_ms = now_ms;
+	s->rssi = rssi;
+}
+
+static bool place_frame(struct unifying_session *s, uint8_t place, const uint8_t *frame,
+			size_t len, int8_t rssi, uint64_t now_ms, unifying_aes_fn aes,
+			struct unifying_out *out)
+{
+	struct unifying_link *l = &s->links[place];
+	bool checksum_ok = unifying_checksum_ok(frame, len);
+	uint32_t refused = l->refused;
+	bool attack = now_ms < l->attack_until_ms;
+	struct report typed[UNIFYING_KEYSTROKE_REPORTS];
+	size_t n;
+
+	if (!s->pairing.stored[place]) {
+		/* Requests 2 and 3 arrive on the place the attempt targets. */
+		return attempting(&s->pairing) && s->pairing.attempt.place == place;
+	}
+	unifying_link_heard(l, frame, len, now_ms);
+	n = unifying_keystroke(l, s->pairing.devices[place].key, frame, len, now_ms, aes, typed);
+	if (n == 0 && unifying_media_report(l, frame, len, &typed[0])) {
+		n = 1;
+	}
+	out->invalid = !checksum_ok || l->refused != refused;
+	out->attack_started = !attack && now_ms < l->attack_until_ms;
+	if (place != s->active) {
+		if (!pressed(typed, n) && !(checksum_ok && (!s->heard || s->silent))) {
+			return true;
+		}
+		take_over(s, place, now_ms, out);
+	}
+	mark_heard(s, rssi, now_ms, out);
+	if (!attempting(&s->pairing) && checksum_ok) {
+		pairwin_link_up(&s->pairing.window);
+	}
+	if (n == 0 && checksum_ok &&
+	    hidpp_rx_frame(&s->hidpp, l, &s->battery, frame, len, &typed[0])) {
+		n = 1;
+	}
+	out->reports = n;
+	memcpy(out->report, typed, n * sizeof(typed[0]));
+	return true;
+}
+
+static bool receiver_frame(struct unifying_session *s, const uint8_t *frame, size_t len,
+			   struct unifying_out *out)
+{
+	uint8_t place = len > 0 ? unifying_octet_place(frame[0]) : UNIFYING_NO_PLACE;
+
+	if (!unifying_has_device(&s->pairing)) {
+		return false;
+	}
+	if (place != UNIFYING_NO_PLACE && s->pairing.stored[place] &&
+	    unifying_is_connect_frame(frame, len, unifying_place_octet(place))) {
+		bool held = unifying_link_reconnect(&s->links[place], unifying_place_octet(place),
+						    frame, len);
+
+		if (place == s->active) {
+			out->reconnected = true;
+			out->release_all = held;
+			hidpp_start(&s->hidpp);
+			s->connect_in_silence |= s->silent;
+		}
+	}
+	unifying_led_resend(&s->led);
+	return true;
 }
 
 bool unifying_session_frame(struct unifying_session *s, uint8_t pipe, const uint8_t *frame,
@@ -587,77 +873,33 @@ bool unifying_session_frame(struct unifying_session *s, uint8_t pipe, const uint
 			    const uint8_t nonce[UNIFYING_NONCE_LEN], unifying_aes_fn aes,
 			    struct unifying_out *out)
 {
+	uint8_t pipes = unifying_listen_pipes(&s->pairing);
+	uint8_t place = unifying_pipe_place(pipe);
+	bool handled = true;
+
 	*out = (struct unifying_out){0};
 	out->reply_len = unifying_pairing_rx(&s->pairing, &s->receiver, nonce, frame, len, now_ms,
 					     out->reply, &out->event);
 	out->reply_pipe = pipe;
 	if (out->event == UNIFYING_RX_PAIRED) {
-		unifying_link_reset(&s->link);
-		hidpp_init(&s->hidpp, DEVICE_KIND_KEYBOARD);
-		hidpp_start(&s->hidpp);
-		s->battery = DEVICE_BATTERY_UNKNOWN;
-	}
-	/* A forgotten keyboard still transmits to this receiver's address. */
-	if (pipe != UNIFYING_PIPE_PAIRING && !unifying_has_device(&s->pairing) &&
-	    !attempting(&s->pairing)) {
-		return false;
-	}
-	if (pipe == UNIFYING_PIPE_DEVICE) {
-		bool checksum_ok = unifying_checksum_ok(frame, len);
-		uint32_t refused = s->link.refused;
-		bool attack = now_ms < s->link.attack_until_ms;
-
-		if (!s->heard) {
-			out->heard = UNIFYING_HEARD_FIRST;
-			out->down_ms = (uint32_t)(now_ms - s->started_ms);
-		} else if (s->silent) {
-			out->heard = s->connect_in_silence ? UNIFYING_HEARD_WOKE : UNIFYING_HEARD_AGAIN;
-			out->down_ms = (uint32_t)(now_ms - s->silent_since_ms);
-		}
-		/* The keyboard forgets a divert whenever it reconnects, which a silence can hide. */
-		if (out->heard != UNIFYING_HEARD_NONE) {
-			hidpp_start(&s->hidpp);
-		}
-		/* Requests 2 and 3 of a pairing attempt arrive on this pipe too. */
-		if (!attempting(&s->pairing) && checksum_ok) {
-			pairwin_link_up(&s->pairing.window);
-		}
-		s->silent = false;
-		s->connect_in_silence = false;
-		s->search_until_ms = 0;
-		s->heard = true;
-		s->heard_ms = now_ms;
-		s->rssi = rssi;
-		unifying_link_heard(&s->link, frame, len, now_ms);
-		if (unifying_has_device(&s->pairing)) {
-			out->reports = unifying_keystroke(&s->link, s->pairing.device.key, frame, len,
-							  now_ms, aes, out->report);
-			if (out->reports == 0 &&
-			    (unifying_media_report(&s->link, frame, len, &out->report[0]) ||
-			     (checksum_ok &&
-			      hidpp_rx_frame(&s->hidpp, &s->link, &s->battery, frame, len,
-					     &out->report[0])))) {
-				out->reports = 1;
-			}
-		}
-		out->invalid = !checksum_ok || s->link.refused != refused;
-		out->attack_started = !attack && now_ms < s->link.attack_until_ms;
+		out->paired_place = s->pairing.attempt.place;
+		unifying_link_reset(&s->links[out->paired_place]);
+		activate(s, out->paired_place, now_ms, out);
+		unifying_link_heard(&s->links[out->paired_place], frame, len, now_ms);
+		mark_heard(s, rssi, now_ms, out);
+	} else if (place != UNIFYING_NO_PLACE) {
+		handled = place_frame(s, place, frame, len, rssi, now_ms, aes, out);
 	} else if (pipe == UNIFYING_PIPE_RECEIVER) {
-		out->reconnected = unifying_is_connect_frame(frame, len, s->receiver.device_octet);
-		if (out->reconnected) {
-			hidpp_start(&s->hidpp);
-		}
-		s->connect_in_silence |= out->reconnected && s->silent;
-		out->release_all = unifying_link_reconnect(&s->link, s->receiver.device_octet, frame,
-							   len);
-		unifying_led_resend(&s->led);
+		handled = receiver_frame(s, frame, len, out);
 	}
 	/* A frame can close the window early, while the tick sets deaf_until_ms to its full end. */
 	if (!unifying_pairing_window_open(&s->pairing, now_ms) && s->deaf_until_ms > now_ms) {
 		s->deaf_until_ms = now_ms;
 	}
+	out->pipes = unifying_listen_pipes(&s->pairing);
+	out->listen |= out->pipes != pipes;
 	take_hidpp_event(s, out);
-	return true;
+	return handled;
 }
 
 void unifying_session_tick(struct unifying_session *s, uint64_t now_ms, bool leds_changed,
@@ -665,6 +907,7 @@ void unifying_session_tick(struct unifying_session *s, uint64_t now_ms, bool led
 {
 	uint8_t step = (uint8_t)s->pairing.attempt.state;
 	bool open = unifying_pairing_window_open(&s->pairing, now_ms);
+	uint8_t pipes = unifying_listen_pipes(&s->pairing);
 	bool pending;
 
 	*out = (struct unifying_out){0};
@@ -679,7 +922,8 @@ void unifying_session_tick(struct unifying_session *s, uint64_t now_ms, bool led
 		out->went_silent = true;
 		out->silent_ms = (uint32_t)(now_ms - s->heard_ms);
 	}
-	out->release_all = now_ms >= s->search_until_ms && unifying_link_silent(&s->link, now_ms);
+	out->release_all = unifying_has_device(&s->pairing) && now_ms >= s->search_until_ms &&
+			   unifying_link_silent(active_link(s), now_ms);
 	if (leds_changed) {
 		unifying_led_want(&s->led, host_leds);
 	}
@@ -696,8 +940,8 @@ void unifying_session_tick(struct unifying_session *s, uint64_t now_ms, bool led
 	/* The ACK payloads of a pairing attempt share the queue. */
 	if (s->queue.frame == UNIFYING_QUEUED_NONE && !out->send_led &&
 	    unifying_has_device(&s->pairing) && !attempting(&s->pairing)) {
-		out->hidpp_len = hidpp_request_frame(&s->hidpp, s->receiver.device_octet,
-							 now_ms, 2U * s->link.keepalive_ms,
+		out->hidpp_len = hidpp_request_frame(&s->hidpp, unifying_place_octet(s->active),
+							 now_ms, 2U * active_link(s)->keepalive_ms,
 							 out->hidpp);
 	}
 	take_hidpp_event(s, out);
@@ -718,6 +962,8 @@ void unifying_session_tick(struct unifying_session *s, uint64_t now_ms, bool led
 			s->channel = next;
 		}
 	}
+	out->pipes = unifying_listen_pipes(&s->pairing);
+	out->listen = out->pipes != pipes;
 }
 
 void unifying_session_led_queued(struct unifying_session *s, uint8_t leds, uint32_t taken_count)
@@ -739,12 +985,6 @@ void unifying_session_replies_dropped(struct unifying_session *s)
 	s->queue.frame = UNIFYING_QUEUED_NONE;
 }
 
-void unifying_session_open_pairing(struct unifying_session *s, enum pairwin_cause cause,
-				    uint64_t now_ms)
-{
-	unifying_pairing_open(&s->pairing, cause, now_ms);
-}
-
 enum unifying_status unifying_session_status(const struct unifying_session *s, uint64_t now_ms)
 {
 	if (!unifying_has_device(&s->pairing)) {
@@ -759,7 +999,9 @@ enum unifying_status unifying_session_status(const struct unifying_session *s, u
 void unifying_session_radio_resumed(struct unifying_session *s, uint64_t now_ms)
 {
 	/* The survey released the host's keys, and a release the keyboard sent meanwhile is lost. */
-	forget_held(&s->link);
+	if (unifying_has_device(&s->pairing)) {
+		forget_held(active_link(s));
+	}
 	if (!s->silent) {
 		s->deaf_until_ms = now_ms;
 	}

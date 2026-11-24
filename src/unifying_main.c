@@ -15,7 +15,6 @@
 
 _Static_assert(sizeof(((struct diag_status *)0)->name) >= UNIFYING_NAME_MAX, "status name");
 _Static_assert(DIAG_NAME_MAX >= UNIFYING_NAME_MAX, "device list name");
-_Static_assert(DIAG_ADDR_LEN >= 2 + UNIFYING_SERIAL_LEN, "device list address");
 _Static_assert(sizeof(((struct diag_status *)0)->keyboard_serial) == UNIFYING_SERIAL_LEN,
 	       "status serial");
 
@@ -51,19 +50,38 @@ static void aes_ecb(const uint8_t key[UNIFYING_KEY_LEN], const uint8_t in[UNIFYI
 	memcpy(out, ecb_block.cipher, sizeof(ecb_block.cipher));
 }
 
-static void on_paired(void)
+static bool active_pipe(uint8_t *pipe)
 {
+	if (session.active == UNIFYING_NO_PLACE) {
+		return false;
+	}
+	*pipe = unifying_place_pipe(session.active);
+	return true;
+}
+
+static void on_paired(uint8_t place)
+{
+	const struct unifying_device *d = &session.pairing.devices[place];
 	uint8_t record[UNIFYING_RECORD_LEN];
 	int err;
 
-	unifying_record_of(&session.pairing, record);
-	err = store_save_unifying(record, sizeof(record));
-	printk("pairing saved: %d\n", err);
+	unifying_record_of(&session.pairing, place, record);
+	err = store_save_unifying(place, record, sizeof(record));
+	printk("pairing saved in place %u: %d\n", place, err);
 	core_log(0, (struct diag_detail){.tag = DIAG_DETAIL_UNIFYING_PAIRED,
-				     .UNIFYING_PAIRED = {.wpid = {session.pairing.device.wpid[0],
-								  session.pairing.device.wpid[1]},
-							 .kind = session.pairing.device.type,
-							 .store_err = err}});
+					 .UNIFYING_PAIRED = {.wpid = {d->wpid[0], d->wpid[1]},
+							     .kind = d->type,
+							     .store_err = err}});
+}
+
+static int listen(uint8_t pipes)
+{
+	int err = core_listen(pipes);
+
+	if (err) {
+		printk("listening on pipes %02x failed: %d\n", pipes, err);
+	}
+	return err;
 }
 
 static void report_pairing(enum unifying_rx_event event, const uint8_t *reply, size_t n)
@@ -91,10 +109,14 @@ static void queue_leds(uint8_t leds)
 {
 	uint8_t frame[UNIFYING_LED_FRAME_LEN];
 	uint32_t taken;
+	uint8_t pipe;
 	size_t n = unifying_led_frame(leds, frame);
 
+	if (!active_pipe(&pipe)) {
+		return;
+	}
 	taken = radio_replies_taken();
-	if (radio_reply(UNIFYING_PIPE_DEVICE, frame, n) == 0) {
+	if (radio_reply(pipe, frame, n) == 0) {
 		unifying_session_led_queued(&session, leds, taken);
 	}
 }
@@ -120,13 +142,14 @@ static void log_hidpp_event(const struct hidpp_event *e)
 
 static void apply_frame(const struct unifying_out *out, const struct rx_item *item)
 {
-	if (item->pipe == UNIFYING_PIPE_DEVICE) {
-		if (out->invalid) {
-			core_count(CORE_INVALID);
-		} else {
-			core_packet(0);
-			core_rssi(0, item->rssi);
-		}
+	if (out->invalid) {
+		core_count(CORE_INVALID);
+	} else if (out->from_active) {
+		core_packet(0);
+		core_rssi(0, item->rssi);
+	}
+	if (out->listen) {
+		listen(out->pipes);
 	}
 	if (out->heard != UNIFYING_HEARD_NONE) {
 		core_log(0, (struct diag_detail){.tag = DIAG_DETAIL_LINK_UP,
@@ -157,28 +180,33 @@ static void apply_frame(const struct unifying_out *out, const struct rx_item *it
 		report_pairing(out->event, out->reply, out->reply_len);
 	}
 	if (out->event == UNIFYING_RX_PAIRED) {
-		on_paired();
-	}
-	for (size_t i = 0; i < out->reports; i++) {
-		core_submit(0, &out->report[i], &item->received_us);
+		on_paired(out->paired_place);
 	}
 	if (out->release_all) {
 		core_release_keys();
+	}
+	for (size_t i = 0; i < out->reports; i++) {
+		core_submit(0, &out->report[i], &item->received_us);
 	}
 	log_hidpp_event(&out->hidpp_event);
 }
 
 static void apply_tick(const struct unifying_out *out)
 {
+	uint8_t pipe;
+
+	if (out->listen) {
+		listen(out->pipes);
+	}
 	if (out->release_all) {
 		core_release_keys();
 	}
 	if (out->send_led) {
 		queue_leds(out->leds);
 	}
-	if (out->hidpp_len != 0) {
+	if (out->hidpp_len != 0 && active_pipe(&pipe)) {
 		uint32_t taken = radio_replies_taken();
-		int err = radio_reply(UNIFYING_PIPE_DEVICE, out->hidpp, out->hidpp_len);
+		int err = radio_reply(pipe, out->hidpp, out->hidpp_len);
 
 		if (err) {
 			printk("queueing HID++ request failed: %d\n", err);
@@ -207,22 +235,23 @@ static void apply_tick(const struct unifying_out *out)
 	log_hidpp_event(&out->hidpp_event);
 }
 
-static struct radio_config unifying_radio(const uint8_t device[UNIFYING_ADDRESS_LEN],
-					  uint8_t channel)
+static struct radio_config unifying_radio(const struct unifying_receiver *r, uint8_t channel)
 {
 	const uint8_t *pairing = unifying_pairing_address;
 
-	/* The last octet of an address is its prefix. */
-	return (struct radio_config){
+	struct radio_config rc = {
 		.rate = RADIO_2MBPS,
 		.crc = RADIO_CRC_16,
 		.base0 = {pairing[3], pairing[2], pairing[1], pairing[0]},
-		.base1 = {device[3], device[2], device[1], device[0]},
-		.prefixes = {pairing[4], device[4], 0x00},
-		.pipes = 3,
+		.base1 = {r->base[3], r->base[2], r->base[1], r->base[0]},
+		.pipes = UNIFYING_PIPES,
 		.channel = channel,
 		.noise = true,
 	};
+
+	_Static_assert(sizeof(rc.prefixes) == UNIFYING_PIPES, "one prefix per pipe");
+	unifying_prefixes(rc.prefixes);
+	return rc;
 }
 
 static int home(void)
@@ -288,7 +317,7 @@ static void fill_status(struct diag_status *st, uint8_t slot)
 		st->last_rx_age_ms = (uint32_t)MIN(now - session.heard_ms, UINT32_MAX - 1);
 	}
 	if (unifying_has_device(&session.pairing)) {
-		const struct unifying_device *d = &session.pairing.device;
+		const struct unifying_device *d = &session.pairing.devices[session.active];
 
 		memcpy(st->keyboard_id, d->wpid, sizeof(d->wpid));
 		memcpy(st->keyboard_serial, d->serial, sizeof(st->keyboard_serial));
@@ -298,47 +327,59 @@ static void fill_status(struct diag_status *st, uint8_t slot)
 	}
 }
 
-/* False with nothing paired. */
-static bool listed_keyboard(struct diag_device *out, uint64_t now)
+static void listed(struct diag_device *out, uint8_t place, uint64_t now)
 {
-	const struct unifying_device *d = &session.pairing.device;
+	const struct unifying_device *d = &session.pairing.devices[place];
+	bool connected = place == session.active &&
+			 unifying_session_status(&session, now) == UNIFYING_STATUS_CONNECTED;
 
-	*out = (struct diag_device){.kind = DEVICE_KIND_KEYBOARD, .slot = DEVICE_NO_SLOT};
-	if (!unifying_has_device(&session.pairing)) {
-		return false;
-	}
-	memcpy(out->addr, d->wpid, sizeof(d->wpid));
-	memcpy(&out->addr[sizeof(d->wpid)], d->serial, sizeof(d->serial));
+	*out = (struct diag_device){.kind = DEVICE_KIND_KEYBOARD,
+				    .slot = connected ? 0 : DEVICE_NO_SLOT};
+	unifying_list_address(&session.pairing, place, out->addr);
 	memcpy(out->name, d->name, sizeof(d->name));
-	if (unifying_session_status(&session, now) == UNIFYING_STATUS_CONNECTED) {
-		out->slot = 0;
-	}
-	return true;
 }
 
 static void send_devices(const struct diag_request *req, uint64_t now)
 {
-	struct diag_device keyboard;
-	bool paired = listed_keyboard(&keyboard, now);
+	struct diag_device devices[UNIFYING_PLACES];
+	size_t n = 0;
 
-	core_reply_devices(req, &keyboard, paired ? 1 : 0);
+	for (uint8_t place = 0; place < UNIFYING_PLACES; place++) {
+		if (session.pairing.stored[place]) {
+			listed(&devices[n++], place, now);
+		}
+	}
+	core_reply_devices(req, devices, n);
 }
 
 static void forget_keyboard(const struct diag_request *req, uint64_t now)
 {
-	struct diag_device keyboard;
+	struct diag_device device = {0};
+	struct unifying_out out;
+	uint8_t place = unifying_find_place(&session.pairing, req->data);
+	int radio_err = 0;
+	int listen_err;
 
-	if (!core_forget_matches(req, &keyboard, listed_keyboard(&keyboard, now))) {
+	if (place != UNIFYING_NO_PLACE) {
+		listed(&device, place, now);
+	}
+	if (!core_forget_matches(req, &device, place != UNIFYING_NO_PLACE)) {
 		return;
 	}
-	if (store_delete_unifying() != 0) {
+	if (store_delete_unifying(place) != 0) {
 		diag_reply_error(req, DIAG_ERROR_STORE, 0);
 		return;
 	}
-	unifying_session_forget(&session, now);
-	core_set_channel(session.channel);
-	core_release_keys();
-	core_keyboard_forgotten(req, &session.pairing.window);
+	unifying_session_forget(&session, place, now, &out);
+	if (out.set_channel) {
+		radio_err = core_set_channel(out.channel);
+	}
+	listen_err = listen(out.pipes);
+	if (out.release_all) {
+		core_release_keys();
+	}
+	core_keyboard_forgotten(req, out.window_opened ? &session.pairing.window : NULL,
+				radio_err != 0 || listen_err != 0 ? DIAG_ERROR_RADIO : 0);
 }
 
 static void serve_diag(const struct diag_request *req, uint64_t now)
@@ -351,7 +392,10 @@ static void serve_diag(const struct diag_request *req, uint64_t now)
 		forget_keyboard(req, now);
 		break;
 	case DIAG_COMMAND_PAIR:
-		unifying_session_open_pairing(&session, PAIRWIN_REQUEST, now);
+		if (!unifying_session_open_pairing(&session, PAIRWIN_REQUEST, now)) {
+			diag_reply_error(req, DIAG_ERROR_LIST_FULL, 0);
+			break;
+		}
 		printk("pairing open for %u s\n", PAIRWIN_MS / 1000);
 		core_log_pairing_opened(&session.pairing.window);
 		diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
@@ -385,35 +429,38 @@ FUNC_NORETURN void unifying_run(int store_err)
 {
 	uint32_t raw = NRF_FICR->DEVICEID[0] ^ NRF_FICR->DEVICEID[1];
 	struct radio_config rc;
-	struct unifying_receiver receiver = {.device_octet = 0x07, .wpid = {0x88, 0x02}};
-	uint8_t device_address[UNIFYING_ADDRESS_LEN];
+	struct unifying_receiver receiver = {.wpid = {0x88, 0x02}};
 	uint8_t record[UNIFYING_RECORD_LEN];
 	uint32_t reported_drops = 0;
-	bool stored;
+	uint64_t now = (uint64_t)k_uptime_get();
 
 	core_start_history(&loop);
 	memcpy(receiver.base, &raw, sizeof(receiver.base));
-	unifying_device_address(&receiver, device_address);
-	stored = store_err == 0 && store_load_unifying(record, sizeof(record));
-	unifying_session_init(&session, &receiver, stored ? record : NULL,
-			      (uint64_t)k_uptime_get());
-	unifying_session_open_pairing(&session, PAIRWIN_BOOT, (uint64_t)k_uptime_get());
-	core_log_pairing_opened(&session.pairing.window);
-	if (stored) {
-		printk("restored paired keyboard\n");
+	unifying_session_init(&session, &receiver, now);
+	if (store_err == 0) {
+		store_delete_single_unifying();
+	}
+	for (uint8_t place = 0; store_err == 0 && place < UNIFYING_PLACES; place++) {
+		if (store_load_unifying(place, record, sizeof(record))) {
+			unifying_session_restore(&session, place, record);
+			printk("restored the keyboard in place %u\n", place);
+		}
+	}
+	if (unifying_session_open_pairing(&session, PAIRWIN_BOOT, now)) {
+		core_log_pairing_opened(&session.pairing.window);
 	}
 	sys_rand_get(next_nonce, sizeof(next_nonce));
 
-	rc = unifying_radio(device_address, session.channel);
+	rc = unifying_radio(&receiver, session.channel);
 	core_start_radio(&rc);
-	print_hex("unifying receiver, assigned device address", device_address, 5);
+	listen(unifying_listen_pipes(&session.pairing));
+	print_hex("unifying receiver, base address", receiver.base, sizeof(receiver.base));
 
 	for (;;) {
 		struct unifying_out out;
 		struct diag_request req;
 		struct rx_item item;
 		uint32_t dropped;
-		uint64_t now;
 		uint8_t leds;
 		bool changed;
 		bool got;

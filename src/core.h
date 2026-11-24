@@ -97,8 +97,10 @@ void core_log_pairing_opened(const struct pairwin *w);
  * listed. */
 bool core_forget_matches(const struct diag_request *req, const struct diag_device *listed,
 			 bool paired);
-/* Logs the forget and the pairing window it opens, then replies; the caller releases held keys. */
-void core_keyboard_forgotten(const struct diag_request *req, const struct pairwin *w);
+/* Logs the forget, and the pairing window w unless it is NULL, then replies, with error unless it
+ * is 0; the caller releases held keys. */
+void core_keyboard_forgotten(const struct diag_request *req, const struct pairwin *w,
+			     enum diag_error error);
 void core_log_pairing_closed(void);
 /* Takes the pending noise readings first. */
 void core_rssi(uint8_t slot, int8_t dbm);

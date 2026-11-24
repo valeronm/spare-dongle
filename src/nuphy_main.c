@@ -317,7 +317,7 @@ static void forget_keyboard(const struct diag_request *req)
 	link_forget(&link, k_uptime_get_32(), &out);
 	apply(&out);
 	drop_keys();
-	core_keyboard_forgotten(req, &link.window);
+	core_keyboard_forgotten(req, &link.window, 0);
 }
 
 static void serve_diag(const struct diag_request *req)

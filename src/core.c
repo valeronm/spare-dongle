@@ -257,10 +257,17 @@ bool core_forget_matches(const struct diag_request *req, const struct diag_devic
 	return true;
 }
 
-void core_keyboard_forgotten(const struct diag_request *req, const struct pairwin *w)
+void core_keyboard_forgotten(const struct diag_request *req, const struct pairwin *w,
+			     enum diag_error error)
 {
 	core_log(0, (struct diag_detail){.tag = DIAG_DETAIL_KEYBOARD_FORGOTTEN});
-	core_log_pairing_opened(w);
+	if (w != NULL) {
+		core_log_pairing_opened(w);
+	}
+	if (error != 0) {
+		diag_reply_error(req, error, 0);
+		return;
+	}
 	diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
 }
 
@@ -439,9 +446,8 @@ int core_listen(uint8_t pipes)
 	}
 	take_noise();
 	err = radio_listen(pipes);
-	if (err == 0) {
-		loop->replies_dropped();
-	}
+	/* radio_listen drops the queued replies before the step that can fail. */
+	loop->replies_dropped();
 	return err;
 }
 

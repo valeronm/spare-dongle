@@ -19,7 +19,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 |---|---|---|---|
 | **Devices** | | | |
 | Keyboards connected at once | up to six devices[^unifying] | one | 🔴 |
-| Keyboards stored | up to six devices | one | 🔴 |
+| Keyboards stored | up to six devices | up to six | ⚪ |
 | Mice | yes | no | 🔴 |
 | Mouse wheel | with a paired mouse | no mice | 🔴 |
 | **Keys** | | | |
@@ -52,10 +52,12 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | HID++ used by the dongle | no: left to software on the PC | brightness keys and battery ([HID++](#hid)) | 🟢 |
 | HID++ passed to Logitech Options and Solaar | yes[^solaar] | no | 🔴 |
 
-On the PC, Logitech Options, Solaar or Linux's HID++ driver[^hidpp-driver] speaks HID++. Pairing a
-new keyboard replaces the one SpareDongle had. Both pair a keyboard that is switched off
-and on while pairing is open[^solaar-pair] ([Pairing](#pairing)). Logitech's software cannot see the
-keyboard through SpareDongle.
+On the PC, Logitech Options, Solaar or Linux's HID++ driver[^hidpp-driver] speaks HID++. SpareDongle
+stores up to six keyboards and types from one at a time: a stored keyboard takes over when a key is
+pressed on it. Each pairing takes a free place, so pairing the same Easy-Switch key again leaves its
+earlier pairing stored until it is forgotten. SpareDongle and the Unifying receiver both pair a
+keyboard that is switched off and on while pairing is open[^solaar-pair] ([Pairing](#pairing)).
+Logitech's software cannot see the keyboard through SpareDongle.
 
 ## Reliability
 
@@ -83,7 +85,9 @@ keystrokes.
 SpareDongle refuses a keystroke that fails decryption or carries a counter used since the keyboard
 last connected, and forgets those counters at the keyboard's connect frame, which a single forged
 frame can fake. Before the keyboard's counter is known, and for 5 s after a failed decryption, it
-types a key press only once the next frame confirms it.
+types a key press only once the next frame confirms it. A forged unencrypted frame sent to a stored
+keyboard's address, such as a media key, makes that keyboard the one SpareDongle types from and
+releases the keys held on the other.
 
 | | Unifying receiver | SpareDongle |  |
 |---|---|---|---|
@@ -112,6 +116,8 @@ channels a paired keyboard searches are in `src/unifying.h`. What the code does 
 - Nordic's ESB matches a Unifying address only with its first four bytes reversed as the base and
   the fifth as the prefix. Neither the address written forward nor all five bytes reversed matched
   the MX Keys.
+- A receiver hands each device its own last address octet; `unifying_place_octet()` in
+  `src/unifying.c` holds the ones SpareDongle uses, which are its own choice.
 - A receiver moved off the pairing channels, to 38, 50 or 68, was never found again.
 
 ### Pairing
@@ -130,12 +136,14 @@ What the code does not show:
 - The MX Keys sends Request 1 only at power-on, with a genuine receiver too. Holding an Easy-Switch
   key until it blinks fast makes it advertise over Bluetooth LE on that slot; the Unifying request
   goes out once the keyboard is then switched off and on.
+- An MX Keys key put into pairing by a long press sends a new random address in bytes 3 to 7 of
+  Request 1 each time, so the receiver cannot tell a re-pairing from a new device by it.
 - The filler bytes in the responses are values the MX Keys accepted.
 
 ### After pairing
 
 - At every connect, the keyboard first sends two frames to the receiver's own address (device octet
-  `0x00`) and moves to the keyboard's address only once they are ACKed.
+  `0x00`) and moves to the address its place was given only once they are ACKed.
 - The keyboard sets its own keep-alive timeout; the receiver need not send one.
 - The keystroke counter rises by one per frame, starts from a new value after a new pairing, and
   survives a receiver restart.

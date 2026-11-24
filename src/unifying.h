@@ -28,6 +28,11 @@
 #define UNIFYING_KEYSTROKE_REPORTS 2
 #define UNIFYING_SERIAL_LEN 4
 #define UNIFYING_COUNTER_LIMIT (0x100000000ULL - (1ULL << 20))
+#define UNIFYING_PLACES 6
+#define UNIFYING_NO_PLACE UNIFYING_PLACES
+#define UNIFYING_PIPE_PAIRING 0
+#define UNIFYING_PIPE_RECEIVER 7
+#define UNIFYING_PIPES 8
 
 /* Addresses are written in the order the Unifying sources print them, the device octet last. */
 extern const uint8_t unifying_pairing_address[UNIFYING_ADDRESS_LEN];
@@ -35,7 +40,6 @@ extern const uint8_t unifying_pairing_address[UNIFYING_ADDRESS_LEN];
 /* What the receiver hands out in Pairing Response 1; base and wpid also enter the key. */
 struct unifying_receiver {
 	uint8_t base[4];
-	uint8_t device_octet;
 	uint8_t wpid[2];
 };
 
@@ -60,6 +64,8 @@ struct unifying_device {
 struct unifying_attempt {
 	enum unifying_state state;
 	uint8_t id;
+	/* An empty place while the attempt runs; the place it paired once it completes. */
+	uint8_t place;
 	uint64_t last_ms;
 	struct unifying_device dev;
 	uint8_t caps;
@@ -68,8 +74,8 @@ struct unifying_attempt {
 };
 
 struct unifying_pairing {
-	bool has_device;
-	struct unifying_device device;
+	bool stored[UNIFYING_PLACES];
+	struct unifying_device devices[UNIFYING_PLACES];
 	struct unifying_attempt attempt;
 	struct pairwin window;
 };
@@ -97,17 +103,26 @@ void unifying_derive_key(uint8_t key[UNIFYING_KEY_LEN], const uint8_t base[4],
 			 const uint8_t device_nonce[UNIFYING_NONCE_LEN],
 			 const uint8_t dongle_nonce[UNIFYING_NONCE_LEN]);
 
-void unifying_device_address(const struct unifying_receiver *r, uint8_t out[UNIFYING_ADDRESS_LEN]);
+uint8_t unifying_place_pipe(uint8_t place);
+uint8_t unifying_place_octet(uint8_t place);
+uint8_t unifying_pipe_place(uint8_t pipe);
+void unifying_prefixes(uint8_t out[UNIFYING_PIPES]);
+uint8_t unifying_octet_place(uint8_t octet);
+
+void unifying_device_address(const struct unifying_receiver *r, uint8_t place,
+			     uint8_t out[UNIFYING_ADDRESS_LEN]);
 
 /*
- * Feeds one frame received on the pairing or device address, since Requests 2 and 3 arrive on the
- * device address. Returns the length of the response to queue as the next ACK payload, written to
- * reply (UNIFYING_FRAME_MAX bytes), or 0 when there is none, and sets *event to what the frame did.
+ * Feeds one frame received on the pairing address or the attempt's place address, since Requests 2
+ * and 3 arrive on the place address. Returns the length of the response to queue as the next ACK
+ * payload, written to reply (UNIFYING_FRAME_MAX bytes), or 0 when there is none, and sets *event to
+ * what the frame did.
  * nonce is copied in when Request 1 starts an attempt, so it must be one no earlier attempt used.
  * A repeat of an answered request gets 0, since ESB keeps its reply queued until the keyboard moves
  * on. A Request 1 from anything but a Unifying-compatible keyboard discards any attempt in
- * progress. The paired device changes only when Request 3 completes an attempt. A Request 1 is
- * ignored while the window is closed; Requests 2 and 3 are not.
+ * progress. Request 1 starts an attempt on the lowest empty place and is ignored when none is
+ * empty; Request 3 stores the device there. A Request 1 is ignored while the window is
+ * closed; Requests 2 and 3 are not.
  */
 size_t unifying_pairing_rx(struct unifying_pairing *p, const struct unifying_receiver *r,
 			   const uint8_t nonce[UNIFYING_NONCE_LEN], const uint8_t *frame, size_t len,
@@ -115,7 +130,7 @@ size_t unifying_pairing_rx(struct unifying_pairing *p, const struct unifying_rec
 
 /*
  * Discards an attempt that has heard no request for UNIFYING_PAIRING_TIMEOUT_MS and returns true;
- * the paired device is kept.
+ * the stored devices are kept.
  */
 bool unifying_pairing_expired(struct unifying_pairing *p, uint64_t now_ms);
 
@@ -127,14 +142,25 @@ bool unifying_pairing_expired(struct unifying_pairing *p, uint64_t now_ms);
 uint8_t unifying_sweep_channel(struct unifying_sweep *s, const struct unifying_pairing *p,
 			       uint64_t now_ms);
 
-void unifying_pairing_open(struct unifying_pairing *p, enum pairwin_cause cause, uint64_t now_ms);
+/* False, with the window left closed, when every place is stored. */
+bool unifying_pairing_open(struct unifying_pairing *p, enum pairwin_cause cause, uint64_t now_ms);
 
 bool unifying_pairing_window_open(const struct unifying_pairing *p, uint64_t now_ms);
 
 bool unifying_has_device(const struct unifying_pairing *p);
 
-/* Discards whatever state p holds, an attempt in progress included, and pairs d. */
-void unifying_pairing_restore(struct unifying_pairing *p, const struct unifying_device *d);
+void unifying_pairing_restore(struct unifying_pairing *p, uint8_t place,
+			      const struct unifying_device *d);
+void unifying_pairing_forget(struct unifying_pairing *p, uint8_t place);
+/* One bit per pipe: the pairing and receiver pipes, each stored place and the place of a running
+ * attempt. */
+uint8_t unifying_listen_pipes(const struct unifying_pairing *p);
+
+/* The address a device list shows for the place: product ID, serial, then the place's octet. */
+void unifying_list_address(const struct unifying_pairing *p, uint8_t place,
+			   uint8_t out[DIAG_ADDR_LEN]);
+/* The stored place whose list address is addr, else UNIFYING_NO_PLACE. */
+uint8_t unifying_find_place(const struct unifying_pairing *p, const uint8_t addr[DIAG_ADDR_LEN]);
 
 bool unifying_is_encrypted_keyboard(const uint8_t *frame, size_t len);
 
@@ -225,19 +251,20 @@ enum unifying_queued {
 };
 
 /*
- * At most one of the dongle's own frames waits in the device pipe's ESB payload queue, which pairing
- * replies share; it counts as taken once the taken count moves past taken_count, which is sampled
- * before queueing, as the frame can be taken at once.
+ * At most one of the dongle's own frames waits on the active keyboard's pipe, and pairing replies
+ * share its taken count. The frame counts as taken once the taken count moves past taken_count,
+ * which is sampled before queueing, as the frame can be taken at once.
  */
 struct unifying_queue {
 	enum unifying_queued frame;
 	uint32_t taken_count;
 };
 
-void unifying_record_of(const struct unifying_pairing *p, uint8_t out[UNIFYING_RECORD_LEN]);
+void unifying_record_of(const struct unifying_pairing *p, uint8_t place,
+			uint8_t out[UNIFYING_RECORD_LEN]);
 
-/* Discards whatever state p holds and pairs the recorded device. */
-void unifying_record_restore(struct unifying_pairing *p, const uint8_t in[UNIFYING_RECORD_LEN]);
+void unifying_record_restore(struct unifying_pairing *p, uint8_t place,
+			     const uint8_t in[UNIFYING_RECORD_LEN]);
 
 /*
  * Records any frame from the keyboard; keep-alive and set-keep-alive frames also carry its timeout.
@@ -251,14 +278,12 @@ void unifying_link_heard(struct unifying_link *l, const uint8_t *frame, size_t l
  */
 bool unifying_link_silent(struct unifying_link *l, uint64_t now_ms);
 
-#define UNIFYING_PIPE_PAIRING 0
-#define UNIFYING_PIPE_DEVICE 1
-#define UNIFYING_PIPE_RECEIVER 2
-
 struct unifying_session {
 	struct unifying_receiver receiver;
 	struct unifying_pairing pairing;
-	struct unifying_link link;
+	struct unifying_link links[UNIFYING_PLACES];
+	/* A stored place while any is stored, else UNIFYING_NO_PLACE. */
+	uint8_t active;
 	struct unifying_led led;
 	struct hidpp hidpp;
 	struct device_battery battery;
@@ -317,15 +342,29 @@ struct unifying_out {
 	bool window_closed;
 	/* The handshake step an expired attempt had answered, 1 or 2. */
 	uint8_t expired_step;
+	/* The frame came from the active keyboard and counts as its packet. */
+	bool from_active;
+	/* Listening on pipes drops the queued replies, so it precedes any reply this call queues. */
+	bool listen;
+	uint8_t pipes;
+	/* Meaningful only for UNIFYING_RX_PAIRED. */
+	uint8_t paired_place;
+	bool window_opened;
 };
 
-/* record is NULL when no keyboard is stored. */
 void unifying_session_init(struct unifying_session *s, const struct unifying_receiver *r,
-			   const uint8_t *record, uint64_t now_ms);
-/* Drops the paired keyboard and opens pairing until another pairs, keeping the receiver. */
-void unifying_session_forget(struct unifying_session *s, uint64_t now_ms);
+			   uint64_t now_ms);
+/* For each stored record after unifying_session_init, lowest place first. */
+void unifying_session_restore(struct unifying_session *s, uint8_t place,
+			      const uint8_t record[UNIFYING_RECORD_LEN]);
+/* Drops the place's keyboard; out tells the caller to release the keys when it was the active one,
+ * to set the channel when it changed, to listen on pipes, and to log the pairing window, which
+ * opens when no place is left stored. */
+void unifying_session_forget(struct unifying_session *s, uint8_t place, uint64_t now_ms,
+			     struct unifying_out *out);
 
-/* False for a frame the session ignores. */
+/* False for a frame the session ignores. Frames on a place's pipe come from that place's
+ * keyboard. */
 bool unifying_session_frame(struct unifying_session *s, uint8_t pipe, const uint8_t *frame,
 			    size_t len, int8_t rssi, uint64_t now_ms,
 			    const uint8_t nonce[UNIFYING_NONCE_LEN], unifying_aes_fn aes,
@@ -346,8 +385,9 @@ void unifying_session_hidpp_queued(struct unifying_session *s, uint32_t taken_co
 /* The replies queued on the radio were dropped. */
 void unifying_session_replies_dropped(struct unifying_session *s);
 
-void unifying_session_open_pairing(struct unifying_session *s, enum pairwin_cause cause,
-				    uint64_t now_ms);
+/* False when every place is stored. */
+bool unifying_session_open_pairing(struct unifying_session *s, enum pairwin_cause cause,
+				   uint64_t now_ms);
 
 /* The receiver was off until now_ms, so silence before it is not the keyboard's. */
 void unifying_session_radio_resumed(struct unifying_session *s, uint64_t now_ms);

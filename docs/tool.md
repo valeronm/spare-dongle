@@ -44,7 +44,8 @@ records how many keys the dongle diverted over HID++, or what stopped it.
 
 ## Pairing and channels
 
-- `pair` opens pairing for 30 seconds.
+- `pair` opens pairing for 30 seconds. A Unifying dongle that stores six keyboards refuses it until
+  one is forgotten.
 - `move <channel>` moves the link to one of the keyboard's channels, until the dongle moves it again
   or restarts.
 - `protocol` shows the protocol the dongle runs; `protocol nuphy`, `unifying` or `bluetooth`
@@ -58,13 +59,13 @@ Unifying keyboard's channels are fixed by its firmware, so the command exists on
 
 ## Devices
 
-The dongle reports each device it holds in a numbered slot: NuPhy and Unifying have one, the
-keyboard, and Bluetooth has two, a keyboard and a mouse. `status`, `history` and the live view
-show every slot that has a device paired or connected, each with its own name, signal, last packet
-and counters; the channel, noise, USB and the other link-wide counters are shared. The live view
-shows the shared state in one dongle box, and below it each slot's box and chart, side by side
-when the terminal is wide enough, and otherwise `o` steps through them. Event lines name the
-device they are about.
+The dongle reports each device it holds in a numbered slot: NuPhy has one, the keyboard, and so
+does Unifying, whose slot is the stored keyboard it types from, and Bluetooth has two, a keyboard
+and a mouse. `status`, `history` and the live view show every slot that has a device paired or
+connected, each with its own name, signal, last packet and counters; the channel, noise, USB and
+the other link-wide counters are shared. The live view shows the shared state in one dongle box,
+and below it each slot's box and chart, side by side when the terminal is wide enough, and
+otherwise `o` steps through them. Event lines name the device they are about.
 
 Each connected device's latency is the delay from a report's arrival at the dongle to the PC
 fetching it over USB, as its average and maximum since the last `clear`, or "no report yet" before
@@ -74,8 +75,9 @@ not counted.
 
 `devices` lists the paired devices with their kind and the slot each is connected in, and
 `forget <n>` removes the one at that place in the list. In the live view `d` shows the list in place
-of the chart, and a device's number asks to forget it. A NuPhy or Unifying dongle that forgets its
-keyboard stops taking its keys and opens pairing until a keyboard pairs.
+of the chart, and a device's number asks to forget it. A NuPhy dongle that forgets its keyboard
+stops taking its keys and opens pairing until a keyboard pairs; a Unifying dongle does so only when
+no keyboard is left stored.
 
 ## Bluetooth mode
 
