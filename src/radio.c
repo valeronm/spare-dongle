@@ -183,6 +183,20 @@ int radio_set_channel(uint8_t channel)
 	return err;
 }
 
+int radio_listen(uint8_t pipes)
+{
+	int err, started;
+
+	stop_rx();
+	esb_flush_tx();
+	err = esb_enable_pipes(pipes);
+	started = esb_start_rx();
+	if (!started) {
+		listening = true;
+	}
+	return err ? err : started;
+}
+
 uint8_t radio_noise_take(struct noise_tally *t)
 {
 	unsigned int key = irq_lock();

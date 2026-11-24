@@ -41,8 +41,8 @@ struct core_loop {
 	/* Points *channels at the channels a noise move may go to and returns how many; a change
 	 * in them drops the noise heard so far. */
 	size_t (*candidates)(const uint8_t **channels);
-	/* Runs after each channel change, scan round or survey, which drops the replies queued on
-	 * the radio. */
+	/* Runs after each channel change, change of pipes, scan round or survey, which drops the
+	 * replies queued on the radio. */
 	void (*replies_dropped)(void);
 	/* Moves the protocol state for a requested or noise move; *from is the channel before it. */
 	enum chanmove_result (*move)(uint8_t channel, uint8_t *from);
@@ -110,6 +110,9 @@ void core_poll(void);
 /* Takes the pending noise readings, which a channel change drops, and counts a change that
  * succeeds. */
 int core_set_channel(uint8_t channel);
+/* Takes the pending noise readings, which a change of pipes drops, and reports the dropped
+ * replies to the loop. */
+int core_listen(uint8_t pipes);
 /* Takes the pending noise readings, which a survey drops, and releases the host's keys. Blocks for
  * about 1.5 s with the receiver off; returns NULL when the radio failed or there is no ESB radio. */
 const struct chan_survey *core_survey(void);

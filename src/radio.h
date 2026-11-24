@@ -32,6 +32,9 @@ struct radio_config {
 int radio_start(const struct radio_config *c, radio_rx_cb cb);
 int radio_set_channel(uint8_t channel);
 
+/* Listens on the pipes whose bits are set, until the next call, and drops any queued replies. */
+int radio_listen(uint8_t pipes);
+
 /* Moves the kept readings into t and returns their channel. Readings start once radio_start
  * succeeds with noise set and are kept only on the channel being listened to; a channel change
  * drops those not yet taken. */

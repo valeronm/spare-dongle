@@ -430,6 +430,21 @@ int core_set_channel(uint8_t channel)
 	return err;
 }
 
+int core_listen(uint8_t pipes)
+{
+	int err;
+
+	if (!diag_protocol_has_esb(active)) {
+		return -ENOTSUP;
+	}
+	take_noise();
+	err = radio_listen(pipes);
+	if (err == 0) {
+		loop->replies_dropped();
+	}
+	return err;
+}
+
 const struct chan_survey *core_survey(void)
 {
 	static struct chan_survey survey;
