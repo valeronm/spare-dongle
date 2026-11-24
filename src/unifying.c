@@ -684,8 +684,7 @@ static bool pressed(const struct report *r, size_t n)
 	return false;
 }
 
-static void activate(struct unifying_session *s, uint8_t place, uint64_t now_ms,
-		     struct unifying_out *out)
+static void activate(struct unifying_session *s, uint8_t place, struct unifying_out *out)
 {
 	if (s->active != UNIFYING_NO_PLACE && any_held(active_link(s))) {
 		forget_held(active_link(s));
@@ -694,11 +693,8 @@ static void activate(struct unifying_session *s, uint8_t place, uint64_t now_ms,
 	/* A reply still queued would be taken by the old keyboard and counted as this one's. */
 	out->listen = s->queue.frame != UNIFYING_QUEUED_NONE;
 	s->active = place;
-	s->heard = false;
-	s->silent = false;
 	s->connect_in_silence = false;
 	s->search_until_ms = 0;
-	s->started_ms = now_ms;
 	s->battery = DEVICE_BATTERY_UNKNOWN;
 	hidpp_init(&s->hidpp, DEVICE_KIND_KEYBOARD);
 	hidpp_start(&s->hidpp);
@@ -752,7 +748,10 @@ void unifying_session_forget(struct unifying_session *s, uint8_t place, uint64_t
 		unifying_session_open_pairing(s, PAIRWIN_REQUEST, now_ms);
 		out->window_opened = true;
 	} else if (was_active) {
-		activate(s, first_place(&s->pairing, true), now_ms, out);
+		activate(s, first_place(&s->pairing, true), out);
+		s->heard = false;
+		s->silent = false;
+		s->started_ms = now_ms;
 	}
 	out->release_all = was_active;
 	out->set_channel = s->channel != channel;
@@ -767,19 +766,14 @@ bool unifying_session_open_pairing(struct unifying_session *s, enum pairwin_caus
 	return unifying_pairing_open(&s->pairing, cause, now_ms);
 }
 
-static void take_over(struct unifying_session *s, uint8_t place, uint64_t now_ms,
-		      struct unifying_out *out)
+static void take_over(struct unifying_session *s, uint8_t place, struct unifying_out *out)
 {
-	bool heard = s->heard;
-	uint64_t quiet_since_ms = s->silent ? s->silent_since_ms : s->heard_ms;
-	uint64_t started_ms = s->started_ms;
-
-	activate(s, place, now_ms, out);
+	activate(s, place, out);
 	/* A gap in the host's link began with the old keyboard. */
-	s->heard = heard;
-	s->silent = heard;
-	s->silent_since_ms = quiet_since_ms;
-	s->started_ms = started_ms;
+	if (s->heard && !s->silent) {
+		s->silent = true;
+		s->silent_since_ms = s->heard_ms;
+	}
 }
 
 static void mark_heard(struct unifying_session *s, int8_t rssi, uint64_t now_ms,
@@ -831,7 +825,7 @@ static bool place_frame(struct unifying_session *s, uint8_t place, const uint8_t
 		if (!pressed(typed, n) && !(checksum_ok && (!s->heard || s->silent))) {
 			return true;
 		}
-		take_over(s, place, now_ms, out);
+		take_over(s, place, out);
 	}
 	mark_heard(s, rssi, now_ms, out);
 	if (!attempting(&s->pairing) && checksum_ok) {
@@ -886,7 +880,7 @@ bool unifying_session_frame(struct unifying_session *s, uint8_t pipe, const uint
 	if (out->event == UNIFYING_RX_PAIRED) {
 		out->paired_place = s->pairing.attempt.place;
 		unifying_link_reset(&s->links[out->paired_place]);
-		activate(s, out->paired_place, now_ms, out);
+		take_over(s, out->paired_place, out);
 		unifying_link_heard(&s->links[out->paired_place], frame, len, now_ms);
 		mark_heard(s, rssi, now_ms, out);
 	} else if (place != UNIFYING_NO_PLACE) {

@@ -3375,6 +3375,7 @@ static void test_a_new_pairing_takes_a_place_beside_the_stored_one(void)
 	send(&s, 1, f, sizeof(f), 30, &out);
 	CHECK_EQ(out.event, UNIFYING_RX_PAIRED);
 	CHECK_EQ(out.heard, UNIFYING_HEARD_FIRST);
+	CHECK_EQ(out.down_ms, 30);
 	CHECK_EQ(out.paired_place, 1);
 	CHECK_EQ(s.active, 1);
 	CHECK(s.pairing.stored[0]);
@@ -3500,7 +3501,8 @@ static void test_the_old_keyboard_does_not_take_back_a_just_paired_one(void)
 	request_3(f, 0x00);
 	send(&s, 1, f, sizeof(f), 1030, &out);
 	CHECK_EQ(out.event, UNIFYING_RX_PAIRED);
-	CHECK_EQ(out.heard, UNIFYING_HEARD_FIRST);
+	CHECK_EQ(out.heard, UNIFYING_HEARD_AGAIN);
+	CHECK_EQ(out.down_ms, 30);
 	CHECK(out.from_active);
 	CHECK_EQ(s.active, 1);
 	hear(&s, 1040, &out);
