@@ -293,7 +293,6 @@ struct unifying_session {
 	bool heard;
 	uint64_t heard_ms;
 	int8_t rssi;
-	uint64_t started_ms;
 	bool silent;
 	uint64_t silent_since_ms;
 	bool connect_in_silence;
@@ -332,8 +331,8 @@ struct unifying_out {
 	/* Time since the last frame when the silence was noticed. */
 	uint32_t silent_ms;
 	enum unifying_heard heard;
-	/* For UNIFYING_HEARD_FIRST, time since the session started; otherwise since the silence was
-	 * noticed. */
+	/* The clock reading at the frame for UNIFYING_HEARD_FIRST; otherwise the time since the
+	 * silence was noticed. */
 	uint32_t down_ms;
 	bool reconnected;
 	bool attack_started;
@@ -354,8 +353,7 @@ struct unifying_out {
 	bool active_identified;
 };
 
-void unifying_session_init(struct unifying_session *s, const struct unifying_receiver *r,
-			   uint64_t now_ms);
+void unifying_session_init(struct unifying_session *s, const struct unifying_receiver *r);
 /* For each stored record after unifying_session_init, lowest place first. */
 void unifying_session_restore(struct unifying_session *s, uint8_t place,
 			      const uint8_t record[UNIFYING_RECORD_LEN]);

@@ -701,14 +701,12 @@ static void activate(struct unifying_session *s, uint8_t place, struct unifying_
 	unifying_led_resend(&s->led);
 }
 
-void unifying_session_init(struct unifying_session *s, const struct unifying_receiver *r,
-			   uint64_t now_ms)
+void unifying_session_init(struct unifying_session *s, const struct unifying_receiver *r)
 {
 	memset(s, 0, sizeof(*s));
 	hidpp_init(&s->hidpp, DEVICE_KIND_KEYBOARD);
 	s->receiver = *r;
 	s->active = UNIFYING_NO_PLACE;
-	s->started_ms = now_ms;
 	s->battery = DEVICE_BATTERY_UNKNOWN;
 	for (uint8_t place = 0; place < UNIFYING_PLACES; place++) {
 		unifying_link_reset(&s->links[place]);
@@ -744,14 +742,13 @@ void unifying_session_forget(struct unifying_session *s, uint8_t place, uint64_t
 	if (!unifying_has_device(&s->pairing)) {
 		struct unifying_receiver r = s->receiver;
 
-		unifying_session_init(s, &r, now_ms);
+		unifying_session_init(s, &r);
 		unifying_session_open_pairing(s, PAIRWIN_REQUEST, now_ms);
 		out->window_opened = true;
 	} else if (was_active) {
 		activate(s, first_place(&s->pairing, true), out);
 		s->heard = false;
 		s->silent = false;
-		s->started_ms = now_ms;
 	}
 	out->release_all = was_active;
 	out->set_channel = s->channel != channel;
@@ -783,7 +780,7 @@ static void mark_heard(struct unifying_session *s, int8_t rssi, uint64_t now_ms,
 	out->from_active = true;
 	if (!s->heard) {
 		out->heard = UNIFYING_HEARD_FIRST;
-		out->down_ms = (uint32_t)(now_ms - s->started_ms);
+		out->down_ms = (uint32_t)now_ms;
 		out->active_identified = true;
 	} else if (s->silent) {
 		out->heard = s->connect_in_silence ? UNIFYING_HEARD_WOKE : UNIFYING_HEARD_AGAIN;

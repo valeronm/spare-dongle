@@ -442,7 +442,7 @@ FUNC_NORETURN void unifying_run(int store_err)
 
 	core_start_history(&loop);
 	memcpy(receiver.base, &raw, sizeof(receiver.base));
-	unifying_session_init(&session, &receiver, now);
+	unifying_session_init(&session, &receiver);
 	if (store_err == 0) {
 		store_delete_single_unifying();
 	}
