@@ -13,11 +13,6 @@
 #define USB_PID 0x4e44
 /* The Adafruit nRF52 bootloader stays in UF2 and serial DFU mode when it finds this value. */
 #define BOOTLOADER_DFU_MAGIC 0x57
-#define EXTRA_ID_CONSUMER 1
-#define EXTRA_ID_SYSTEM 2
-#define EXTRA_ID_KEYS 3
-#define EXTRA_USAGE_REPORT_LEN 3
-#define EXTRA_REPORT_LEN (1 + REPORT_NKRO_LEN)
 #define ALL_IFACES_READY BIT_MASK(REPORT_IFACES)
 
 USBD_DEVICE_DEFINE(dongle_usbd, DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0)), USB_VID, USB_PID);
@@ -70,7 +65,7 @@ static const uint8_t extra_desc[] = {
 	HID_USAGE_PAGE(0x0c), /* Consumer */
 	HID_USAGE(0x01),
 	HID_COLLECTION(HID_COLLECTION_APPLICATION),
-	HID_REPORT_ID(EXTRA_ID_CONSUMER),
+	HID_REPORT_ID(REPORT_EXTRA_ID_CONSUMER),
 	HID_LOGICAL_MIN8(0x01),
 	HID_LOGICAL_MAX16(REPORT_CONSUMER_MAX & 0xff, REPORT_CONSUMER_MAX >> 8),
 	HID_USAGE_MIN8(0x01),
@@ -82,7 +77,7 @@ static const uint8_t extra_desc[] = {
 	HID_USAGE_PAGE(HID_USAGE_GEN_DESKTOP),
 	HID_USAGE(0x80), /* System Control */
 	HID_COLLECTION(HID_COLLECTION_APPLICATION),
-	HID_REPORT_ID(EXTRA_ID_SYSTEM),
+	HID_REPORT_ID(REPORT_EXTRA_ID_SYSTEM),
 	/*
 	 * Generic Desktop usages outside power, sleep and wake include joystick and D-pad ones, which
 	 * make a host treat the interface as a joystick.
@@ -98,7 +93,7 @@ static const uint8_t extra_desc[] = {
 	HID_USAGE_PAGE(HID_USAGE_GEN_DESKTOP),
 	HID_USAGE(HID_USAGE_GEN_DESKTOP_KEYBOARD),
 	HID_COLLECTION(HID_COLLECTION_APPLICATION),
-	HID_REPORT_ID(EXTRA_ID_KEYS),
+	HID_REPORT_ID(REPORT_EXTRA_ID_KEYS),
 	HID_USAGE_PAGE(HID_USAGE_GEN_DESKTOP_KEYPAD),
 	HID_USAGE_MIN8(0),
 	HID_USAGE_MAX8(REPORT_NKRO_KEYS - 1),
@@ -186,11 +181,11 @@ static const struct device *const extra_dev = DEVICE_DT_GET(DT_NODELABEL(hid_ext
 static const struct device *const mouse_dev = DEVICE_DT_GET(DT_NODELABEL(hid_mouse));
 static const struct device *const diag_dev = DEVICE_DT_GET(DT_NODELABEL(hid_diag));
 UDC_STATIC_BUF_DEFINE(diag_buf, DIAG_REPORT_LEN);
-UDC_STATIC_BUF_DEFINE(keyboard_buf, REPORT_KEYBOARD_LEN);
-UDC_STATIC_BUF_DEFINE(extra_buf, EXTRA_REPORT_LEN);
-UDC_STATIC_BUF_DEFINE(mouse_buf, REPORT_MOUSE_LEN);
+UDC_STATIC_BUF_DEFINE(keyboard_buf, REPORT_USB_MAX_LEN);
+UDC_STATIC_BUF_DEFINE(extra_buf, REPORT_USB_MAX_LEN);
+UDC_STATIC_BUF_DEFINE(mouse_buf, REPORT_USB_MAX_LEN);
 BUILD_ASSERT(DT_PROP(DT_NODELABEL(hid_keyboard), in_report_size) == REPORT_KEYBOARD_LEN);
-BUILD_ASSERT(DT_PROP(DT_NODELABEL(hid_extra), in_report_size) == EXTRA_REPORT_LEN);
+BUILD_ASSERT(DT_PROP(DT_NODELABEL(hid_extra), in_report_size) == REPORT_EXTRA_LEN);
 BUILD_ASSERT(DT_PROP(DT_NODELABEL(hid_mouse), in_report_size) == REPORT_MOUSE_LEN);
 BUILD_ASSERT(DT_PROP(DT_NODELABEL(hid_diag), in_report_size) == DIAG_REPORT_LEN);
 BUILD_ASSERT(DT_PROP(DT_NODELABEL(hid_diag), out_report_size) == DIAG_REPORT_LEN);
@@ -430,25 +425,18 @@ int usb_start(const struct usb_callbacks *cb)
 
 int usb_send(const struct report_usb *r)
 {
-	switch (r->kind) {
-	case REPORT_USB_BOOT:
-		memcpy(keyboard_buf, r->boot, REPORT_KEYBOARD_LEN);
-		return hid_device_submit_report(keyboard_dev, REPORT_KEYBOARD_LEN, keyboard_buf);
-	case REPORT_USB_MOUSE: {
-		size_t len = reports_encode_mouse(&r->mouse, atomic_get(&mouse_boot), mouse_buf);
+	static const struct {
+		const struct device *dev;
+		uint8_t *buf;
+	} ifaces[REPORT_IFACES] = {
+		[REPORT_IFACE_KEYBOARD] = {keyboard_dev, keyboard_buf},
+		[REPORT_IFACE_EXTRA] = {extra_dev, extra_buf},
+		[REPORT_IFACE_MOUSE] = {mouse_dev, mouse_buf},
+	};
+	const enum report_iface iface = reports_iface(r->kind);
+	size_t len = reports_encode(r, atomic_get(&mouse_boot), ifaces[iface].buf);
 
-		return hid_device_submit_report(mouse_dev, len, mouse_buf);
-	}
-	case REPORT_USB_NKRO:
-		extra_buf[0] = EXTRA_ID_KEYS;
-		memcpy(&extra_buf[1], r->nkro, REPORT_NKRO_LEN);
-		return hid_device_submit_report(extra_dev, EXTRA_REPORT_LEN, extra_buf);
-	default:
-		extra_buf[0] = r->kind == REPORT_USB_CONSUMER ? EXTRA_ID_CONSUMER : EXTRA_ID_SYSTEM;
-		extra_buf[1] = r->usage & 0xff;
-		extra_buf[2] = r->usage >> 8;
-		return hid_device_submit_report(extra_dev, EXTRA_USAGE_REPORT_LEN, extra_buf);
-	}
+	return hid_device_submit_report(ifaces[iface].dev, len, ifaces[iface].buf);
 }
 
 int usb_wakeup(void)

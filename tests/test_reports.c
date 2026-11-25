@@ -388,22 +388,64 @@ static void test_release_all_lets_go_of_a_held_mouse_button(void)
 
 static void test_a_mouse_report_encodes_in_report_protocol(void)
 {
-	struct report_mouse m = {.buttons = 0x0102, .x = -300, .y = 2, .wheel = -1, .pan = 1};
-	uint8_t out[REPORT_MOUSE_LEN];
+	const struct report_usb r = {
+		.kind = REPORT_USB_MOUSE,
+		.mouse = {.buttons = 0x0102, .x = -300, .y = 2, .wheel = -1, .pan = 1},
+	};
+	uint8_t out[REPORT_USB_MAX_LEN];
 	const uint8_t want[REPORT_MOUSE_LEN] = {0x02, 0x01, 0xd4, 0xfe, 0x02, 0x00, 0xff, 0x01};
 
-	CHECK_EQ(reports_encode_mouse(&m, false, out), REPORT_MOUSE_LEN);
+	CHECK_EQ(reports_encode(&r, false, out), REPORT_MOUSE_LEN);
 	CHECK_MEM(out, want, REPORT_MOUSE_LEN);
 }
 
 static void test_a_mouse_report_encodes_in_boot_protocol(void)
 {
-	struct report_mouse m = {.buttons = 0x0102, .x = -300, .y = 200, .wheel = -1};
-	uint8_t out[REPORT_MOUSE_LEN];
+	const struct report_usb r = {
+		.kind = REPORT_USB_MOUSE,
+		.mouse = {.buttons = 0x0102, .x = -300, .y = 200, .wheel = -1},
+	};
+	uint8_t out[REPORT_USB_MAX_LEN];
 	const uint8_t want[REPORT_MOUSE_BOOT_LEN] = {0x02, 0x81, 0x7f};
 
-	CHECK_EQ(reports_encode_mouse(&m, true, out), REPORT_MOUSE_BOOT_LEN);
+	CHECK_EQ(reports_encode(&r, true, out), REPORT_MOUSE_BOOT_LEN);
 	CHECK_MEM(out, want, REPORT_MOUSE_BOOT_LEN);
+}
+
+static void test_a_boot_keyboard_report_encodes_as_its_eight_bytes(void)
+{
+	const struct report_usb r = {.kind = REPORT_USB_BOOT, .boot = {0x02, 0, 0x04, 0x05}};
+	const uint8_t want[REPORT_KEYBOARD_LEN] = {0x02, 0, 0x04, 0x05};
+	uint8_t out[REPORT_USB_MAX_LEN];
+
+	CHECK_EQ(reports_encode(&r, false, out), REPORT_KEYBOARD_LEN);
+	CHECK_MEM(out, want, REPORT_KEYBOARD_LEN);
+}
+
+static void test_an_nkro_report_encodes_behind_its_report_id(void)
+{
+	struct report_usb r = {.kind = REPORT_USB_NKRO};
+	uint8_t out[REPORT_USB_MAX_LEN];
+
+	r.nkro[0] = 0x10;
+	r.nkro[REPORT_NKRO_LEN - 1] = 0x80;
+	CHECK_EQ(reports_encode(&r, false, out), REPORT_EXTRA_LEN);
+	CHECK_EQ(out[0], 3);
+	CHECK_MEM(&out[1], r.nkro, REPORT_NKRO_LEN);
+}
+
+static void test_consumer_and_system_reports_encode_as_id_and_usage(void)
+{
+	const struct report_usb consumer = {.kind = REPORT_USB_CONSUMER, .usage = 0x01e9};
+	const struct report_usb system = {.kind = REPORT_USB_SYSTEM, .usage = 0x0082};
+	const uint8_t want_consumer[] = {1, 0xe9, 0x01};
+	const uint8_t want_system[] = {2, 0x82, 0x00};
+	uint8_t out[REPORT_USB_MAX_LEN];
+
+	CHECK_EQ(reports_encode(&consumer, false, out), sizeof(want_consumer));
+	CHECK_MEM(out, want_consumer, sizeof(want_consumer));
+	CHECK_EQ(reports_encode(&system, false, out), sizeof(want_system));
+	CHECK_MEM(out, want_system, sizeof(want_system));
 }
 
 static void move_mouse(uint16_t buttons, uint8_t slot, uint32_t received_us)
@@ -702,6 +744,9 @@ int main(void)
 	RUN(test_release_all_lets_go_of_a_held_mouse_button);
 	RUN(test_a_mouse_report_encodes_in_report_protocol);
 	RUN(test_a_mouse_report_encodes_in_boot_protocol);
+	RUN(test_a_boot_keyboard_report_encodes_as_its_eight_bytes);
+	RUN(test_an_nkro_report_encodes_behind_its_report_id);
+	RUN(test_consumer_and_system_reports_encode_as_id_and_usage);
 	RUN(test_a_delivered_report_counts_its_delay_toward_its_slot);
 	RUN(test_no_latency_reads_as_unknown);
 	RUN(test_merged_motion_keeps_the_oldest_receipt);

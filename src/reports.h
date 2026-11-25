@@ -22,6 +22,13 @@
 /* The wheel steps per notch the USB mouse offers a host that turns on high resolution. */
 #define REPORT_WHEEL_HIRES_STEPS 8
 #define REPORT_MOUSE_BOOT_LEN 3
+/* The extra interface's report lengths count the report ID byte. */
+#define REPORT_EXTRA_ID_CONSUMER 1
+#define REPORT_EXTRA_ID_SYSTEM 2
+#define REPORT_EXTRA_ID_KEYS 3
+#define REPORT_EXTRA_USAGE_LEN 3
+#define REPORT_EXTRA_LEN (1 + REPORT_NKRO_LEN)
+#define REPORT_USB_MAX_LEN REPORT_EXTRA_LEN
 /* The usages the USB report descriptors declare. */
 #define REPORT_CONSUMER_MAX 0x2a0
 #define REPORT_SYSTEM_MIN 0x81
@@ -153,8 +160,9 @@ void reports_pop(struct reports *r, enum report_iface iface);
 void reports_delivered(struct reports *r, const struct report_entry *sent, uint32_t now_us);
 /* UINT32_MAX before any stamped report is delivered. */
 uint32_t reports_latency_average_us(const struct report_latency *l);
-/* Returns REPORT_MOUSE_BOOT_LEN in boot protocol, REPORT_MOUSE_LEN otherwise. */
-size_t reports_encode_mouse(const struct report_mouse *m, bool boot,
-			    uint8_t out[REPORT_MOUSE_LEN]);
+enum report_iface reports_iface(enum report_usb_kind kind);
+/* Returns the length written. */
+size_t reports_encode(const struct report_usb *r, bool mouse_boot,
+		      uint8_t out[REPORT_USB_MAX_LEN]);
 
 #endif

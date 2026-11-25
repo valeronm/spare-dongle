@@ -14,7 +14,7 @@ void reports_init(struct reports *r)
 	r->nkro.kind = REPORT_USB_NKRO;
 }
 
-static enum report_iface reports_iface(enum report_usb_kind kind)
+enum report_iface reports_iface(enum report_usb_kind kind)
 {
 	switch (kind) {
 	case REPORT_USB_BOOT:
@@ -341,8 +341,7 @@ uint32_t reports_latency_average_us(const struct report_latency *l)
 	return l->count == 0 ? UINT32_MAX : (uint32_t)(l->sum_us / l->count);
 }
 
-size_t reports_encode_mouse(const struct report_mouse *m, bool boot,
-			    uint8_t out[REPORT_MOUSE_LEN])
+static size_t encode_mouse(const struct report_mouse *m, bool boot, uint8_t out[REPORT_MOUSE_LEN])
 {
 	out[0] = (uint8_t)m->buttons;
 	if (boot) {
@@ -358,6 +357,33 @@ size_t reports_encode_mouse(const struct report_mouse *m, bool boot,
 	out[6] = (uint8_t)m->wheel;
 	out[7] = (uint8_t)m->pan;
 	return REPORT_MOUSE_LEN;
+}
+
+_Static_assert(REPORT_KEYBOARD_LEN <= REPORT_USB_MAX_LEN && REPORT_MOUSE_LEN <= REPORT_USB_MAX_LEN,
+	       "REPORT_USB_MAX_LEN is not the longest report");
+
+size_t reports_encode(const struct report_usb *r, bool mouse_boot,
+		      uint8_t out[REPORT_USB_MAX_LEN])
+{
+	switch (r->kind) {
+	case REPORT_USB_BOOT:
+		memcpy(out, r->boot, REPORT_KEYBOARD_LEN);
+		return REPORT_KEYBOARD_LEN;
+	case REPORT_USB_MOUSE:
+		return encode_mouse(&r->mouse, mouse_boot, out);
+	case REPORT_USB_NKRO:
+		out[0] = REPORT_EXTRA_ID_KEYS;
+		memcpy(&out[1], r->nkro, REPORT_NKRO_LEN);
+		return REPORT_EXTRA_LEN;
+	case REPORT_USB_CONSUMER:
+	case REPORT_USB_SYSTEM:
+		out[0] = r->kind == REPORT_USB_CONSUMER ? REPORT_EXTRA_ID_CONSUMER
+							: REPORT_EXTRA_ID_SYSTEM;
+		out[1] = r->usage & 0xff;
+		out[2] = r->usage >> 8;
+		return REPORT_EXTRA_USAGE_LEN;
+	}
+	return 0;
 }
 
 int reports_scale_wheel(int *carry, int value, int from_steps, int to_steps)
