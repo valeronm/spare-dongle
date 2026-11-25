@@ -17,6 +17,8 @@
 - In Unifying mode `devices`, `forget` and the events show each keyboard's address.
 - A Unifying keyboard paired with an earlier version has to be paired again.
 - The event for a link's first connection no longer gives the time since boot.
+- `protocol` no longer reports that the dongle did not come back when it switches a dongle that
+  has just started.
 
 ## [0.5.0] - 2026-11-21
 

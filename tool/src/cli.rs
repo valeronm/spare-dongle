@@ -316,22 +316,25 @@ pub fn protocol(serial: Option<&str>, set: Option<Protocol>) -> Result<()> {
     }
     drop(dev);
     let deadline = std::time::Instant::now() + RETURN_WAIT;
-    std::thread::sleep(Duration::from_secs(1));
     let (mut dev, s) = loop {
-        std::thread::sleep(Duration::from_millis(300));
-        if let Ok(mut d) = device::open_unchecked(serial)
+        let seen = if let Ok(mut d) = device::open_unchecked(serial)
             && let Ok(Ok(s)) = d.read_status()
-            && s.uptime_ms < before.uptime_ms
         {
-            break (d, s);
-        }
+            if s.protocol() == want {
+                break (d, s);
+            }
+            Some(s.protocol())
+        } else {
+            None
+        };
         if std::time::Instant::now() > deadline {
-            bail!("the dongle did not come back within {RETURN_WAIT:?}; replug it");
+            match seen {
+                Some(seen) => bail!("the dongle runs {}, not {}", seen.name(), want.name()),
+                None => bail!("the dongle did not come back within {RETURN_WAIT:?}; replug it"),
+            }
         }
+        std::thread::sleep(Duration::from_millis(300));
     };
-    if s.protocol() != want {
-        bail!("the dongle came back running {}", s.protocol().name());
-    }
     status(&mut dev, &s)
 }
 
