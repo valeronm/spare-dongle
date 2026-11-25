@@ -590,25 +590,36 @@ bool core_take_leds(uint8_t *leds)
 	return changed;
 }
 
-void core_show_state(void)
+static bool any_ready(void)
 {
 	struct diag_slot slots[DEVICE_SLOTS] = {0};
-	struct blink_state s = {
-		.radio_failed = radio_failed,
-		.usb_suspended = usb_suspended(),
-		.pairing_open = loop->pairing(),
-	};
+	bool ready = false;
 
 	loop->slots(slots);
 	for (uint8_t i = 0; i < loop->slot_count; i++) {
-		s.connected |= slots[i].ready;
+		ready |= slots[i].ready;
 	}
-	indicator_set(blink_mode(s));
+	return ready;
 }
 
-void core_radio_failed(void)
+void core_show_state(void)
+{
+	indicator_set(blink_mode((struct blink_state){
+		.radio_failed = radio_failed,
+		.usb_suspended = usb_suspended(),
+		.pairing_open = loop->pairing(),
+		.connected = any_ready(),
+	}));
+}
+
+void core_mark_radio_failed(void)
 {
 	radio_failed = true;
+}
+
+bool core_radio_has_failed(void)
+{
+	return radio_failed;
 }
 
 static void usb_thread(void *a, void *b, void *c)

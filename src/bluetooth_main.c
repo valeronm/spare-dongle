@@ -72,7 +72,6 @@ static struct {
 	uint8_t addr[BTPOLICY_ADDR_LEN];
 	struct hidpp hidpp;
 } runs[DEVICE_KINDS];
-static int start_err;
 static bool passkey_asked;
 static uint32_t awaited_passkey;
 static uint32_t rssi_tried_ms;
@@ -97,16 +96,6 @@ static struct device_battery battery_of(const struct connected *c)
 		b.level = c->level;
 	}
 	return b;
-}
-
-static bool any_ready(void)
-{
-	for (int k = 0; k < DEVICE_KINDS; k++) {
-		if (btpolicy_is_ready(&policy, k)) {
-			return true;
-		}
-	}
-	return false;
 }
 
 static void slots(struct diag_slot *out)
@@ -140,8 +129,14 @@ static void fill_status(struct diag_status *st, uint8_t slot)
 {
 	enum device_kind kind = kind_in(slot);
 	const struct connected *c = &devices[kind];
+	bool ready = false;
 
-	st->link_state = start_err ? BT_LINK_START_FAILED : any_ready() ? BT_LINK_READY : BT_LINK_NONE_READY;
+	for (uint8_t i = 0; i < st->slot_count; i++) {
+		ready |= st->slots[i].ready;
+	}
+	st->link_state = core_radio_has_failed() ? BT_LINK_START_FAILED
+			 : ready ? BT_LINK_READY
+				 : BT_LINK_NONE_READY;
 	if (pairwin_holder(&window) != DEVICE_NO_KIND) {
 		char name[BLE_NAME_MAX + 1];
 
@@ -578,7 +573,7 @@ static void open_pairing(const struct diag_request *req)
 	uint32_t passkey = 0;
 	int err;
 
-	if (start_err) {
+	if (core_radio_has_failed()) {
 		diag_reply_error(req, DIAG_ERROR_RADIO, 0);
 		return;
 	}
@@ -700,6 +695,8 @@ static void run_hidpp(enum device_kind kind, uint32_t now)
 
 FUNC_NORETURN void bluetooth_run(int store_err)
 {
+	int start_err;
+
 	ARG_UNUSED(store_err);
 	core_start_history(&loop);
 	btpolicy_init(&policy);
@@ -708,7 +705,7 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 	}
 	start_err = ble_start();
 	if (start_err) {
-		core_radio_failed();
+		core_mark_radio_failed();
 		printk("bluetooth start failed: %d\n", start_err);
 	} else {
 		uint8_t stored = ble_stored_count();
@@ -748,7 +745,7 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 			run_hidpp(k, now);
 		}
 		btpolicy_window(&policy, pairwin_is_open(&window, now), passkey_asked);
-		if (start_err == 0) {
+		if (!core_radio_has_failed()) {
 			int err = ble_scan(btpolicy_scan(&policy, now));
 
 			if (err) {

@@ -83,7 +83,8 @@ void core_watchdog_feed(void);
 /* A ready slot counts as a connected device. */
 void core_show_state(void);
 /* A radio that failed to start shows on the LED from then on. */
-void core_radio_failed(void);
+void core_mark_radio_failed(void);
+bool core_radio_has_failed(void);
 /* Starts the history with a boot event; loop must stay valid for the rest of the program. */
 void core_start_history(const struct core_loop *loop);
 void core_count(enum core_counter c);
