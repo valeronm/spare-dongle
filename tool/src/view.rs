@@ -564,25 +564,28 @@ impl Modal {
             body: words(body),
             keys,
             note: Some("any other key cancels"),
-            color: Color::Cyan,
+            color: HINT_COLOR,
         }
     }
 }
 
 const MODAL_WIDTH: usize = 64;
 
+const HINT_COLOR: Color = Color::Cyan;
+
+fn key_hint(key: String, does: &str, color: Color) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(key, Style::new().fg(color).add_modifier(Modifier::BOLD)),
+        Span::raw(format!(" {does}")),
+    ])
+}
+
 fn draw_modal(f: &mut Frame, m: Modal) {
     const FRAME: usize = 4;
-    let key_style = Style::new().fg(m.color).add_modifier(Modifier::BOLD);
     let keys: Vec<Line<'static>> = m
         .keys
         .into_iter()
-        .map(|(key, does)| {
-            Line::from(vec![
-                Span::styled(key, key_style),
-                Span::raw(format!(" {does}")),
-            ])
-        })
+        .map(|(key, does)| key_hint(key, &does, m.color))
         .chain(
             m.note
                 .map(|n| Line::from(Span::styled(n, Style::new().add_modifier(Modifier::DIM)))),
@@ -1088,18 +1091,29 @@ impl<T: Transport> Session<T> {
         if !self.message.is_empty() {
             return flow(words(&self.message), " ", width);
         }
-        let mut hints: Vec<_> = action_keys(self.protocol())
+        let mut hints: Vec<(String, &str)> = action_keys(self.protocol())
             .into_iter()
-            .map(|(key, label, _)| format!("{key} {label}"))
+            .map(|(key, label, _)| (key.to_string(), label))
             .collect();
         if self.cycling(u16::try_from(width).unwrap_or(u16::MAX)) {
-            hints.push("o device".into());
+            hints.push(("o".into(), "device"));
         }
         if self.protocol().has_esb() {
-            hints.push("[/] channel".into());
+            hints.push(("[/]".into(), "channel"));
         }
-        hints.extend(["←/→ history", "↑/↓ events", "esc back", "q quit"].map(String::from));
-        flow(hints.into_iter().map(Span::raw), "  ", width)
+        hints.extend(
+            [
+                ("←/→", "history"),
+                ("↑/↓", "events"),
+                ("esc", "back"),
+                ("q", "quit"),
+            ]
+            .map(|(key, does)| (key.to_string(), does)),
+        );
+        let hints = hints
+            .into_iter()
+            .map(|(key, does)| key_hint(key, does, HINT_COLOR));
+        flow(hints, "  ", width)
     }
 }
 
@@ -1234,7 +1248,7 @@ impl<T: Transport> Connection<T> {
     fn view(&self, width: usize) -> (Option<&Session<T>>, Vec<Line<'static>>) {
         match self {
             Connection::Connected(session) => (Some(session), session.help(width)),
-            Connection::Disconnected(_) => (None, vec![Line::from("q quit")]),
+            Connection::Disconnected(_) => (None, vec![key_hint("q".into(), "quit", HINT_COLOR)]),
         }
     }
 
@@ -1934,6 +1948,23 @@ mod tests {
         let text = rows.join("\n");
         for part in ["SpareDongle", "signal dBm", "events"] {
             assert!(text.contains(part), "{part} missing from {text}");
+        }
+    }
+
+    #[test]
+    fn the_footer_highlights_each_key() {
+        let mut app = app_with(closed(status_of(Protocol::Unifying)));
+        let terminal = drawn(&mut app);
+        for (row, key, label) in [(22, "n noise", "noise"), (23, "esc back", "back")] {
+            let cell = cell_at(&terminal, row, key);
+            assert_eq!(cell.fg, Color::Cyan, "{key}");
+            assert!(cell.modifier.contains(Modifier::BOLD), "{key}");
+            assert!(
+                !cell_at(&terminal, row, label)
+                    .modifier
+                    .contains(Modifier::BOLD),
+                "{label}"
+            );
         }
     }
 

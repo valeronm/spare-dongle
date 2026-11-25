@@ -32,6 +32,7 @@
 - In NuPhy mode `channels` accepts 50 and 80.
 - The live view asks its questions, shows how to pair and the passkey while pairing is open, and
   shows a failure or a lost dongle, in a box over the view instead of on the bottom line.
+- The live view highlights each key in its footer and its boxes.
 
 ## [0.5.0] - 2026-11-21
 
