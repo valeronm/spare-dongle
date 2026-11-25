@@ -181,7 +181,7 @@ fn pairing_color(p: Pairing) -> Color {
 fn role_style(role: ChannelRole) -> Style {
     match role {
         ChannelRole::Current => Style::new().add_modifier(Modifier::REVERSED),
-        ChannelRole::Paired => Style::new().add_modifier(Modifier::BOLD),
+        ChannelRole::Paired => BOLD,
         ChannelRole::Other => Style::new(),
     }
 }
@@ -575,7 +575,7 @@ const HINT_COLOR: Color = Color::Cyan;
 
 fn key_hint(key: String, does: &str, color: Color) -> Line<'static> {
     Line::from(vec![
-        Span::styled(key, Style::new().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(key, BOLD.fg(color)),
         Span::raw(format!(" {does}")),
     ])
 }
@@ -1060,7 +1060,7 @@ impl<T: Transport> Session<T> {
                 let [before, digits, after] = passkey_prompt(a);
                 let body = words(&sentence(&before))
                     .into_iter()
-                    .chain([Span::styled(digits, PASSKEY_STYLE)])
+                    .chain([Span::styled(digits, BOLD)])
                     .chain(words(&after))
                     .collect();
                 ("Passkey", body)
@@ -1227,13 +1227,26 @@ impl<T: Transport> App<T> {
     }
 }
 
-const PASSKEY_STYLE: Style = Style::new().add_modifier(Modifier::BOLD);
+const BOLD: Style = Style::new().add_modifier(Modifier::BOLD);
 
-fn dongle_title(status: Option<&Status>) -> String {
-    std::iter::once(crate::PRODUCT)
-        .chain(status.map(|s| s.protocol().name()))
-        .collect::<Vec<_>>()
-        .join(" · ")
+fn protocol_color(protocol: Protocol) -> Color {
+    match protocol {
+        Protocol::Nuphy => Color::Indexed(43),
+        Protocol::Unifying => Color::Indexed(208),
+        Protocol::Bluetooth => Color::Blue,
+    }
+}
+
+fn dongle_title(status: Option<&Status>) -> Line<'static> {
+    let mut title = Line::from(crate::PRODUCT);
+    if let Some(s) = status {
+        title.push_span(Span::raw(" · "));
+        title.push_span(Span::styled(
+            s.protocol().name(),
+            BOLD.fg(protocol_color(s.protocol())),
+        ));
+    }
+    title
 }
 
 fn device_title(s: &Status, d: &SlotStatus) -> String {
@@ -1952,6 +1965,23 @@ mod tests {
     }
 
     #[test]
+    fn the_dongle_box_title_shows_the_protocol_in_its_color() {
+        for (protocol, color) in [
+            (Protocol::Nuphy, Color::Indexed(43)),
+            (Protocol::Unifying, Color::Indexed(208)),
+            (Protocol::Bluetooth, Color::Blue),
+        ] {
+            let mut app = app_with(closed(status_of(protocol)));
+            let terminal = drawn(&mut app);
+            let name = cell_at(&terminal, 0, protocol.name());
+            assert_eq!(name.fg, color, "{protocol:?}");
+            assert!(name.modifier.contains(Modifier::BOLD), "{protocol:?}");
+            let product = cell_at(&terminal, 0, "SpareDongle");
+            assert_eq!(product.fg, Color::Reset, "{protocol:?}");
+        }
+    }
+
+    #[test]
     fn the_footer_highlights_each_key() {
         let mut app = app_with(closed(status_of(Protocol::Unifying)));
         let terminal = drawn(&mut app);
@@ -2244,7 +2274,7 @@ mod tests {
         let dongle = texts(&dongle_lines(Some(&h.status)));
         let device_top = dongle.len() + 2;
         let boxes = [
-            (dongle_title(Some(&h.status)), dongle),
+            (dongle_title(Some(&h.status)).to_string(), dongle),
             (
                 device_title(&h.status, device),
                 texts(&slot_lines(Some(&h.status), Some(device))),
