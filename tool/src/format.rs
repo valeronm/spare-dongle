@@ -681,10 +681,7 @@ pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String 
                 "link restored after {} on channel {channel}, signal {rssi} dBm",
                 duration(down_ms)
             ),
-            _ => format!(
-                "link up {} after boot on channel {channel}, signal {rssi} dBm",
-                duration(down_ms)
-            ),
+            _ => format!("link up on channel {channel}, signal {rssi} dBm"),
         },
         Ok(Detail::LinkMoved {
             from,
@@ -1066,7 +1063,7 @@ mod tests {
         let first = event(EventType::LinkUp, 33, 0xc1, 0, 900);
         assert_eq!(
             describe_event(&first, &nuphy(), &[]),
-            "link up 900 ms after boot on channel 33, signal -63 dBm"
+            "link up on channel 33, signal -63 dBm"
         );
     }
 
