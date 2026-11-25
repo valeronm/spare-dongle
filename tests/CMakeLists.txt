@@ -42,3 +42,4 @@ target_compile_definitions(test_hidkeys PRIVATE
 suite(btpolicy ../src/btpolicy.c)
 suite(btlist ../src/btlist.c)
 suite(bootinfo ../src/bootinfo.c)
+suite(blink ../src/blink.c)

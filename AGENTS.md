@@ -5,9 +5,9 @@
 - `src/nuphy.*`, `src/reports.*`, `src/chanpick.*`, `src/noise.*`, `src/link.*`,
   `src/history.*`, `src/protocol.*`, `src/pairwin.*`, `src/unifying.*`, `src/chanwatch.*`,
   `src/hidmap.*`, `src/hidkeys.*`, `src/hidpp.*`, `src/btpolicy.*`, `src/btlist.*`,
-  `src/bootinfo.*`, `src/chanmove.h` and `src/device.h` include only the C standard library, each
-  other and the header `ffi` generates. Their tests build them with the host compiler, where no
-  Zephyr, nrfx or ESB header exists.
+  `src/bootinfo.*`, `src/blink.*`, `src/chanmove.h` and `src/device.h` include only the C standard
+  library, each other and the header `ffi` generates. Their tests build them with the host
+  compiler, where no Zephyr, nrfx or ESB header exists.
 - Radio, USB, flash and the clock reach those modules only through `src/core.c`,
   `src/nuphy_main.c`, `src/unifying_main.c`, `src/bluetooth_main.c`, `src/main.c`, `src/diag.c`
   and `src/store.c`.
