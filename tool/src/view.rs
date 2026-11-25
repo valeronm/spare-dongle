@@ -332,6 +332,8 @@ pub(crate) struct History {
     pub(crate) events_top: Option<u32>,
     /// The minutes the chart's right edge sits before the newest one.
     pub(crate) minutes_back: usize,
+    /// Refetched only with new events, since under Bluetooth and Unifying every change to a stored
+    /// device is logged as an event.
     pub(crate) devices: Vec<StoredDevice>,
 }
 
@@ -412,8 +414,11 @@ impl History {
             s.events_total.saturating_sub(EVENTS_KEPT as u32),
             |(i, _)| i + 1,
         );
-        self.events
-            .extend(dev.events_between(from, s.events_total)?);
+        let new = dev.events_between(from, s.events_total)?;
+        if !new.is_empty() {
+            self.devices = crate::cli::stored_devices(dev, s.protocol())?;
+        }
+        self.events.extend(new);
         let excess = self.events.len().saturating_sub(EVENTS_KEPT);
         self.events.drain(..excess);
         Ok(())
@@ -623,7 +628,8 @@ enum Pane {
     Noise(Vec<NoiseChannel>),
     /// Reread on every poll.
     Moves(Watch),
-    Devices,
+    /// Reread on every poll.
+    Devices(Vec<StoredDevice>),
 }
 
 #[expect(
@@ -776,9 +782,9 @@ impl<T: Transport> Session<T> {
                 self.first_panel = (self.first_panel + 1) % history.slots.len();
             }
             KeyCode::Char(c)
-                if let Pane::Devices = self.pane
+                if let Pane::Devices(devices) = &self.pane
                     && let Some(place) = c.to_digit(10)
-                    && let Some(device) = device_at(&history.devices, place as usize) =>
+                    && let Some(device) = device_at(devices, place as usize) =>
             {
                 self.prompt = Some(Prompt::Forget(device.clone()));
             }
@@ -812,9 +818,9 @@ impl<T: Transport> Session<T> {
     }
 
     fn show_devices(&mut self) {
-        self.pane = Pane::Devices;
-        if let Err(e) = self.reread_pane() {
-            self.message = format!("failed: {}", error_text(&e));
+        match self.device.devices() {
+            Ok(devices) => self.pane = Pane::Devices(devices),
+            Err(e) => self.message = format!("failed: {}", error_text(&e)),
         }
     }
 
@@ -868,14 +874,10 @@ impl<T: Transport> Session<T> {
     }
 
     fn reread_pane(&mut self) -> Result<()> {
-        let protocol = self.protocol();
-        self.history.devices = if matches!(self.pane, Pane::Devices) {
-            self.device.devices()?
-        } else {
-            crate::cli::stored_devices(&mut self.device, protocol)?
-        };
-        if let Pane::Moves(w) = &mut self.pane {
-            *w = self.device.watch()?;
+        match &mut self.pane {
+            Pane::Moves(w) => *w = self.device.watch()?,
+            Pane::Devices(devices) => *devices = self.device.devices()?,
+            Pane::History | Pane::Noise(_) => {}
         }
         Ok(())
     }
@@ -1034,8 +1036,8 @@ impl<T: Transport> App<T> {
                 draw_moves(f, middle, watch, &history.status);
                 None
             }
-            Some((Pane::Devices, history)) => {
-                draw_devices(f, middle, history);
+            Some((Pane::Devices(devices), history)) => {
+                draw_devices(f, middle, devices, history.status.protocol());
                 None
             }
             Some((Pane::History, _)) | None => columns
@@ -1383,9 +1385,9 @@ fn draw_moves(f: &mut Frame, area: Rect, w: &Watch, s: &Status) {
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn draw_devices(f: &mut Frame, area: Rect, history: &History) {
+fn draw_devices(f: &mut Frame, area: Rect, devices: &[StoredDevice], protocol: Protocol) {
     let block = Block::bordered().title(padded("stored devices; a device's number forgets it"));
-    let lines: Vec<Line> = device_lines(&history.devices, history.status.protocol())
+    let lines: Vec<Line> = device_lines(devices, protocol)
         .into_iter()
         .map(|l| {
             Line::from_iter(l.parts().into_iter().map(|(text, p)| match p {
@@ -1859,12 +1861,16 @@ mod tests {
             Device::new(
                 Fake::new(move |req| {
                     on_request(req);
-                    let payload: &[u8] = if req[0] == Command::Devices as u8 {
-                        &list
+                    let payload = if req[0] == Command::Devices as u8 {
+                        list.clone()
+                    } else if req[0] == Command::Events as u8 {
+                        let from = u32::from_le_bytes(req[2..6].try_into().unwrap());
+                        let closed = diagwire::Detail::PairingClosed.event(diagwire::NO_SLOT);
+                        crate::protocol::tests::events_page(from, &[closed])
                     } else {
-                        &[]
+                        Vec::new()
                     };
-                    parts(req[0], req[1], payload)
+                    parts(req[0], req[1], &payload)
                 }),
                 0,
             ),
@@ -2191,6 +2197,7 @@ mod tests {
     #[test]
     fn the_events_list_names_a_stored_bluetooth_keyboard() {
         let mut app = bluetooth_dongle_forgetting_into(Default::default());
+        refreshed_with_events(&mut app, Protocol::Bluetooth, 1);
         let connected = Event {
             time_ms: 0,
             detail: Ok(Detail::BtConnected {
@@ -2205,8 +2212,33 @@ mod tests {
     }
 
     #[test]
+    fn the_devices_the_events_name_are_fetched_only_with_new_events() {
+        let asked = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counter = asked.clone();
+        let mut app = dongle_listing_devices(Protocol::Bluetooth, move |req| {
+            if req[0] == Command::Devices as u8 {
+                counter.set(counter.get() + 1);
+            }
+        });
+        refreshed_with_events(&mut app, Protocol::Bluetooth, 1);
+        let fetched = asked.get();
+        refreshed_with_events(&mut app, Protocol::Bluetooth, 1);
+        assert_eq!(asked.get(), fetched);
+        refreshed_with_events(&mut app, Protocol::Bluetooth, 2);
+        assert_eq!(asked.get(), fetched + 1);
+        press(&mut app, 'd');
+        assert_eq!(asked.get(), fetched + 2);
+        refreshed_with_events(&mut app, Protocol::Bluetooth, 2);
+        assert_eq!(asked.get(), fetched + 3);
+        session(&mut app).handle(KeyCode::Esc, Drawn::default());
+        refreshed_with_events(&mut app, Protocol::Bluetooth, 2);
+        assert_eq!(asked.get(), fetched + 3);
+    }
+
+    #[test]
     fn the_events_list_names_a_stored_unifying_keyboard() {
         let mut app = dongle_listing_devices(Protocol::Unifying, |_| {});
+        refreshed_with_events(&mut app, Protocol::Unifying, 1);
         let active = Event {
             time_ms: 0,
             detail: Ok(Detail::UnifyingActive {
@@ -2499,6 +2531,13 @@ mod tests {
         };
         s.minute_next = s.minute_oldest;
         s.events_total = s.events_oldest;
+        app.refresh(Ok(s));
+    }
+
+    fn refreshed_with_events(app: &mut App<Fake>, protocol: Protocol, new: u32) {
+        let mut s = status_of(protocol);
+        s.minute_next = s.minute_oldest;
+        s.events_total += new;
         app.refresh(Ok(s));
     }
 
