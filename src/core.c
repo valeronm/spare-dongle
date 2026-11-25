@@ -257,10 +257,25 @@ bool core_forget_matches(const struct diag_request *req, const struct diag_devic
 	return true;
 }
 
+#define SAME_ADDR(body) (offsetof(struct diag_detail, body.addr) == \
+			 offsetof(struct diag_detail, BT_CONNECTED.addr))
+BUILD_ASSERT(SAME_ADDR(BT_PAIRED) && SAME_ADDR(BT_BOND_LOST) && SAME_ADDR(BT_FORGOTTEN) &&
+	     SAME_ADDR(BT_PASSKEY_AWAITED) && SAME_ADDR(KEYBOARD_FORGOTTEN) &&
+	     SAME_ADDR(UNIFYING_ACTIVE));
+BUILD_ASSERT(DIAG_ADDR_LEN == 1 + DIAG_EVENT_ADDR_LEN);
+
+void core_log_address(uint8_t slot, struct diag_detail d, const uint8_t addr[DIAG_ADDR_LEN])
+{
+	memcpy(d.BT_CONNECTED.addr, &addr[1], DIAG_EVENT_ADDR_LEN);
+	core_log(slot, d);
+}
+
+BUILD_ASSERT(DIAG_REQUEST_DATA_LEN == DIAG_ADDR_LEN);
+
 void core_keyboard_forgotten(const struct diag_request *req, const struct pairwin *w,
 			     enum diag_error error)
 {
-	core_log(0, (struct diag_detail){.tag = DIAG_DETAIL_KEYBOARD_FORGOTTEN});
+	core_log_address(0, (struct diag_detail){.tag = DIAG_DETAIL_KEYBOARD_FORGOTTEN}, req->data);
 	if (w != NULL) {
 		core_log_pairing_opened(w);
 	}

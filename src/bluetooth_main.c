@@ -273,22 +273,9 @@ static int forget(const uint8_t *addr)
 
 BUILD_ASSERT(DIAG_REQUEST_DATA_LEN == BTPOLICY_ADDR_LEN);
 
-#define SAME_ADDR(body) (offsetof(struct diag_detail, body.addr) == \
-			 offsetof(struct diag_detail, BT_CONNECTED.addr))
-BUILD_ASSERT(SAME_ADDR(BT_PAIRED) && SAME_ADDR(BT_BOND_LOST) && SAME_ADDR(BT_FORGOTTEN) &&
-	     SAME_ADDR(BT_PASSKEY_AWAITED));
-
-/* d is one of the details SAME_ADDR lists; its address is set from addr. */
-static void log_address(struct diag_detail d, enum device_kind kind,
-			const uint8_t addr[BTPOLICY_ADDR_LEN])
-{
-	memcpy(d.BT_CONNECTED.addr, &addr[1], DIAG_EVENT_ADDR_LEN);
-	core_log(slot_of(kind), d);
-}
-
 static void log_device(struct diag_detail d, enum device_kind kind)
 {
-	log_address(d, kind, btpolicy_peer(&policy, kind));
+	core_log_address(slot_of(kind), d, btpolicy_peer(&policy, kind));
 }
 
 static void send_leds(uint8_t leds)
@@ -640,9 +627,10 @@ static void forget_listed(const struct diag_request *req)
 		diag_reply_error(req, DIAG_ERROR_STORE, 0);
 		return;
 	}
-	log_address((struct diag_detail){.tag = DIAG_DETAIL_BT_FORGOTTEN,
-					  .BT_FORGOTTEN = {.cause = HISTORY_FORGOTTEN_ON_REQUEST}},
-		    kind, req->data);
+	core_log_address(slot_of(kind),
+			 (struct diag_detail){.tag = DIAG_DETAIL_BT_FORGOTTEN,
+					      .BT_FORGOTTEN = {.cause = HISTORY_FORGOTTEN_ON_REQUEST}},
+			 req->data);
 	diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
 }
 

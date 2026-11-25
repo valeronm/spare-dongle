@@ -92,13 +92,15 @@ void core_link_lost(uint8_t slot);
 bool core_take_radio_noise(struct noise_tally *t, int *home);
 /* Takes the pending noise readings first, which a gap or loss event records. */
 void core_log(uint8_t slot, struct diag_detail d);
+/* Logs d, a detail with an addr field, about the device whose list address is addr. */
+void core_log_address(uint8_t slot, struct diag_detail d, const uint8_t addr[DIAG_ADDR_LEN]);
 void core_log_pairing_opened(const struct pairwin *w);
 /* Replies that there is no such device, and returns false, unless paired and the request names
  * listed. */
 bool core_forget_matches(const struct diag_request *req, const struct diag_device *listed,
 			 bool paired);
-/* Logs the forget, and the pairing window w unless it is NULL, then replies, with error unless it
- * is 0; the caller releases held keys. */
+/* Logs the forget of the keyboard req names, and the pairing window w unless it is NULL, then
+ * replies, with error unless it is 0; the caller releases held keys. */
 void core_keyboard_forgotten(const struct diag_request *req, const struct pairwin *w,
 			     enum diag_error error);
 void core_log_pairing_closed(void);

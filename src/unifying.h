@@ -350,6 +350,8 @@ struct unifying_out {
 	/* Meaningful only for UNIFYING_RX_PAIRED. */
 	uint8_t paired_place;
 	bool window_opened;
+	/* The active keyboard was heard for the first time or took over from another. */
+	bool active_identified;
 };
 
 void unifying_session_init(struct unifying_session *s, const struct unifying_receiver *r,

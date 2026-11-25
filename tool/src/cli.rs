@@ -258,12 +258,12 @@ pub fn devices<T: Transport>(dev: &mut Device<T>, protocol: Protocol) -> Result<
     Ok(())
 }
 
-/// Empty outside Bluetooth, the only protocol whose events name a stored device by its address.
+/// Empty where no event names a stored device by its address.
 pub fn stored_devices<T: Transport>(
     dev: &mut Device<T>,
     protocol: Protocol,
 ) -> Result<Vec<StoredDevice>> {
-    if protocol == Protocol::Bluetooth {
+    if format::events_name_devices(protocol) {
         dev.devices()
     } else {
         Ok(Vec::new())

@@ -769,6 +769,7 @@ bool unifying_session_open_pairing(struct unifying_session *s, enum pairwin_caus
 static void take_over(struct unifying_session *s, uint8_t place, struct unifying_out *out)
 {
 	activate(s, place, out);
+	out->active_identified = true;
 	/* A gap in the host's link began with the old keyboard. */
 	if (s->heard && !s->silent) {
 		s->silent = true;
@@ -783,6 +784,7 @@ static void mark_heard(struct unifying_session *s, int8_t rssi, uint64_t now_ms,
 	if (!s->heard) {
 		out->heard = UNIFYING_HEARD_FIRST;
 		out->down_ms = (uint32_t)(now_ms - s->started_ms);
+		out->active_identified = true;
 	} else if (s->silent) {
 		out->heard = s->connect_in_silence ? UNIFYING_HEARD_WOKE : UNIFYING_HEARD_AGAIN;
 		out->down_ms = (uint32_t)(now_ms - s->silent_since_ms);

@@ -330,6 +330,7 @@ pub enum EventType {
     WheelSet,
     BtPasskeyAwaited,
     KeyboardForgotten,
+    UnifyingActive,
 }
 
 codes!(EventType {
@@ -360,6 +361,7 @@ codes!(EventType {
     WheelSet,
     BtPasskeyAwaited,
     KeyboardForgotten,
+    UnifyingActive,
 });
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -605,7 +607,8 @@ pub struct Event {
     pub noise: NoiseRecord,
 }
 
-/// The address bytes of a Bluetooth device, least significant first, without its type.
+/// A device's address as `Devices` gives it, without its first byte: under Bluetooth the address
+/// without its type, least significant byte first.
 pub const EVENT_ADDR_LEN: usize = ADDR_LEN - 1;
 
 /// What an event records, laid out in an `Event`'s `a`, `b`, `c` and `value` by
@@ -715,7 +718,13 @@ pub enum Detail {
         addr: [u8; EVENT_ADDR_LEN],
     },
     /// A NuPhy or Unifying keyboard was forgotten on request.
-    KeyboardForgotten,
+    KeyboardForgotten {
+        addr: [u8; EVENT_ADDR_LEN],
+    },
+    /// The active Unifying keyboard was heard for the first time or took over from another.
+    UnifyingActive {
+        addr: [u8; EVENT_ADDR_LEN],
+    },
 }
 
 /// Seconds since the last input as an event records them; a negative `elapsed_ms` means none
@@ -771,7 +780,8 @@ impl Detail {
             D::KeysDiverted { .. } => T::KeysDiverted,
             D::WheelSet { .. } => T::WheelSet,
             D::BtPasskeyAwaited { .. } => T::BtPasskeyAwaited,
-            D::KeyboardForgotten => T::KeyboardForgotten,
+            D::KeyboardForgotten { .. } => T::KeyboardForgotten,
+            D::UnifyingActive { .. } => T::UnifyingActive,
         }
     }
 
@@ -790,13 +800,9 @@ impl Detail {
                 (rssi as u8, low, high, gap_ms)
             }
             D::Survey { picked } => (picked[0], picked[1], picked[2], 0),
-            D::Noise
-            | D::UsbSuspend
-            | D::UsbResume
-            | D::Clear
-            | D::PairingClosed
-            | D::Attack
-            | D::KeyboardForgotten => (0, 0, 0, 0),
+            D::Noise | D::UsbSuspend | D::UsbResume | D::Clear | D::PairingClosed | D::Attack => {
+                (0, 0, 0, 0)
+            }
             D::LinkUp {
                 channel,
                 rssi,
@@ -832,7 +838,11 @@ impl Detail {
             } => (cause, until_paired.into(), 0, 0),
             D::PairingTimeout { step } => (step, 0, 0, 0),
             D::Reconnect { release_all } => (release_all.into(), 0, 0, 0),
-            D::BtConnected { addr } | D::BtBondLost { addr } | D::BtPasskeyAwaited { addr } => {
+            D::BtConnected { addr }
+            | D::BtBondLost { addr }
+            | D::BtPasskeyAwaited { addr }
+            | D::KeyboardForgotten { addr }
+            | D::UnifyingActive { addr } => {
                 let (a, b, value) = pack_addr(&addr);
                 (a, b, 0, value)
             }
@@ -962,7 +972,12 @@ impl Detail {
             T::BtPasskeyAwaited => D::BtPasskeyAwaited {
                 addr: unpack_addr(e),
             },
-            T::KeyboardForgotten => D::KeyboardForgotten,
+            T::KeyboardForgotten => D::KeyboardForgotten {
+                addr: unpack_addr(e),
+            },
+            T::UnifyingActive => D::UnifyingActive {
+                addr: unpack_addr(e),
+            },
         })
     }
 }

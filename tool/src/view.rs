@@ -2205,6 +2205,25 @@ mod tests {
     }
 
     #[test]
+    fn the_events_list_names_a_stored_unifying_keyboard() {
+        let mut app = dongle_listing_devices(Protocol::Unifying, |_| {});
+        let active = Event {
+            time_ms: 0,
+            detail: Ok(Detail::UnifyingActive {
+                addr: [0xd9, 0x9a, 0xa6, 0x49, 0xbb, 0xeb],
+            }),
+            slot: Some(0),
+            noise: None,
+        };
+        history(&mut app).events = vec![(0, active)];
+        let text = screen(&drawn(&mut app)).join("\n");
+        assert!(
+            text.contains("active keyboard MX Keys, address eb"),
+            "{text}"
+        );
+    }
+
+    #[test]
     fn the_protocol_key_asks_which_of_the_other_two() {
         let mut app = app_with(status_of(Protocol::Unifying));
         let s = session(&mut app);

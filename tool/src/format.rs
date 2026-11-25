@@ -602,13 +602,32 @@ fn event_address(addr: &[u8; EVENT_ADDR_LEN]) -> String {
     address(addr.iter().rev().copied())
 }
 
-/// A forgotten device is known only by its address.
-fn event_device(addr: &[u8; EVENT_ADDR_LEN], stored: &[StoredDevice]) -> String {
+fn stored_name(addr: &[u8; EVENT_ADDR_LEN], stored: &[StoredDevice]) -> Option<String> {
     stored
         .iter()
         .find(|d| d.addr[1..] == addr[..])
         .and_then(|d| d.name.clone())
-        .unwrap_or_else(|| event_address(addr))
+}
+
+/// A NuPhy event's address lacks the first byte of the keyboard's ID.
+pub fn events_name_devices(protocol: Protocol) -> bool {
+    protocol != Protocol::Nuphy
+}
+
+/// An event names a device only by its address. One Unifying keyboard can hold several places
+/// under one name and serial, which differ in the last byte of the address.
+fn event_device(
+    addr: &[u8; EVENT_ADDR_LEN],
+    stored: &[StoredDevice],
+    protocol: Protocol,
+) -> String {
+    let name = stored_name(addr, stored);
+    if protocol != Protocol::Unifying {
+        return name.unwrap_or_else(|| event_address(addr));
+    }
+    let [_, serial @ .., last] = addr;
+    let device = name.unwrap_or_else(|| format!("serial {}", hex(serial)));
+    format!("{device}, address {last:02x}")
 }
 
 fn event_kind(e: &Event, s: &Status) -> &'static str {
@@ -619,7 +638,7 @@ fn event_kind(e: &Event, s: &Status) -> &'static str {
 pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String {
     let protocol = s.protocol();
     let kind = event_kind(e, s);
-    let device = |addr: &[u8; EVENT_ADDR_LEN]| event_device(addr, stored);
+    let device = |addr: &[u8; EVENT_ADDR_LEN]| event_device(addr, stored, protocol);
     match e.detail {
         Ok(Detail::Boot { reset_cause }) => {
             format!("booted, reset by {}", reset_causes(reset_cause))
@@ -735,7 +754,11 @@ pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String 
         }
         Ok(Detail::Reconnect { release_all: false }) => "keyboard reconnected".into(),
         Ok(Detail::Attack) => "forged keystroke, attack mode for 5 s".into(),
-        Ok(Detail::KeyboardForgotten) => "keyboard forgotten".into(),
+        Ok(Detail::KeyboardForgotten { addr }) if events_name_devices(protocol) => {
+            format!("keyboard forgotten, {}", device(&addr))
+        }
+        Ok(Detail::KeyboardForgotten { .. }) => "keyboard forgotten".into(),
+        Ok(Detail::UnifyingActive { addr }) => format!("active keyboard {}", device(&addr)),
         Ok(Detail::BtConnected { addr }) => format!("{kind} {} connected", device(&addr)),
         Ok(Detail::BtDisconnected {
             reason,
@@ -1417,6 +1440,31 @@ mod tests {
     }
 
     #[test]
+    fn unifying_events_name_a_keyboard_and_the_last_byte_of_its_address() {
+        let s = status_of(Protocol::Unifying);
+        let stored = [StoredDevice {
+            addr: [0x40, 0x8a, 0xb8, 0xbc, 0xd5, 0xb3, 0x0a],
+            kind: DeviceKind::Keyboard,
+            name: Some("MX Keys".into()),
+            slot: Some(0),
+            pairing: None,
+        }];
+        let at = |kind| event(kind, 0x0a, 0xb3, 0, 0xd5bc_b88a);
+        assert_eq!(
+            describe_event(&at(EventType::UnifyingActive), &s, &stored),
+            "active keyboard MX Keys, address 0a"
+        );
+        assert_eq!(
+            describe_event(&at(EventType::UnifyingActive), &s, &[]),
+            "active keyboard serial b8bcd5b3, address 0a"
+        );
+        assert_eq!(
+            describe_event(&at(EventType::KeyboardForgotten), &s, &[]),
+            "keyboard forgotten, serial b8bcd5b3, address 0a"
+        );
+    }
+
+    #[test]
     fn describes_the_unifying_events() {
         let d = |e: Event| describe_event(&e, &unpaired_unifying(), &[]);
         assert_eq!(
@@ -1474,7 +1522,11 @@ mod tests {
             "forged keystroke, attack mode for 5 s"
         );
         assert_eq!(
-            d(event(EventType::KeyboardForgotten, 0, 0, 0, 0)),
+            describe_event(
+                &event(EventType::KeyboardForgotten, 0x29, 0xa3, 0, 0x15),
+                &nuphy(),
+                &[]
+            ),
             "keyboard forgotten"
         );
         assert_eq!(

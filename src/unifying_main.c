@@ -182,6 +182,12 @@ static void apply_frame(const struct unifying_out *out, const struct rx_item *it
 	if (out->event == UNIFYING_RX_PAIRED) {
 		on_paired(out->paired_place);
 	}
+	if (out->active_identified) {
+		uint8_t addr[DIAG_ADDR_LEN];
+
+		unifying_list_address(&session.pairing, session.active, addr);
+		core_log_address(0, (struct diag_detail){.tag = DIAG_DETAIL_UNIFYING_ACTIVE}, addr);
+	}
 	if (out->release_all) {
 		core_release_keys();
 	}

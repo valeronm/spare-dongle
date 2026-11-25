@@ -14,7 +14,7 @@
 - In Unifying mode `pair` is refused while six keyboards are stored.
 - In Unifying mode a stored keyboard keeps typing normally while pairing is open, and `move` works
   then too.
-- In Unifying mode `devices` and `forget` show each keyboard's address.
+- In Unifying mode `devices`, `forget` and the events show each keyboard's address.
 - A Unifying keyboard paired with an earlier version has to be paired again.
 
 ## [0.5.0] - 2026-11-21

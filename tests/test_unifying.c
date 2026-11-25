@@ -2873,6 +2873,7 @@ static void test_silence_after_pairing_another_keyboard_counts_from_its_last_fra
 	unifying_session_frame(&s, unifying_place_pipe(1), f, sizeof(f), 0, 20, nonce, fake_aes,
 			       &out);
 	CHECK_EQ(out.event, UNIFYING_RX_PAIRED);
+	CHECK(out.active_identified);
 	unifying_session_tick(&s, 30, false, 0, 0, &out);
 	unifying_session_tick(&s, silence_after(&s, 20) - 1, false, 0, 0, &out);
 	CHECK(!out.went_silent);
@@ -3211,6 +3212,56 @@ static void test_a_takeover_with_nothing_held_releases_nothing(void)
 	send_key(&s, 1, 500, release, 1010, &out);
 	send_key(&s, 1, 501, press_a, 1020, &out);
 	CHECK(!out.release_all);
+}
+
+static void test_the_active_keyboard_is_identified_when_first_heard_and_on_a_takeover(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 2);
+	hear(&s, 1000, &out);
+	CHECK(out.active_identified);
+	hear(&s, 1005, &out);
+	CHECK(!out.active_identified);
+	send_key(&s, 1, 500, release, 1010, &out);
+	CHECK(!out.active_identified);
+	send_key(&s, 1, 501, press_a, 1020, &out);
+	CHECK_EQ(s.active, 1);
+	CHECK(out.active_identified);
+	send_key(&s, 1, 502, release, 1030, &out);
+	CHECK(!out.active_identified);
+}
+
+static void test_a_keyboard_heard_again_after_silence_is_not_identified_again(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+	uint64_t silent_at;
+
+	session_with_places(&s, 2);
+	hear(&s, 1000, &out);
+	silent_at = silence_after(&s, 1000);
+	unifying_session_tick(&s, silent_at, false, 0, 0, &out);
+	CHECK(out.went_silent);
+	CHECK(!out.active_identified);
+	hear(&s, silent_at + 10, &out);
+	CHECK_EQ(out.heard, UNIFYING_HEARD_AGAIN);
+	CHECK(!out.active_identified);
+}
+
+static void test_the_keyboard_left_active_by_a_forget_is_identified_once_heard(void)
+{
+	struct unifying_session s;
+	struct unifying_out out;
+
+	session_with_places(&s, 3);
+	hear(&s, 1000, &out);
+	unifying_session_forget(&s, 0, 1010, &out);
+	CHECK_EQ(s.active, 1);
+	CHECK(!out.active_identified);
+	send(&s, 1, keep_alive_1100, sizeof(keep_alive_1100), 1020, &out);
+	CHECK(out.active_identified);
 }
 
 static void test_a_keep_alive_does_not_take_over_from_a_connected_keyboard(void)
@@ -3776,6 +3827,9 @@ int main(void)
 	RUN(test_a_stored_keyboard_takes_over_with_a_key_press);
 	RUN(test_a_takeover_releases_the_keys_the_old_keyboard_held);
 	RUN(test_a_takeover_with_nothing_held_releases_nothing);
+	RUN(test_the_active_keyboard_is_identified_when_first_heard_and_on_a_takeover);
+	RUN(test_a_keyboard_heard_again_after_silence_is_not_identified_again);
+	RUN(test_the_keyboard_left_active_by_a_forget_is_identified_once_heard);
 	RUN(test_a_keep_alive_does_not_take_over_from_a_connected_keyboard);
 	RUN(test_any_valid_frame_takes_over_before_the_active_keyboard_is_heard);
 	RUN(test_any_valid_frame_takes_over_from_a_silent_keyboard);
