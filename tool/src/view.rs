@@ -548,6 +548,16 @@ struct Modal {
 }
 
 impl Modal {
+    fn trouble(title: &'static str, text: &str, note: Option<&'static str>) -> Self {
+        Modal {
+            title,
+            body: words(text),
+            keys: Vec::new(),
+            note,
+            color: Color::Red,
+        }
+    }
+
     fn question(title: &'static str, body: &str, keys: Vec<(String, String)>) -> Self {
         Modal {
             title,
@@ -590,8 +600,10 @@ fn draw_modal(f: &mut Frame, m: Modal) {
         .min(usize::from(f.area().width));
     let inner = width.saturating_sub(FRAME).max(1);
     let mut lines = flow(body, " ", inner);
-    lines.push(Line::default());
-    lines.extend(flow(keys, "  ", inner));
+    if !keys.is_empty() {
+        lines.push(Line::default());
+        lines.extend(flow(keys, "  ", inner));
+    }
     let as_length = |n: usize| Constraint::Length(u16::try_from(n).unwrap_or(u16::MAX));
     let area = f
         .area()
@@ -693,11 +705,17 @@ struct Session<T: Transport> {
     /// The last refresh's error, while the dongle answers but its reply failed.
     refresh_error: Option<String>,
     pane: Pane,
-    prompt: Option<Prompt>,
-    choosing: Option<Choice>,
+    overlay: Option<Overlay>,
     message: String,
     /// The line opening pairing put in `message`, cleared once the window closes.
     pairing_message: Option<String>,
+}
+
+/// A box that takes the next key.
+enum Overlay {
+    Choosing(Choice),
+    Confirming(Prompt),
+    Failed(String),
 }
 
 enum Pane {
@@ -714,8 +732,8 @@ enum Pane {
     reason = "one Connection lives for the whole run"
 )]
 enum Connection<T: Transport> {
-    /// Holds the footer's line.
-    Disconnected(String),
+    /// None until a dongle was lost or could not be opened.
+    Disconnected(Option<String>),
     Connected(Session<T>),
 }
 
@@ -819,8 +837,7 @@ impl<T: Transport> Session<T> {
             first_panel: 0,
             refresh_error: None,
             pane: Pane::History,
-            prompt: None,
-            choosing: None,
+            overlay: None,
             message: String::new(),
             pairing_message: None,
         }
@@ -832,22 +849,26 @@ impl<T: Transport> Session<T> {
 
     fn handle(&mut self, key: KeyCode, drawn: Drawn) -> Option<Outcome> {
         self.message.clear();
-        if let Some(choice) = self.choosing.take() {
-            match choice {
-                Choice::Protocol => self.prompt = chosen(self.protocol(), key).map(Prompt::Switch),
-                Choice::Passkey => {
-                    if let Some(no_passkey) = chosen_no_passkey(key) {
-                        self.pair(no_passkey);
-                    }
-                }
+        match self.overlay.take() {
+            Some(Overlay::Choosing(Choice::Protocol)) => {
+                self.overlay =
+                    chosen(self.protocol(), key).map(|to| Overlay::Confirming(Prompt::Switch(to)));
+                return None;
             }
-            return None;
-        }
-        if let Some(prompt) = self.prompt.take() {
-            return (key == KeyCode::Char('y')).then(|| {
-                self.message = "working…".into();
-                Outcome::Answer(prompt)
-            });
+            Some(Overlay::Choosing(Choice::Passkey)) => {
+                if let Some(no_passkey) = chosen_no_passkey(key) {
+                    self.pair(no_passkey);
+                }
+                return None;
+            }
+            Some(Overlay::Confirming(prompt)) => {
+                return (key == KeyCode::Char('y')).then(|| {
+                    self.message = "working…".into();
+                    Outcome::Answer(prompt)
+                });
+            }
+            Some(Overlay::Failed(_)) => return None,
+            None => {}
         }
         let rows = drawn.event_rows;
         let history = &mut self.history;
@@ -863,11 +884,11 @@ impl<T: Transport> Session<T> {
                     && let Some(place) = c.to_digit(10)
                     && let Some(device) = device_at(devices, place as usize) =>
             {
-                self.prompt = Some(Prompt::Forget(device.clone()));
+                self.overlay = Some(Overlay::Confirming(Prompt::Forget(device.clone())));
             }
             KeyCode::Char(c) => match self.key(c) {
-                Some(Key::Ask(prompt)) => self.prompt = Some(prompt),
-                Some(Key::Choose(choice)) => self.choosing = Some(choice),
+                Some(Key::Ask(prompt)) => self.overlay = Some(Overlay::Confirming(prompt)),
+                Some(Key::Choose(choice)) => self.overlay = Some(Overlay::Choosing(choice)),
                 Some(Key::Pair) => self.pair(false),
                 Some(Key::Moves) => self.show_moves(),
                 Some(Key::Devices) => self.show_devices(),
@@ -897,14 +918,14 @@ impl<T: Transport> Session<T> {
     fn show_devices(&mut self) {
         match self.device.devices() {
             Ok(devices) => self.pane = Pane::Devices(devices),
-            Err(e) => self.message = format!("failed: {}", error_text(&e)),
+            Err(e) => self.fail(&e),
         }
     }
 
     fn show_moves(&mut self) {
         match self.device.watch() {
             Ok(w) => self.pane = Pane::Moves(w),
-            Err(e) => self.message = format!("failed: {}", error_text(&e)),
+            Err(e) => self.fail(&e),
         }
     }
 
@@ -915,7 +936,7 @@ impl<T: Transport> Session<T> {
                 self.pairing_message = Some(line.clone());
                 self.message = line;
             }
-            Err(e) => self.message = format!("failed: {}", error_text(&e)),
+            Err(e) => self.fail(&e),
         }
     }
 
@@ -924,13 +945,18 @@ impl<T: Transport> Session<T> {
         let Some(to) = step_channel(&status.keyboard_channels(), status.channel, step) else {
             return;
         };
-        self.message = match crate::cli::move_link(&mut self.device, status, to) {
+        match crate::cli::move_link(&mut self.device, status, to) {
             Ok(line) => {
                 status.channel = to;
-                line
+                self.message = line;
             }
-            Err(e) => format!("failed: {}", error_text(&e)),
-        };
+            Err(e) => self.fail(&e),
+        }
+    }
+
+    fn fail(&mut self, e: &anyhow::Error) {
+        self.message.clear();
+        self.overlay = Some(Overlay::Failed(error_text(e)));
     }
 
     /// Returns the error that lost the dongle.
@@ -988,19 +1014,30 @@ impl<T: Transport> Session<T> {
                 }
             }),
         };
-        self.message = result.unwrap_or_else(|e| format!("failed: {}", error_text(&e)));
+        match result {
+            Ok(line) => self.message = line,
+            Err(e) => self.fail(&e),
+        }
     }
 
     fn modal(&self) -> Option<Modal> {
-        if let Some(choice) = self.choosing {
-            return Some(choice.modal(self.protocol()));
-        }
-        let p = self.prompt.as_ref()?;
-        Some(Modal::question(
-            "Confirm",
-            &p.question(self.protocol()),
-            vec![("y".into(), "yes".into())],
-        ))
+        self.overlay_modal().or_else(|| {
+            self.refresh_error
+                .as_ref()
+                .map(|e| Modal::trouble("Reply failed", e, None))
+        })
+    }
+
+    fn overlay_modal(&self) -> Option<Modal> {
+        Some(match self.overlay.as_ref()? {
+            Overlay::Choosing(choice) => choice.modal(self.protocol()),
+            Overlay::Confirming(p) => Modal::question(
+                "Confirm",
+                &p.question(self.protocol()),
+                vec![("y".into(), "yes".into())],
+            ),
+            Overlay::Failed(e) => Modal::trouble("Failed", e, Some("any key closes")),
+        })
     }
 
     fn help(&self, width: usize) -> Vec<Line<'static>> {
@@ -1014,9 +1051,6 @@ impl<T: Transport> Session<T> {
         }
         if !self.message.is_empty() {
             return flow(words(&self.message), " ", width);
-        }
-        if let Some(e) = &self.refresh_error {
-            return flow(words(e), " ", width);
         }
         let mut hints: Vec<_> = action_keys(self.protocol())
             .into_iter()
@@ -1037,7 +1071,7 @@ impl<T: Transport> App<T> {
     fn new(serial: Option<String>) -> Self {
         App {
             serial,
-            connection: Connection::Disconnected("disconnected".into()),
+            connection: Connection::Disconnected(None),
             drawn: Drawn::default(),
         }
     }
@@ -1066,7 +1100,7 @@ impl<T: Transport> App<T> {
     }
 
     fn disconnect(&mut self, reason: &anyhow::Error) {
-        self.connection = Connection::Disconnected(format!("disconnected: {}", error_text(reason)));
+        self.connection = Connection::Disconnected(Some(error_text(reason)));
     }
 
     fn draw(&mut self, f: &mut Frame) {
@@ -1132,7 +1166,7 @@ impl<T: Transport> App<T> {
         };
         let event_rows = draw_events(f, bottom, history);
         f.render_widget(Paragraph::new(help), footer);
-        if let Some(modal) = session.and_then(Session::modal) {
+        if let Some(modal) = self.connection.modal() {
             draw_modal(f, modal);
         }
         self.drawn = Drawn {
@@ -1164,11 +1198,16 @@ impl<T: Transport> Connection<T> {
     fn view(&self, width: usize) -> (Option<&Session<T>>, Vec<Line<'static>>) {
         match self {
             Connection::Connected(session) => (Some(session), session.help(width)),
-            Connection::Disconnected(line) => {
-                let mut lines = flow(words(line), " ", width);
-                lines.push(Line::from("q quit"));
-                (None, lines)
-            }
+            Connection::Disconnected(_) => (None, vec![Line::from("q quit")]),
+        }
+    }
+
+    fn modal(&self) -> Option<Modal> {
+        match self {
+            Connection::Connected(session) => session.modal(),
+            Connection::Disconnected(why) => why
+                .as_deref()
+                .map(|why| Modal::trouble("Disconnected", why, None)),
         }
     }
 }
@@ -1875,8 +1914,11 @@ mod tests {
         let status = session(&mut app).device.status();
         app.refresh(status);
         assert_eq!(
-            footer(&mut app),
-            "the dongle refused Status: the radio failed"
+            boxed(&mut app),
+            [
+                "Reply failed",
+                "the dongle refused Status: the radio failed"
+            ]
         );
         assert!(app.session_mut().is_some());
         assert_eq!(history(&mut app).slots[0].minutes.len(), 1);
@@ -1959,7 +2001,7 @@ mod tests {
         assert_eq!(texts(&app.connection.view(200).1), [hints.join("  ")]);
         for c in ['n', 'm'] {
             press(&mut app, c);
-            assert!(session(&mut app).prompt.is_none(), "{c}");
+            assert!(session(&mut app).overlay.is_none(), "{c}");
             assert!(matches!(session(&mut app).pane, Pane::History), "{c}");
         }
     }
@@ -2391,8 +2433,8 @@ mod tests {
         let s = session(&mut app);
         assert!(s.handle(KeyCode::Char('b'), Drawn::default()).is_none());
         assert!(matches!(
-            s.prompt,
-            Some(Prompt::Switch(Protocol::Bluetooth))
+            s.overlay,
+            Some(Overlay::Confirming(Prompt::Switch(Protocol::Bluetooth)))
         ));
         let outcome = s.handle(KeyCode::Char('y'), Drawn::default());
         assert!(matches!(
@@ -2428,7 +2470,7 @@ mod tests {
         let s = session(&mut app);
         s.handle(KeyCode::Char('p'), Drawn::default());
         assert!(s.handle(KeyCode::Char('n'), Drawn::default()).is_none());
-        assert!(s.prompt.is_none() && s.choosing.is_none());
+        assert!(s.overlay.is_none());
     }
 
     #[test]
@@ -2481,7 +2523,7 @@ mod tests {
             status_of(Protocol::Unifying),
         );
         press(&mut app, 'a');
-        assert!(session(&mut app).prompt.is_none());
+        assert!(session(&mut app).overlay.is_none());
         assert_eq!(sent.get(), Some(Command::Pair as u8));
         assert_eq!(
             footer(&mut app),
@@ -2575,9 +2617,12 @@ mod tests {
             status_of(Protocol::Unifying),
         );
         press(&mut app, ']');
-        assert!(footer(&mut app).starts_with(
-            "failed: the dongle refused Move: it moves the link only with a keyboard paired"
-        ));
+        let shown = boxed(&mut app);
+        assert_eq!(shown[0], "Failed");
+        assert!(
+            shown[1].starts_with("the dongle refused Move: it moves the link only"),
+            "{shown:?}"
+        );
     }
 
     #[test]
@@ -2756,9 +2801,13 @@ mod tests {
         let status = session(&mut app).device.status();
         app.refresh(status);
         assert_eq!(
-            footer(&mut app),
-            "disconnected: writing to the dongle: hidapi error: device disconnected\nq quit"
+            boxed(&mut app),
+            [
+                "Disconnected",
+                "writing to the dongle: hidapi error: device disconnected"
+            ]
         );
+        assert_eq!(footer(&mut app), "q quit");
         assert!(app.session_mut().is_none());
     }
 
@@ -2767,9 +2816,42 @@ mod tests {
         let mut app = app_on(Device::new(Unplugged, 0), status_of(Protocol::Nuphy));
         session(&mut app).answer(Prompt::Action(Action::Reboot));
         assert_eq!(
-            footer(&mut app),
-            "failed: writing to the dongle: hidapi error: device disconnected"
+            boxed(&mut app),
+            [
+                "Failed",
+                "writing to the dongle: hidapi error: device disconnected",
+                "",
+                "any key closes"
+            ]
         );
+        assert!(
+            footer(&mut app).starts_with("n noise"),
+            "{}",
+            footer(&mut app)
+        );
+    }
+
+    #[test]
+    fn a_failure_box_takes_the_next_key_and_nothing_else() {
+        let mut app = app_on(Device::new(Unplugged, 0), status_of(Protocol::Nuphy));
+        session(&mut app).answer(Prompt::Action(Action::Reboot));
+        press(&mut app, 'r');
+        assert!(session(&mut app).overlay.is_none());
+        assert!(boxed(&mut app).is_empty());
+    }
+
+    #[test]
+    fn a_failed_reply_shows_in_a_box_until_a_refresh_succeeds() {
+        let mut app = app_with(status_of(Protocol::Nuphy));
+        app.refresh(Err(anyhow::anyhow!(
+            "the dongle did not answer Status in time"
+        )));
+        assert_eq!(
+            boxed(&mut app),
+            ["Reply failed", "the dongle did not answer Status in time"]
+        );
+        app.refresh(Ok(status_of(Protocol::Nuphy)));
+        assert!(boxed(&mut app).is_empty());
     }
 
     const NOISE_FIRST: u8 = 2;
@@ -3079,11 +3161,7 @@ mod tests {
         );
         press(&mut app, 'm');
         assert!(matches!(session(&mut app).pane, Pane::History));
-        assert!(
-            footer(&mut app).starts_with("failed:"),
-            "{}",
-            footer(&mut app)
-        );
+        assert_eq!(boxed(&mut app)[0], "Failed");
     }
 
     #[test]
@@ -3104,7 +3182,7 @@ mod tests {
         let s = session(&mut app);
         s.handle(KeyCode::Char('r'), Drawn::default());
         assert!(s.handle(KeyCode::Char('n'), drawn).is_none());
-        assert!(s.prompt.is_none() && s.message.is_empty());
+        assert!(s.overlay.is_none() && s.message.is_empty());
         s.handle(KeyCode::Char('r'), Drawn::default());
         let outcome = s.handle(KeyCode::Char('y'), drawn);
         assert!(matches!(
