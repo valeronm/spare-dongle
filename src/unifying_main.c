@@ -5,7 +5,6 @@
 #include <nrfx.h>
 #include "core.h"
 #include "diag.h"
-#include "indicator.h"
 #include "radio.h"
 #include "store.h"
 #include "unifying.h"
@@ -288,15 +287,10 @@ static void radio_resumed(void)
 
 static void show_state(uint64_t now)
 {
-	static const enum indicator_mode by_status[] = {
-		[UNIFYING_STATUS_NOT_PAIRED] = IND_IDLE,
-		[UNIFYING_STATUS_CONNECTED] = IND_CONNECTED,
-		[UNIFYING_STATUS_SILENT] = IND_CONNECTED,
-	};
-
-	core_show_state(unifying_pairing_window_open(&session.pairing, now)
-				? IND_PAIRING
-				: by_status[unifying_session_status(&session, now)]);
+	core_show_state((struct blink_state){
+		.pairing_open = unifying_pairing_window_open(&session.pairing, now),
+		.connected = unifying_session_status(&session, now) != UNIFYING_STATUS_NOT_PAIRED,
+	});
 }
 
 static void slots(struct diag_slot *out)

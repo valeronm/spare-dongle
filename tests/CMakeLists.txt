@@ -21,7 +21,7 @@ suite(reports ../src/reports.c)
 suite(chanpick ../src/chanpick.c)
 suite(noise ../src/noise.c)
 suite(chanwatch ../src/chanwatch.c ../src/noise.c)
-suite(link ../src/link.c ../src/nuphy.c ../src/pairwin.c ../src/reports.c)
+suite(link ../src/link.c ../src/nuphy.c ../src/pairwin.c ../src/reports.c ../src/blink.c)
 suite(diagproto ../src/link.c ../src/nuphy.c ../src/pairwin.c
   ../src/unifying.c ../src/hidpp.c ../src/reports.c ../src/chanwatch.c ../src/noise.c ../src/btlist.c ../src/protocol.c)
 target_compile_definitions(test_diagproto PRIVATE

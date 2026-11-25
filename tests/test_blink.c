@@ -56,6 +56,34 @@ static void test_a_failed_radio_is_three_flashes_every_two_seconds(void)
 	}
 }
 
+static void test_the_mode_follows_the_dongles_state(void)
+{
+	CHECK_EQ(blink_mode((struct blink_state){0}), IND_IDLE);
+	CHECK_EQ(blink_mode((struct blink_state){.connected = true}), IND_CONNECTED);
+	CHECK_EQ(blink_mode((struct blink_state){.pairing_open = true}), IND_PAIRING);
+	CHECK_EQ(blink_mode((struct blink_state){.usb_suspended = true}), IND_SLEEP);
+	CHECK_EQ(blink_mode((struct blink_state){.radio_failed = true}), IND_ERROR);
+}
+
+static void test_open_pairing_shows_over_a_connected_device(void)
+{
+	CHECK_EQ(blink_mode((struct blink_state){.pairing_open = true, .connected = true}), IND_PAIRING);
+}
+
+static void test_a_suspended_pc_hides_pairing_and_a_connected_device(void)
+{
+	CHECK_EQ(blink_mode((struct blink_state){
+			 .usb_suspended = true, .pairing_open = true, .connected = true}),
+		 IND_SLEEP);
+}
+
+static void test_a_failed_radio_shows_even_with_the_pc_suspended(void)
+{
+	CHECK_EQ(blink_mode((struct blink_state){
+			 .radio_failed = true, .usb_suspended = true, .pairing_open = true}),
+		 IND_ERROR);
+}
+
 int main(void)
 {
 	RUN(test_nothing_connected_is_a_short_flash_every_second);
@@ -63,5 +91,9 @@ int main(void)
 	RUN(test_connected_is_solid);
 	RUN(test_a_suspended_pc_is_off);
 	RUN(test_a_failed_radio_is_three_flashes_every_two_seconds);
+	RUN(test_the_mode_follows_the_dongles_state);
+	RUN(test_open_pairing_shows_over_a_connected_device);
+	RUN(test_a_suspended_pc_hides_pairing_and_a_connected_device);
+	RUN(test_a_failed_radio_shows_even_with_the_pc_suspended);
 	return TEST_EXIT();
 }

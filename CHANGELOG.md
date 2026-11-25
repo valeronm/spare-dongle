@@ -19,6 +19,10 @@
 - The event for a link's first connection no longer gives the time since boot.
 - `protocol` no longer reports that the dongle did not come back when it switches a dongle that
   has just started.
+- In Bluetooth mode the LED blinks fast while pairing is open even with a device connected, as in
+  the other modes.
+- In Bluetooth mode the LED shows a radio that failed to start even while the PC sleeps, as in the
+  other modes.
 
 ## [0.5.0] - 2026-11-21
 

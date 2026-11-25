@@ -9,7 +9,7 @@
 #include "chanwatch.h"
 #include "diagwire.h"
 #include "history.h"
-#include "indicator.h"
+#include "blink.h"
 #include "pairwin.h"
 #include "protocol.h"
 #include "radio.h"
@@ -79,8 +79,8 @@ uint32_t core_usb_retries(void);
 /* Returns true once after each host LED change; *leds always receives the current LEDs. */
 bool core_take_leds(uint8_t *leds);
 void core_watchdog_feed(void);
-/* A suspended host shows IND_SLEEP whatever the mode. */
-void core_show_state(enum indicator_mode mode);
+/* Shows s with usb_suspended taken from the USB state. */
+void core_show_state(struct blink_state s);
 /* Starts the history with a boot event; loop must stay valid for the rest of the program. */
 void core_start_history(const struct core_loop *loop);
 void core_count(enum core_counter c);

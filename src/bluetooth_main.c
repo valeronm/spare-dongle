@@ -10,7 +10,6 @@
 #include "hidkeys.h"
 #include "hidmap.h"
 #include "hidpp.h"
-#include "indicator.h"
 #include "pairwin.h"
 #include "store.h"
 #include "usb.h"
@@ -693,17 +692,6 @@ static void run_hidpp(enum device_kind kind, uint32_t now)
 	}
 }
 
-static enum indicator_mode indicator(uint32_t now)
-{
-	if (start_err) {
-		return IND_ERROR;
-	}
-	if (any_ready()) {
-		return IND_CONNECTED;
-	}
-	return pairwin_is_open(&window, now) ? IND_PAIRING : IND_IDLE;
-}
-
 FUNC_NORETURN void bluetooth_run(int store_err)
 {
 	ARG_UNUSED(store_err);
@@ -763,7 +751,11 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 		if (core_take_leds(&leds)) {
 			send_leds(leds);
 		}
-		core_show_state(indicator(now));
+		core_show_state((struct blink_state){
+			.radio_failed = start_err != 0,
+			.pairing_open = pairwin_is_open(&window, now),
+			.connected = any_ready(),
+		});
 		core_watchdog_feed();
 	}
 }

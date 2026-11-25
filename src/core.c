@@ -88,7 +88,7 @@ void core_start_radio(const struct radio_config *rc)
 	int err;
 
 	while ((err = radio_start(rc, core_on_radio_rx)) != 0) {
-		indicator_set(IND_ERROR);
+		core_show_state((struct blink_state){.radio_failed = true});
 		printk("radio start failed: %d\n", err);
 		k_sleep(K_SECONDS(1));
 		core_watchdog_feed();
@@ -584,9 +584,10 @@ bool core_take_leds(uint8_t *leds)
 	return changed;
 }
 
-void core_show_state(enum indicator_mode mode)
+void core_show_state(struct blink_state s)
 {
-	indicator_set(usb_suspended() ? IND_SLEEP : mode);
+	s.usb_suspended = usb_suspended();
+	indicator_set(blink_mode(s));
 }
 
 static void usb_thread(void *a, void *b, void *c)

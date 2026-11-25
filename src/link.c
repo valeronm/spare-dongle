@@ -342,15 +342,9 @@ bool link_pairing_open(const struct link *l, uint32_t now_ms)
 	return pairwin_is_open(&l->window, now_ms);
 }
 
-enum link_led link_led(const struct link *l, uint32_t now_ms)
+bool link_pairing(const struct link *l, uint32_t now_ms)
 {
-	if (link_pairing_open(l, now_ms)) {
-		return LINK_LED_PAIRING;
-	}
-	if (l->state == LINK_STATE_IDLE) {
-		return LINK_LED_IDLE;
-	}
-	return link_connected(l) ? LINK_LED_CONNECTED : LINK_LED_PAIRING;
+	return link_pairing_open(l, now_ms) || attempting(l);
 }
 
 static bool is_pairing_channel(uint8_t ch)

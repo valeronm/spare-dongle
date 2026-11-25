@@ -14,6 +14,15 @@ enum indicator_mode {
 	IND_ERROR,
 };
 
+struct blink_state {
+	bool radio_failed;
+	bool usb_suspended;
+	bool pairing_open;
+	bool connected;
+};
+
+enum indicator_mode blink_mode(struct blink_state s);
+
 /* step counts BLINK_STEP_MS periods from when the indicator started. */
 bool blink_lit(enum indicator_mode mode, uint32_t step);
 

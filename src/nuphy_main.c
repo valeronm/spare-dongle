@@ -7,7 +7,6 @@
 #include "diag.h"
 #include "diagwire.h"
 #include "history.h"
-#include "indicator.h"
 #include "link.h"
 #include "nuphy.h"
 #include "radio.h"
@@ -45,13 +44,10 @@ static void radio_resumed(void)
 
 static void show_state(void)
 {
-	static const enum indicator_mode by_link[] = {
-		[LINK_LED_IDLE] = IND_IDLE,
-		[LINK_LED_PAIRING] = IND_PAIRING,
-		[LINK_LED_CONNECTED] = IND_CONNECTED,
-	};
-
-	core_show_state(by_link[link_led(&link, k_uptime_get_32())]);
+	core_show_state((struct blink_state){
+		.pairing_open = link_pairing(&link, k_uptime_get_32()),
+		.connected = link_connected(&link),
+	});
 }
 
 static int movable(void)

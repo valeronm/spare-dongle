@@ -12,12 +12,6 @@
 #define LINK_OWN_CHANNELS 3
 #define LINK_CHANNELS_MAX (LINK_FIXED_CHANNELS + LINK_OWN_CHANNELS)
 
-enum link_led {
-	LINK_LED_IDLE,
-	LINK_LED_PAIRING,
-	LINK_LED_CONNECTED,
-};
-
 /* What the caller must do after a link call; zero it before each call. */
 struct link_out {
 	bool set_channel;
@@ -128,7 +122,8 @@ void link_set_host_suspended(struct link *l, bool suspended);
 void link_open_pairing(struct link *l, enum pairwin_cause cause, uint32_t now_ms);
 /* A pair request starts a pairing only while this is true. */
 bool link_pairing_open(const struct link *l, uint32_t now_ms);
-enum link_led link_led(const struct link *l, uint32_t now_ms);
+/* Pairing is open or an attempt is in progress. */
+bool link_pairing(const struct link *l, uint32_t now_ms);
 bool link_connected(const struct link *l);
 
 /* Makes channel, one of the keyboard's non-pairing channels, the home of a paired link with

@@ -1,5 +1,20 @@
 #include "blink.h"
 
+enum indicator_mode blink_mode(struct blink_state s)
+{
+	/* A radio that failed to start stays failed when the PC wakes. */
+	if (s.radio_failed) {
+		return IND_ERROR;
+	}
+	if (s.usb_suspended) {
+		return IND_SLEEP;
+	}
+	if (s.pairing_open) {
+		return IND_PAIRING;
+	}
+	return s.connected ? IND_CONNECTED : IND_IDLE;
+}
+
 bool blink_lit(enum indicator_mode mode, uint32_t step)
 {
 	switch (mode) {

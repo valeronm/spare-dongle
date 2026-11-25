@@ -1,5 +1,6 @@
 #include <string.h>
 #include "test.h"
+#include "blink.h"
 #include "link.h"
 
 static const uint8_t dongle_id[4] = {0x26, 0xc1, 0x21, 0x59};
@@ -78,9 +79,12 @@ static void open_pairing(uint32_t now)
 	link_open_pairing(&l, PAIRWIN_REQUEST, now);
 }
 
-static enum link_led led(void)
+static enum indicator_mode led(void)
 {
-	return link_led(&l, last_ms);
+	return blink_mode((struct blink_state){
+		.pairing_open = link_pairing(&l, last_ms),
+		.connected = link_connected(&l),
+	});
 }
 
 static void expect_status(uint8_t seq, uint8_t leds)
@@ -164,7 +168,7 @@ static void test_pairing_offers_surveyed_channels_and_moves_home_once_confirmed(
 	tick(400);
 	deliver(&request, 0, 450);
 	CHECK(out.start_survey);
-	CHECK_EQ(led(), LINK_LED_PAIRING);
+	CHECK_EQ(led(), IND_PAIRING);
 
 	survey(surveyed, 2000);
 	CHECK(out.set_channel);
@@ -182,7 +186,7 @@ static void test_pairing_offers_surveyed_channels_and_moves_home_once_confirmed(
 	message(NUPHY_KEEPALIVE, 1, 2120);
 	CHECK(out.set_channel);
 	CHECK_EQ(out.channel, 30);
-	CHECK_EQ(led(), LINK_LED_CONNECTED);
+	CHECK_EQ(led(), IND_CONNECTED);
 }
 
 static const uint8_t name_chunks[][NUPHY_NAME_CHUNK] = {
@@ -495,7 +499,7 @@ static void test_silence_for_1_s_loses_the_link(void)
 	tick(1010);
 	CHECK(out.lost);
 	CHECK_EQ(out.channel, 26);
-	CHECK_EQ(led(), LINK_LED_IDLE);
+	CHECK_EQ(led(), IND_IDLE);
 }
 
 static void test_the_link_is_connected_from_its_first_packet_until_it_is_lost(void)
@@ -564,7 +568,7 @@ static void test_a_confirmed_pairing_does_not_report_the_link_up(void)
 	message(NUPHY_KEEPALIVE, 1, 40);
 	CHECK(!out.up);
 	CHECK(!out.moved);
-	CHECK_EQ(led(), LINK_LED_CONNECTED);
+	CHECK_EQ(led(), IND_CONNECTED);
 }
 
 static void hear_keyboard_on_the_pairing_channel(const uint8_t *own)
@@ -581,7 +585,7 @@ static void test_a_keyboard_heard_on_the_pairing_channel_is_moved_home(void)
 	CHECK(out.up);
 	CHECK(!out.set_channel);
 	expect_status(1, 0);
-	CHECK_EQ(led(), LINK_LED_CONNECTED);
+	CHECK_EQ(led(), IND_CONNECTED);
 	message(NUPHY_KEEPALIVE, 1, 450);
 	CHECK(!out.moved);
 	CHECK(!out.set_channel);
@@ -595,7 +599,7 @@ static void test_a_keyboard_heard_on_the_pairing_channel_is_moved_home(void)
 	CHECK(out.set_channel);
 	CHECK_EQ(out.channel, home[0]);
 	expect_status(3, 0);
-	CHECK_EQ(led(), LINK_LED_CONNECTED);
+	CHECK_EQ(led(), IND_CONNECTED);
 }
 
 static void test_the_link_is_connected_while_it_moves_home(void)
@@ -618,7 +622,7 @@ static void test_a_never_paired_dongle_drops_a_keyboard_that_has_its_id(void)
 	CHECK(!out.up);
 	CHECK(!out.reply);
 	CHECK(!link_connected(&l));
-	CHECK_EQ(led(), LINK_LED_PAIRING);
+	CHECK_EQ(led(), IND_PAIRING);
 }
 
 static void test_a_paired_dongle_takes_its_keyboard(void)
@@ -1082,13 +1086,13 @@ static void test_a_confirmed_pairing_is_not_reported_as_running_out(void)
 static void test_the_led_shows_pairing_while_it_is_open(void)
 {
 	init(home);
-	CHECK_EQ(led(), LINK_LED_PAIRING);
+	CHECK_EQ(led(), IND_PAIRING);
 	tick(30000);
-	CHECK_EQ(led(), LINK_LED_IDLE);
+	CHECK_EQ(led(), IND_IDLE);
 	open_pairing(40000);
-	CHECK_EQ(led(), LINK_LED_PAIRING);
+	CHECK_EQ(led(), IND_PAIRING);
 	message(NUPHY_KEEPALIVE, 1, 40010);
-	CHECK_EQ(led(), LINK_LED_PAIRING);
+	CHECK_EQ(led(), IND_PAIRING);
 }
 
 static void test_pairing_running_out_is_reported_once(void)
