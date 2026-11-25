@@ -178,15 +178,19 @@ uint8_t unifying_checksum(const uint8_t *buf, size_t len)
 	return (uint8_t)(0 - sum);
 }
 
-bool unifying_checksum_ok(const uint8_t *frame, size_t len)
+bool unifying_frame_checked(const uint8_t *bytes, size_t len, struct unifying_frame *out)
 {
 	uint8_t want;
 
 	if (len < 2) {
 		return false;
 	}
-	want = unifying_checksum(frame, len - 1);
-	return (frame[len - 1] | 0x01) == (want | 0x01);
+	want = unifying_checksum(bytes, len - 1);
+	if ((bytes[len - 1] | 0x01) != (want | 0x01)) {
+		return false;
+	}
+	*out = (struct unifying_frame){.bytes = bytes, .len = len};
+	return true;
 }
 
 void unifying_derive_key(uint8_t key[UNIFYING_KEY_LEN], const uint8_t base[4],
@@ -256,10 +260,12 @@ static size_t response_final(const struct unifying_attempt *a, uint8_t *out)
 	return seal(out, FINAL_LEN);
 }
 
-static uint8_t request_step(const uint8_t *frame, size_t len)
+static uint8_t request_step(const struct unifying_frame *f)
 {
-	if (len != UNIFYING_FRAME_MAX || (frame[1] & 0x7f) != MARKER_REQUEST ||
-	    !unifying_checksum_ok(frame, len) || frame[2] < 1 || frame[2] > 3) {
+	const uint8_t *frame = f->bytes;
+
+	if (f->len != UNIFYING_FRAME_MAX || (frame[1] & 0x7f) != MARKER_REQUEST || frame[2] < 1 ||
+	    frame[2] > 3) {
 		return 0;
 	}
 	return frame[2];
@@ -288,11 +294,12 @@ static size_t start(struct unifying_attempt *a, const struct unifying_receiver *
 }
 
 size_t unifying_pairing_rx(struct unifying_pairing *p, const struct unifying_receiver *r,
-			   const uint8_t nonce[UNIFYING_NONCE_LEN], const uint8_t *frame, size_t len,
+			   const uint8_t nonce[UNIFYING_NONCE_LEN], const struct unifying_frame *f,
 			   uint64_t now_ms, uint8_t *reply, enum unifying_rx_event *event)
 {
 	struct unifying_attempt *a = &p->attempt;
-	uint8_t step = request_step(frame, len);
+	const uint8_t *frame = f->bytes;
+	uint8_t step = request_step(f);
 
 	*event = UNIFYING_RX_NONE;
 	if (step == 1) {
@@ -336,19 +343,14 @@ bool unifying_pairing_expired(struct unifying_pairing *p, uint64_t now_ms)
 	return false;
 }
 
-static bool shaped(const uint8_t *frame, size_t len, size_t want_len, uint8_t want_type)
+static bool shaped(const struct unifying_frame *f, size_t want_len, uint8_t want_type)
 {
-	return len == want_len && (frame[1] & REPORT_TYPE_MASK) == want_type;
+	return f->len == want_len && (f->bytes[1] & REPORT_TYPE_MASK) == want_type;
 }
 
-static bool frame_is(const uint8_t *frame, size_t len, size_t want_len, uint8_t want_type)
+bool unifying_is_encrypted_keyboard(const struct unifying_frame *f)
 {
-	return shaped(frame, len, want_len, want_type) && unifying_checksum_ok(frame, len);
-}
-
-bool unifying_is_encrypted_keyboard(const uint8_t *frame, size_t len)
-{
-	return frame_is(frame, len, UNIFYING_FRAME_MAX, REPORT_ENCRYPTED_KEYBOARD);
+	return shaped(f, UNIFYING_FRAME_MAX, REPORT_ENCRYPTED_KEYBOARD);
 }
 
 void unifying_link_reset(struct unifying_link *l)
@@ -356,13 +358,13 @@ void unifying_link_reset(struct unifying_link *l)
 	*l = (struct unifying_link){.keepalive_ms = UNIFYING_KEEPALIVE_DEFAULT_MS};
 }
 
-bool unifying_is_connect_frame(const uint8_t *frame, size_t len, uint8_t device_octet)
+static bool is_connect_frame(const struct unifying_frame *f, uint8_t device_octet)
 {
-	bool shape = (len == UNIFYING_FRAME_MAX && frame[1] == 0x51 && frame[3] == 0x04) ||
-		     (len == CONNECT_SHORT_LEN && frame[1] == 0x4f && frame[3] == 0x00);
+	const uint8_t *frame = f->bytes;
+	bool shape = (f->len == UNIFYING_FRAME_MAX && frame[1] == 0x51 && frame[3] == 0x04) ||
+		     (f->len == CONNECT_SHORT_LEN && frame[1] == 0x4f && frame[3] == 0x00);
 
-	return shape && frame[2] == 0x07 && frame[0] == device_octet &&
-	       unifying_checksum_ok(frame, len);
+	return shape && frame[2] == 0x07 && frame[0] == device_octet;
 }
 
 static bool any_held(const struct unifying_link *l)
@@ -377,12 +379,12 @@ static void forget_held(struct unifying_link *l)
 	l->divert_usage = 0;
 }
 
-bool unifying_link_reconnect(struct unifying_link *l, uint8_t device_octet, const uint8_t *frame,
-			     size_t len)
+bool unifying_link_reconnect(struct unifying_link *l, uint8_t device_octet,
+			     const struct unifying_frame *f)
 {
 	bool held = any_held(l);
 
-	if (!unifying_is_connect_frame(frame, len, device_octet)) {
+	if (!is_connect_frame(f, device_octet)) {
 		return false;
 	}
 	l->synced = false;
@@ -447,9 +449,10 @@ static void type(struct unifying_link *l, const struct report *r, uint64_t next_
 }
 
 size_t unifying_keystroke(struct unifying_link *l, const uint8_t key[UNIFYING_KEY_LEN],
-			  const uint8_t *frame, size_t len, uint64_t now_ms, unifying_aes_fn aes,
+			  const struct unifying_frame *f, uint64_t now_ms, unifying_aes_fn aes,
 			  struct report out[UNIFYING_KEYSTROKE_REPORTS])
 {
+	const uint8_t *frame = f->bytes;
 	uint8_t block[UNIFYING_AES_BLOCK_LEN], stream[UNIFYING_AES_BLOCK_LEN];
 	uint8_t p[REPORT_KEYBOARD_LEN];
 	struct report r;
@@ -458,7 +461,7 @@ size_t unifying_keystroke(struct unifying_link *l, const uint8_t key[UNIFYING_KE
 	uint64_t counter;
 	size_t n = 0;
 
-	if (!unifying_is_encrypted_keyboard(frame, len)) {
+	if (!unifying_is_encrypted_keyboard(f)) {
 		return 0;
 	}
 	if (!attack && l->candidate.held_in_attack) {
@@ -503,21 +506,21 @@ size_t unifying_keystroke(struct unifying_link *l, const uint8_t key[UNIFYING_KE
 	return n;
 }
 
-bool unifying_media_report(struct unifying_link *l, const uint8_t *frame, size_t len,
+bool unifying_media_report(struct unifying_link *l, const struct unifying_frame *f,
 			   struct report *out)
 {
-	if (!frame_is(frame, len, MEDIA_FRAME_LEN, REPORT_MEDIA)) {
+	if (!shaped(f, MEDIA_FRAME_LEN, REPORT_MEDIA)) {
 		return false;
 	}
-	l->media_usage = frame[2] | frame[3] << 8;
+	l->media_usage = f->bytes[2] | f->bytes[3] << 8;
 	*out = reports_consumer(l->media_usage, l->divert_usage);
 	return true;
 }
 
-static bool is_hidpp(const uint8_t *frame, size_t len)
+static bool is_hidpp(const struct unifying_frame *f)
 {
-	return shaped(frame, len, HIDPP_SHORT_FRAME_LEN, HIDPP_SHORT_REPORT_ID) ||
-	       shaped(frame, len, UNIFYING_FRAME_MAX, HIDPP_LONG_REPORT_ID);
+	return shaped(f, HIDPP_SHORT_FRAME_LEN, HIDPP_SHORT_REPORT_ID) ||
+	       shaped(f, UNIFYING_FRAME_MAX, HIDPP_LONG_REPORT_ID);
 }
 
 /* A frame carries the message from byte 2 up to its checksum. */
@@ -542,17 +545,17 @@ static size_t hidpp_request_frame(struct hidpp *x, uint8_t device_index, uint64_
 	return hidpp_request(x, device_index, now_ms, retry_ms, &m) ? hidpp_frame(&m, out) : 0;
 }
 
-/* Takes only a frame whose checksum the caller checked. */
 static bool hidpp_rx_frame(struct hidpp *x, struct unifying_link *l, struct device_battery *b,
-			   const uint8_t *frame, size_t len, struct report *out)
+			   const struct unifying_frame *f, struct report *out)
 {
 	struct hidpp_msg m;
 	uint16_t usage;
 
-	if (!is_hidpp(frame, len)) {
+	if (!is_hidpp(f)) {
 		return false;
 	}
-	hidpp_msg_read(&frame[2], len - HIDPP_FRAME_OVERHEAD, len == UNIFYING_FRAME_MAX, &m);
+	hidpp_msg_read(&f->bytes[2], f->len - HIDPP_FRAME_OVERHEAD, f->len == UNIFYING_FRAME_MAX,
+		       &m);
 	if (!hidpp_rx(x, b, &m, &usage) || usage == l->divert_usage) {
 		return false;
 	}
@@ -598,24 +601,29 @@ void unifying_led_sent(struct unifying_led *led, uint8_t leds)
 	led->resend = false;
 }
 
-static uint16_t keepalive_timeout(const uint8_t *frame, size_t len)
+static uint16_t keepalive_timeout(const struct unifying_frame *f)
 {
-	if (frame_is(frame, len, KEEPALIVE_LEN, REPORT_KEEPALIVE & REPORT_TYPE_MASK) &&
+	const uint8_t *frame = f->bytes;
+
+	if (shaped(f, KEEPALIVE_LEN, REPORT_KEEPALIVE & REPORT_TYPE_MASK) &&
 	    frame[1] == REPORT_KEEPALIVE) {
 		return (uint16_t)(frame[2] << 8 | frame[3]);
 	}
-	if (frame_is(frame, len, SET_KEEPALIVE_LEN, REPORT_SET_KEEPALIVE) && frame[2] == 0x00) {
+	if (shaped(f, SET_KEEPALIVE_LEN, REPORT_SET_KEEPALIVE) && frame[2] == 0x00) {
 		return (uint16_t)(frame[3] << 8 | frame[4]);
 	}
 	return 0;
 }
 
-void unifying_link_heard(struct unifying_link *l, const uint8_t *frame, size_t len,
-			 uint64_t now_ms)
+void unifying_link_heard(struct unifying_link *l, uint64_t now_ms)
 {
-	uint16_t timeout = keepalive_timeout(frame, len);
-
 	l->last_ms = now_ms;
+}
+
+void unifying_link_keepalive(struct unifying_link *l, const struct unifying_frame *f)
+{
+	uint16_t timeout = keepalive_timeout(f);
+
 	if (timeout != 0) {
 		l->keepalive_ms = timeout;
 	}
@@ -798,12 +806,11 @@ static void mark_heard(struct unifying_session *s, int8_t rssi, uint64_t now_ms,
 	s->rssi = rssi;
 }
 
-static bool place_frame(struct unifying_session *s, uint8_t place, const uint8_t *frame,
-			size_t len, int8_t rssi, uint64_t now_ms, unifying_aes_fn aes,
-			struct unifying_out *out)
+/* f is NULL for a frame that failed its checksum. */
+static bool place_frame(struct unifying_session *s, uint8_t place, const struct unifying_frame *f,
+			int8_t rssi, uint64_t now_ms, unifying_aes_fn aes, struct unifying_out *out)
 {
 	struct unifying_link *l = &s->links[place];
-	bool checksum_ok = unifying_checksum_ok(frame, len);
 	uint32_t refused = l->refused;
 	bool attack = now_ms < l->attack_until_ms;
 	struct report typed[UNIFYING_KEYSTROKE_REPORTS];
@@ -813,25 +820,32 @@ static bool place_frame(struct unifying_session *s, uint8_t place, const uint8_t
 		/* Requests 2 and 3 arrive on the place the attempt targets. */
 		return attempting(&s->pairing) && s->pairing.attempt.place == place;
 	}
-	unifying_link_heard(l, frame, len, now_ms);
-	n = unifying_keystroke(l, s->pairing.devices[place].key, frame, len, now_ms, aes, typed);
-	if (n == 0 && unifying_media_report(l, frame, len, &typed[0])) {
+	unifying_link_heard(l, now_ms);
+	if (!f) {
+		out->invalid = true;
+		if (place == s->active) {
+			mark_heard(s, rssi, now_ms, out);
+		}
+		return true;
+	}
+	unifying_link_keepalive(l, f);
+	n = unifying_keystroke(l, s->pairing.devices[place].key, f, now_ms, aes, typed);
+	if (n == 0 && unifying_media_report(l, f, &typed[0])) {
 		n = 1;
 	}
-	out->invalid = !checksum_ok || l->refused != refused;
+	out->invalid = l->refused != refused;
 	out->attack_started = !attack && now_ms < l->attack_until_ms;
 	if (place != s->active) {
-		if (!pressed(typed, n) && !(checksum_ok && (!s->heard || s->silent))) {
+		if (!pressed(typed, n) && s->heard && !s->silent) {
 			return true;
 		}
 		take_over(s, place, out);
 	}
 	mark_heard(s, rssi, now_ms, out);
-	if (!attempting(&s->pairing) && checksum_ok) {
+	if (!attempting(&s->pairing)) {
 		pairwin_link_up(&s->pairing.window);
 	}
-	if (n == 0 && checksum_ok &&
-	    hidpp_rx_frame(&s->hidpp, l, &s->battery, frame, len, &typed[0])) {
+	if (n == 0 && hidpp_rx_frame(&s->hidpp, l, &s->battery, f, &typed[0])) {
 		n = 1;
 	}
 	out->reports = n;
@@ -839,18 +853,18 @@ static bool place_frame(struct unifying_session *s, uint8_t place, const uint8_t
 	return true;
 }
 
-static bool receiver_frame(struct unifying_session *s, const uint8_t *frame, size_t len,
+/* f is NULL for a frame that failed its checksum. */
+static bool receiver_frame(struct unifying_session *s, const struct unifying_frame *f,
 			   struct unifying_out *out)
 {
-	uint8_t place = len > 0 ? unifying_octet_place(frame[0]) : UNIFYING_NO_PLACE;
+	uint8_t place = f ? unifying_octet_place(f->bytes[0]) : UNIFYING_NO_PLACE;
 
 	if (!unifying_has_device(&s->pairing)) {
 		return false;
 	}
 	if (place != UNIFYING_NO_PLACE && s->pairing.stored[place] &&
-	    unifying_is_connect_frame(frame, len, unifying_place_octet(place))) {
-		bool held = unifying_link_reconnect(&s->links[place], unifying_place_octet(place),
-						    frame, len);
+	    is_connect_frame(f, unifying_place_octet(place))) {
+		bool held = unifying_link_reconnect(&s->links[place], unifying_place_octet(place), f);
 
 		if (place == s->active) {
 			out->reconnected = true;
@@ -870,22 +884,28 @@ bool unifying_session_frame(struct unifying_session *s, uint8_t pipe, const uint
 {
 	uint8_t pipes = unifying_listen_pipes(&s->pairing);
 	uint8_t place = unifying_pipe_place(pipe);
+	struct unifying_frame checked;
+	const struct unifying_frame *f =
+		unifying_frame_checked(frame, len, &checked) ? &checked : NULL;
 	bool handled = true;
 
 	*out = (struct unifying_out){0};
-	out->reply_len = unifying_pairing_rx(&s->pairing, &s->receiver, nonce, frame, len, now_ms,
-					     out->reply, &out->event);
+	if (f) {
+		out->reply_len = unifying_pairing_rx(&s->pairing, &s->receiver, nonce, f, now_ms,
+						     out->reply, &out->event);
+	}
 	out->reply_pipe = pipe;
 	if (out->event == UNIFYING_RX_PAIRED) {
 		out->paired_place = s->pairing.attempt.place;
 		unifying_link_reset(&s->links[out->paired_place]);
 		take_over(s, out->paired_place, out);
-		unifying_link_heard(&s->links[out->paired_place], frame, len, now_ms);
+		unifying_link_heard(&s->links[out->paired_place], now_ms);
+		unifying_link_keepalive(&s->links[out->paired_place], f);
 		mark_heard(s, rssi, now_ms, out);
 	} else if (place != UNIFYING_NO_PLACE) {
-		handled = place_frame(s, place, frame, len, rssi, now_ms, aes, out);
+		handled = place_frame(s, place, f, rssi, now_ms, aes, out);
 	} else if (pipe == UNIFYING_PIPE_RECEIVER) {
-		handled = receiver_frame(s, frame, len, out);
+		handled = receiver_frame(s, f, out);
 	}
 	out->pipes = unifying_listen_pipes(&s->pairing);
 	out->listen |= out->pipes != pipes;

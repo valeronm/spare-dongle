@@ -95,8 +95,14 @@ struct unifying_sweep {
 
 uint8_t unifying_checksum(const uint8_t *buf, size_t len);
 
+/* A frame whose checksum held, which only unifying_frame_checked fills in. */
+struct unifying_frame {
+	const uint8_t *bytes;
+	size_t len;
+};
+
 /* The last byte is the checksum of the rest; keyboards sometimes send its low bit wrong. */
-bool unifying_checksum_ok(const uint8_t *frame, size_t len);
+bool unifying_frame_checked(const uint8_t *bytes, size_t len, struct unifying_frame *out);
 
 void unifying_derive_key(uint8_t key[UNIFYING_KEY_LEN], const uint8_t base[4],
 			 const uint8_t device_wpid[2], const uint8_t dongle_wpid[2],
@@ -125,7 +131,7 @@ void unifying_device_address(const struct unifying_receiver *r, uint8_t place,
  * closed; Requests 2 and 3 are not.
  */
 size_t unifying_pairing_rx(struct unifying_pairing *p, const struct unifying_receiver *r,
-			   const uint8_t nonce[UNIFYING_NONCE_LEN], const uint8_t *frame, size_t len,
+			   const uint8_t nonce[UNIFYING_NONCE_LEN], const struct unifying_frame *f,
 			   uint64_t now_ms, uint8_t *reply, enum unifying_rx_event *event);
 
 /*
@@ -162,7 +168,7 @@ void unifying_list_address(const struct unifying_pairing *p, uint8_t place,
 /* The stored place whose list address is addr, else UNIFYING_NO_PLACE. */
 uint8_t unifying_find_place(const struct unifying_pairing *p, const uint8_t addr[DIAG_ADDR_LEN]);
 
-bool unifying_is_encrypted_keyboard(const uint8_t *frame, size_t len);
+bool unifying_is_encrypted_keyboard(const struct unifying_frame *f);
 
 typedef void (*unifying_aes_fn)(const uint8_t key[UNIFYING_KEY_LEN],
 				const uint8_t in[UNIFYING_AES_BLOCK_LEN],
@@ -191,16 +197,14 @@ struct unifying_link {
 
 void unifying_link_reset(struct unifying_link *l);
 
-/* A connect frame is what a keyboard sends on the receiver's own address after it boots. */
-bool unifying_is_connect_frame(const uint8_t *frame, size_t len, uint8_t device_octet);
-
 /*
- * The keyboard picks a new counter on every boot, so a connect frame from the keyboard with
+ * A connect frame is what a keyboard sends on the receiver's own address after it boots. The
+ * keyboard picks a new counter on every boot, so a connect frame from the keyboard with
  * device_octet, received on the receiver's own address, forgets the known counter and drops any
  * held frame. Returns true when keys were held, which are then to be released.
  */
-bool unifying_link_reconnect(struct unifying_link *l, uint8_t device_octet, const uint8_t *frame,
-			     size_t len);
+bool unifying_link_reconnect(struct unifying_link *l, uint8_t device_octet,
+			     const struct unifying_frame *f);
 
 /*
  * Decrypts an encrypted keystroke and writes up to UNIFYING_KEYSTROKE_REPORTS reports to out,
@@ -216,11 +220,11 @@ bool unifying_link_reconnect(struct unifying_link *l, uint8_t device_octet, cons
  * confirms nothing.
  */
 size_t unifying_keystroke(struct unifying_link *l, const uint8_t key[UNIFYING_KEY_LEN],
-			  const uint8_t *frame, size_t len, uint64_t now_ms, unifying_aes_fn aes,
+			  const struct unifying_frame *f, uint64_t now_ms, unifying_aes_fn aes,
 			  struct report out[UNIFYING_KEYSTROKE_REPORTS]);
 
 /* The usage's high byte (frame byte 3) is unconfirmed: every key seen used a usage below 0x100. */
-bool unifying_media_report(struct unifying_link *l, const uint8_t *frame, size_t len,
+bool unifying_media_report(struct unifying_link *l, const struct unifying_frame *f,
 			   struct report *out);
 
 size_t unifying_led_frame(uint8_t leds, uint8_t out[UNIFYING_LED_FRAME_LEN]);
@@ -266,11 +270,11 @@ void unifying_record_of(const struct unifying_pairing *p, uint8_t place,
 void unifying_record_restore(struct unifying_pairing *p, uint8_t place,
 			     const uint8_t in[UNIFYING_RECORD_LEN]);
 
-/*
- * Records any frame from the keyboard; keep-alive and set-keep-alive frames also carry its timeout.
- */
-void unifying_link_heard(struct unifying_link *l, const uint8_t *frame, size_t len,
-			 uint64_t now_ms);
+/* Records any frame from the keyboard, including one that failed its checksum. */
+void unifying_link_heard(struct unifying_link *l, uint64_t now_ms);
+
+/* Keep-alive and set-keep-alive frames carry the keyboard's timeout. */
+void unifying_link_keepalive(struct unifying_link *l, const struct unifying_frame *f);
 
 /*
  * Returns true once when a key is held and nothing was heard for twice the keep-alive timeout; the
