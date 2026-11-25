@@ -27,6 +27,9 @@
   a stored keyboard that is asleep, out of range or paired elsewhere.
 - In Unifying mode the LED keeps blinking fast until a pairing in progress ends, even after the
   30 seconds pairing stays open.
+- In NuPhy mode a keyboard paired onto channel 50 stays paired when the dongle restarts.
+- In NuPhy mode pairing may give the keyboard channels 26, 50 and 80.
+- In NuPhy mode `channels` accepts 50 and 80.
 
 ## [0.5.0] - 2026-11-21
 

@@ -47,6 +47,11 @@ pub const STRONG_DBM: i8 = -60;
 /// before, and the last has no upper edge.
 pub const BUCKETS: usize = 6;
 pub const BUCKET_DB: i8 = 10;
+/// The radio channels the dongle tunes; channel n is 2400 + n MHz.
+pub const CHANNEL_FIRST: u8 = 2;
+pub const CHANNEL_LAST: u8 = 80;
+/// The NuPhy keyboard pairs on it, and only rarely visits its other pairing channels, 50 and 80.
+pub const NUPHY_PAIRING_CHANNEL: u8 = 2;
 pub const NUPHY_FIXED_COUNT: usize = 7;
 /// The keyboard firmware fixes these channels besides the three it gets at pairing.
 pub const NUPHY_FIXED_CHANNELS: [u8; NUPHY_FIXED_COUNT] = [16, 22, 44, 48, 58, 72, 78];

@@ -71,8 +71,7 @@ enum Cmd {
     Moves,
     /// Set the three channels every pairing offers, or `auto` to pick them by survey
     Channels {
-        /// Three channels from 2 to 80, for example 62 52 44, or auto
-        #[arg(required = true, num_args = 1..=3)]
+        #[arg(required = true, num_args = 1..=3, help = cli::channels_help())]
         channels: Vec<String>,
     },
     /// Show the protocol the dongle runs, or switch it; the dongle reboots into the new one

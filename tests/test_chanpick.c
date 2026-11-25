@@ -52,18 +52,30 @@ static void test_a_quiet_channel_inside_a_busy_band_is_not_picked(void)
 	CHECK_EQ(out[0], 36);
 }
 
-static void test_pairing_and_ble_advertising_channels_are_never_picked(void)
+static void test_the_pairing_channel_is_never_picked(void)
 {
 	uint8_t out[3] = {0};
 
 	fill(CHAN_FIRST, CHAN_LAST, -60);
 	fill(2, 7, -100);
-	fill(21, 31, -100);
-	fill(75, 80, -100);
 	chan_pick(&s, out);
 	for (int i = 0; i < 3; i++) {
-		CHECK(out[i] != 2 && out[i] != 26 && out[i] != 80);
+		CHECK(out[i] != 2);
 	}
+}
+
+static void test_quiet_ble_advertising_and_rare_pairing_channels_are_picked(void)
+{
+	uint8_t out[3] = {0};
+
+	fill(CHAN_FIRST, CHAN_LAST, -60);
+	fill(21, 31, -100);
+	fill(45, 55, -100);
+	fill(75, 80, -100);
+	chan_pick(&s, out);
+	CHECK_EQ(out[0], 26);
+	CHECK_EQ(out[1], 50);
+	CHECK_EQ(out[2], 80);
 }
 
 int main(void)
@@ -71,6 +83,7 @@ int main(void)
 	RUN(test_picks_quiet_channels_at_least_10_apart_avoiding_wifi);
 	RUN(test_steady_quiet_beats_bursty);
 	RUN(test_a_quiet_channel_inside_a_busy_band_is_not_picked);
-	RUN(test_pairing_and_ble_advertising_channels_are_never_picked);
+	RUN(test_the_pairing_channel_is_never_picked);
+	RUN(test_quiet_ble_advertising_and_rare_pairing_channels_are_picked);
 	return TEST_EXIT();
 }

@@ -73,9 +73,9 @@ The official dongle drops every packet but the last when several arrive at once,
 while USB is busy, and every report for about 2 s after the PC resumes. SpareDongle reads every
 packet and queues reports while USB is busy.
 
-SpareDongle picks the three channels with the fewest Wi-Fi bursts, away from the Bluetooth LE
-advertising channels. The official dongle picks new ones at every power-up while the keyboard keeps
-its own, so the link runs on the seven fixed channels built into the keyboard.
+SpareDongle picks the three channels with the fewest Wi-Fi bursts, other than pairing channel 2.
+The official dongle picks new ones at every power-up while the keyboard keeps its own, so the link
+runs on the seven fixed channels built into the keyboard.
 
 SpareDongle keeps measuring the noise on the keyboard's channels between packets and moves to a
 clearly quieter one. Only noise strong enough to matter at the keyboard's signal counts, so a

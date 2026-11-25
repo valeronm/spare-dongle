@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::Local;
+use diagwire::{CHANNEL_FIRST, CHANNEL_LAST, NUPHY_PAIRING_CHANNEL};
 
 use crate::board::{self, State};
 use crate::device::{self, Device, Refused, Transport};
@@ -424,6 +425,13 @@ pub fn events<T: Transport>(dev: &mut Device<T>, s: &Status, count: u32) -> Resu
     Ok(())
 }
 
+pub fn channels_help() -> String {
+    format!(
+        "Three channels from {CHANNEL_FIRST} to {CHANNEL_LAST} other than pairing channel \
+         {NUPHY_PAIRING_CHANNEL}, for example 62 52 44, or auto"
+    )
+}
+
 /// Reads `auto` as `None` and three channel numbers as `Some`.
 pub fn parse_channels(values: &[String]) -> Result<Option<[u8; 3]>> {
     if let [only] = values
@@ -435,7 +443,7 @@ pub fn parse_channels(values: &[String]) -> Result<Option<[u8; 3]>> {
         .iter()
         .map(|v| v.parse::<u8>())
         .collect::<Result<_, _>>()
-        .context("channels are numbers from 2 to 80")?;
+        .with_context(|| format!("channels are numbers from {CHANNEL_FIRST} to {CHANNEL_LAST}"))?;
     let channels: [u8; 3] = channels
         .try_into()
         .map_err(|_| anyhow!("give three channels, or auto"))?;
@@ -446,8 +454,8 @@ pub fn channels<T: Transport>(dev: &mut Device<T>, channels: Option<[u8; 3]>) ->
     dev.force_channels(channels).map_err(|err| {
         match err.downcast_ref::<Refused>().map(|r| r.code) {
             Some(Ok(ErrorCode::BadChannels)) => anyhow!(
-                "the dongle refused the channels: give three different channels from 2 to 80, \
-                 none of them a pairing channel (2, 50, 80)"
+                "the dongle refused the channels: give three different channels from \
+                 {CHANNEL_FIRST} to {CHANNEL_LAST} other than pairing channel {NUPHY_PAIRING_CHANNEL}"
             ),
             Some(Ok(ErrorCode::Store)) => {
                 anyhow!("the dongle could not save the channels; nothing changed")

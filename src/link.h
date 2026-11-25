@@ -103,7 +103,7 @@ bool link_on_message(struct link *l, const struct nuphy_msg *m, uint8_t pipe, ui
 void link_on_survey(struct link *l, const uint8_t channels[LINK_OWN_CHANNELS], uint32_t now_ms,
 		    struct link_out *out);
 void link_survey_failed(struct link *l, uint32_t now_ms, struct link_out *out);
-/* Refuses a repeated channel, one outside CHAN_FIRST..CHAN_LAST or a keyboard pairing channel. */
+/* Refuses a repeated channel or one chan_operable refuses. */
 bool link_channels_allowed(const uint8_t channels[LINK_OWN_CHANNELS]);
 /*
  * Every later pairing offers channels instead of surveying, until called with NULL. Returns false,

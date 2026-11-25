@@ -939,18 +939,17 @@ static void expect_refused(uint8_t a, uint8_t b, uint8_t c)
 	CHECK(kept != NULL && memcmp(kept, forced, 3) == 0);
 }
 
-static void test_pairing_channels_repeats_and_out_of_range_channels_are_refused(void)
+static void test_the_pairing_channel_repeats_and_out_of_range_channels_are_refused(void)
 {
 	init(home);
 	CHECK(link_force_channels(&l, forced));
 	expect_refused(2, 52, 44);
-	expect_refused(62, 50, 44);
-	expect_refused(62, 52, 80);
 	expect_refused(62, 62, 44);
 	expect_refused(62, 52, 62);
 	expect_refused(1, 52, 44);
 	expect_refused(62, 52, 81);
 	CHECK(link_force_channels(&l, (const uint8_t[3]){26, 3, 79}));
+	CHECK(link_force_channels(&l, (const uint8_t[3]){50, 80, 26}));
 }
 
 static void test_a_dongle_with_nothing_forced_reports_no_forced_channels(void)
@@ -1031,12 +1030,20 @@ static void test_another_keyboard_does_not_keep_a_pairing_alive(void)
 	CHECK(out.pairing_expired);
 }
 
-static void test_stored_channels_holding_a_pairing_channel_count_as_never_paired(void)
+static void test_stored_channels_holding_the_pairing_channel_count_as_never_paired(void)
 {
 	static const uint8_t stored[3] = {2, 30, 34};
 
 	init(stored);
 	CHECK_EQ(link_home(&l), CHANMOVE_NO_HOME);
+}
+
+static void test_stored_channels_holding_the_rare_pairing_channels_stay_paired(void)
+{
+	static const uint8_t stored[3] = {50, 30, 80};
+
+	init(stored);
+	CHECK_EQ(link_home(&l), 50);
 }
 
 static void test_a_never_paired_dongle_answers_a_request_at_any_time(void)
@@ -1172,7 +1179,7 @@ int main(void)
 	RUN(test_a_pairing_on_forced_channels_is_not_reused_once_they_are_cleared);
 	RUN(test_channels_forced_during_a_pairing_do_not_change_what_it_saves);
 	RUN(test_forcing_during_a_forced_pairing_does_not_change_what_it_saves);
-	RUN(test_pairing_channels_repeats_and_out_of_range_channels_are_refused);
+	RUN(test_the_pairing_channel_repeats_and_out_of_range_channels_are_refused);
 	RUN(test_a_dongle_with_nothing_forced_reports_no_forced_channels);
 	RUN(test_a_keyboard_dropped_by_a_never_paired_dongle_can_still_pair);
 	RUN(test_a_paired_dongle_answers_a_request_in_its_first_30_s);
@@ -1181,7 +1188,8 @@ int main(void)
 	RUN(test_opening_pairing_lets_a_paired_dongle_answer_for_30_s);
 	RUN(test_pairing_opened_on_request_ignores_the_keyboard_connecting);
 	RUN(test_another_keyboard_does_not_keep_a_pairing_alive);
-	RUN(test_stored_channels_holding_a_pairing_channel_count_as_never_paired);
+	RUN(test_stored_channels_holding_the_pairing_channel_count_as_never_paired);
+	RUN(test_stored_channels_holding_the_rare_pairing_channels_stay_paired);
 	RUN(test_a_never_paired_dongle_answers_a_request_at_any_time);
 	RUN(test_a_confirmed_pairing_closes_pairing);
 	RUN(test_a_confirmed_pairing_is_not_reported_as_running_out);

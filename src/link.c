@@ -12,10 +12,6 @@
 /* The keyboard repeats a pair request that goes unanswered while a survey has the receiver off. */
 #define OFFER_REUSE_MS 10000
 
-/* The keyboard pairs on channel 2 and only rarely visits its other pairing channels, 50 and 80. */
-#define PAIRING_CHANNEL 2
-static const uint8_t pairing_channels[] = {PAIRING_CHANNEL, 50, 80};
-
 bool link_connected(const struct link *l)
 {
 	return l->state == LINK_STATE_CONNECTED || l->state == LINK_STATE_MOVING_HOME;
@@ -47,10 +43,10 @@ static void set_own(struct link *l, const uint8_t own[LINK_OWN_CHANNELS])
 	list_channels(l);
 }
 
-/* Neither the fixed channels nor a paired keyboard's channels include PAIRING_CHANNEL. */
+/* Neither the fixed channels nor a paired keyboard's channels include CHAN_PAIRING. */
 static bool on_pairing_channel(const struct link *l)
 {
-	return l->channel == PAIRING_CHANNEL;
+	return l->channel == CHAN_PAIRING;
 }
 
 static uint8_t own_slot_channel(const struct link *l)
@@ -293,7 +289,7 @@ void link_tick(struct link *l, uint32_t now_ms, struct link_out *out)
 			}
 		} else if (now_ms - l->slot_start_ms >= SLOT_MS) {
 			if (!on_pairing_channel(l)) {
-				set_channel(l, PAIRING_CHANNEL, out);
+				set_channel(l, CHAN_PAIRING, out);
 			} else {
 				if (!l->own_known) {
 					l->fixed_next = (l->fixed_next + 1) % sizeof(diag_nuphy_fixed_channels);
@@ -347,15 +343,10 @@ bool link_pairing(const struct link *l, uint32_t now_ms)
 	return link_pairing_open(l, now_ms) || attempting(l);
 }
 
-static bool is_pairing_channel(uint8_t ch)
-{
-	return memchr(pairing_channels, ch, sizeof(pairing_channels)) != NULL;
-}
-
 bool link_channels_allowed(const uint8_t channels[LINK_OWN_CHANNELS])
 {
 	for (int i = 0; i < LINK_OWN_CHANNELS; i++) {
-		if (!chan_in_range(channels[i]) || is_pairing_channel(channels[i])) {
+		if (!chan_operable(channels[i])) {
 			return false;
 		}
 		for (int j = 0; j < i; j++) {
