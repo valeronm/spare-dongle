@@ -500,6 +500,20 @@ static void test_the_window_runs_30_s_from_opening(void)
 	CHECK(!unifying_pairing_window_open(&p, 5000 + 30000));
 }
 
+static void test_pairing_stays_active_while_an_attempt_outlasts_the_window(void)
+{
+	struct unifying_pairing p = open_pairing_with_device();
+	uint8_t f[UNIFYING_FRAME_MAX], reply[UNIFYING_FRAME_MAX];
+
+	CHECK(unifying_pairing_active(&p, 0));
+	request_1(f, 0xe1, 0x05);
+	feed(&p, f, sizeof(f), 29990, reply);
+	CHECK(!unifying_pairing_window_open(&p, 30000));
+	CHECK(unifying_pairing_active(&p, 30000));
+	CHECK(unifying_pairing_expired(&p, 29990 + UNIFYING_PAIRING_TIMEOUT_MS + 1));
+	CHECK(!unifying_pairing_active(&p, 29990 + UNIFYING_PAIRING_TIMEOUT_MS + 1));
+}
+
 static void test_pairing_closes_the_window(void)
 {
 	struct unifying_pairing p = open_pairing();
@@ -3753,6 +3767,7 @@ int main(void)
 	RUN(test_an_attempt_started_in_the_window_finishes_after_it);
 	RUN(test_request_1_before_pairing_opens_is_ignored);
 	RUN(test_the_window_runs_30_s_from_opening);
+	RUN(test_pairing_stays_active_while_an_attempt_outlasts_the_window);
 	RUN(test_pairing_closes_the_window);
 	RUN(test_a_paired_dongle_holds_its_channel_with_pairing_closed_or_open);
 	RUN(test_a_restored_device_is_paired_and_a_new_request_still_starts_an_attempt);

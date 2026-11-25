@@ -285,12 +285,9 @@ static void radio_resumed(void)
 	unifying_session_radio_resumed(&session, (uint64_t)k_uptime_get());
 }
 
-static void show_state(uint64_t now)
+static bool pairing(void)
 {
-	core_show_state((struct blink_state){
-		.pairing_open = unifying_pairing_window_open(&session.pairing, now),
-		.connected = unifying_session_status(&session, now) != UNIFYING_STATUS_NOT_PAIRED,
-	});
+	return unifying_pairing_active(&session.pairing, (uint64_t)k_uptime_get());
 }
 
 static void slots(struct diag_slot *out)
@@ -423,6 +420,7 @@ static const struct core_loop loop = {
 	.replies_dropped = replies_dropped,
 	.move = move_on_request,
 	.host_suspended = ignore_host,
+	.pairing = pairing,
 };
 
 FUNC_NORETURN void unifying_run(int store_err)
@@ -485,7 +483,7 @@ FUNC_NORETURN void unifying_run(int store_err)
 			printk("receive queue full, %u frames dropped\n", dropped - reported_drops);
 		}
 		reported_drops = dropped;
-		show_state(now);
+		core_show_state();
 		core_watchdog_feed();
 	}
 }

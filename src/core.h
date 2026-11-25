@@ -9,7 +9,6 @@
 #include "chanwatch.h"
 #include "diagwire.h"
 #include "history.h"
-#include "blink.h"
 #include "pairwin.h"
 #include "protocol.h"
 #include "radio.h"
@@ -48,6 +47,8 @@ struct core_loop {
 	enum chanmove_result (*move)(uint8_t channel, uint8_t *from);
 	/* Runs on each change of the USB suspend state, which starts as awake. */
 	void (*host_suspended)(bool suspended);
+	/* Whether pairing is open or an attempt is in progress. */
+	bool (*pairing)(void);
 };
 
 struct rx_item {
@@ -79,8 +80,10 @@ uint32_t core_usb_retries(void);
 /* Returns true once after each host LED change; *leds always receives the current LEDs. */
 bool core_take_leds(uint8_t *leds);
 void core_watchdog_feed(void);
-/* Shows s with usb_suspended taken from the USB state. */
-void core_show_state(struct blink_state s);
+/* A ready slot counts as a connected device. */
+void core_show_state(void);
+/* A radio that failed to start shows on the LED from then on. */
+void core_radio_failed(void);
 /* Starts the history with a boot event; loop must stay valid for the rest of the program. */
 void core_start_history(const struct core_loop *loop);
 void core_count(enum core_counter c);

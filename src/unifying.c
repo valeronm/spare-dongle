@@ -155,6 +155,11 @@ bool unifying_pairing_window_open(const struct unifying_pairing *p, uint64_t now
 	return pairwin_is_open(&p->window, (uint32_t)now_ms);
 }
 
+bool unifying_pairing_active(const struct unifying_pairing *p, uint64_t now_ms)
+{
+	return unifying_pairing_window_open(p, now_ms) || attempting(p);
+}
+
 uint8_t unifying_sweep_channel(struct unifying_sweep *s, const struct unifying_pairing *p,
 			       uint8_t current, uint64_t now_ms)
 {

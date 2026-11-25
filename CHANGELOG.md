@@ -23,6 +23,10 @@
   the other modes.
 - In Bluetooth mode the LED shows a radio that failed to start even while the PC sleeps, as in the
   other modes.
+- In Unifying mode the LED is solid only while a keyboard is heard, and shows the short flash for
+  a stored keyboard that is asleep, out of range or paired elsewhere.
+- In Unifying mode the LED keeps blinking fast until a pairing in progress ends, even after the
+  30 seconds pairing stays open.
 
 ## [0.5.0] - 2026-11-21
 

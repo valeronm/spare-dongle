@@ -153,6 +153,9 @@ bool unifying_pairing_open(struct unifying_pairing *p, enum pairwin_cause cause,
 
 bool unifying_pairing_window_open(const struct unifying_pairing *p, uint64_t now_ms);
 
+/* The window is open or an attempt is in progress, which may outlast the window. */
+bool unifying_pairing_active(const struct unifying_pairing *p, uint64_t now_ms);
+
 bool unifying_has_device(const struct unifying_pairing *p);
 
 void unifying_pairing_restore(struct unifying_pairing *p, uint8_t place,

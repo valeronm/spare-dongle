@@ -490,6 +490,7 @@ pub struct Slot {
     /// An enum device_kind.
     pub kind: u8,
     pub stored: bool,
+    /// The device's link is up now.
     pub ready: bool,
 }
 

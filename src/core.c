@@ -2,6 +2,7 @@
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
+#include "blink.h"
 #include "clock.h"
 #include "core.h"
 #include "diag.h"
@@ -38,6 +39,7 @@ static uint32_t link_losses[DEVICE_SLOTS];
 /* Below 0 for a slot that has sent nothing since boot. */
 static int64_t last_input_ms[DEVICE_SLOTS];
 static bool usb_was_suspended;
+static bool radio_failed;
 static bool usb_seen_live;
 static struct chanwatch watch;
 static int64_t last_scan_ms;
@@ -88,11 +90,13 @@ void core_start_radio(const struct radio_config *rc)
 	int err;
 
 	while ((err = radio_start(rc, core_on_radio_rx)) != 0) {
-		core_show_state((struct blink_state){.radio_failed = true});
+		radio_failed = true;
+		core_show_state();
 		printk("radio start failed: %d\n", err);
 		k_sleep(K_SECONDS(1));
 		core_watchdog_feed();
 	}
+	radio_failed = false;
 }
 
 bool core_take_rx(struct rx_item *out, k_timeout_t wait)
@@ -474,6 +478,8 @@ const struct chan_survey *core_survey(void)
 	if (!diag_protocol_has_esb(active)) {
 		return NULL;
 	}
+	/* The survey blocks the protocol's loop, which otherwise updates the LED. */
+	core_show_state();
 	/* The receiver goes deaf during the survey, so a key held now stays down on the host. */
 	core_release_keys();
 	take_noise();
@@ -584,10 +590,25 @@ bool core_take_leds(uint8_t *leds)
 	return changed;
 }
 
-void core_show_state(struct blink_state s)
+void core_show_state(void)
 {
-	s.usb_suspended = usb_suspended();
+	struct diag_slot slots[DEVICE_SLOTS] = {0};
+	struct blink_state s = {
+		.radio_failed = radio_failed,
+		.usb_suspended = usb_suspended(),
+		.pairing_open = loop->pairing(),
+	};
+
+	loop->slots(slots);
+	for (uint8_t i = 0; i < loop->slot_count; i++) {
+		s.connected |= slots[i].ready;
+	}
 	indicator_set(blink_mode(s));
+}
+
+void core_radio_failed(void)
+{
+	radio_failed = true;
 }
 
 static void usb_thread(void *a, void *b, void *c)

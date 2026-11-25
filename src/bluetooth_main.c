@@ -207,6 +207,11 @@ static void host_suspended(bool suspended)
 	}
 }
 
+static bool pairing(void)
+{
+	return pairwin_is_open(&window, k_uptime_get_32());
+}
+
 static const struct core_loop loop = {
 	.home = no_home,
 	.take_noise = ble_take_noise,
@@ -219,6 +224,7 @@ static const struct core_loop loop = {
 	.replies_dropped = nothing,
 	.move = no_move,
 	.host_suspended = host_suspended,
+	.pairing = pairing,
 };
 
 static const char *map_fault(enum hidmap_result result)
@@ -702,6 +708,7 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 	}
 	start_err = ble_start();
 	if (start_err) {
+		core_radio_failed();
 		printk("bluetooth start failed: %d\n", start_err);
 	} else {
 		uint8_t stored = ble_stored_count();
@@ -751,11 +758,7 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 		if (core_take_leds(&leds)) {
 			send_leds(leds);
 		}
-		core_show_state((struct blink_state){
-			.radio_failed = start_err != 0,
-			.pairing_open = pairwin_is_open(&window, now),
-			.connected = any_ready(),
-		});
+		core_show_state();
 		core_watchdog_feed();
 	}
 }

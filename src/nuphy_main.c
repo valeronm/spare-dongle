@@ -42,12 +42,9 @@ static void radio_resumed(void)
 	link_radio_resumed(&link, k_uptime_get_32());
 }
 
-static void show_state(void)
+static bool pairing(void)
 {
-	core_show_state((struct blink_state){
-		.pairing_open = link_pairing(&link, k_uptime_get_32()),
-		.connected = link_connected(&link),
-	});
+	return link_pairing(&link, k_uptime_get_32());
 }
 
 static int movable(void)
@@ -137,8 +134,6 @@ static void run_survey(void)
 	struct link_out out = {0};
 
 	core_count(CORE_SURVEYS);
-	/* The survey blocks the main loop, which otherwise updates the LED. */
-	show_state();
 	survey = core_survey();
 	if (survey == NULL) {
 		link_survey_failed(&link, k_uptime_get_32(), &out);
@@ -363,6 +358,7 @@ static const struct core_loop loop = {
 	.replies_dropped = replies_dropped,
 	.move = move_on_request,
 	.host_suspended = host_suspended,
+	.pairing = pairing,
 };
 
 FUNC_NORETURN void nuphy_run(int store_err)
@@ -423,7 +419,7 @@ FUNC_NORETURN void nuphy_run(int store_err)
 			print_counters();
 			last_counters = now;
 		}
-		show_state();
+		core_show_state();
 		core_watchdog_feed();
 	}
 }
