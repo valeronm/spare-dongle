@@ -21,9 +21,9 @@ use crate::device::{self, Device, Lost, Transport};
 use crate::format::{
     ChannelRole, LinkHealth, NOISE_QUESTION, action_question, battery, bucket_label, channel_role,
     counted_share, describe_event, device_at, device_lines, firmware, forget_question, last_packet,
-    latency, link_health, noise_level, noise_ruler, paired, pairing, passkey_prompt, share,
-    slot_health, slot_state, state_name, status_label, switch_question, uptime, usb_state,
-    waiting_keyboard, waits_for_passkey, wall_clock, watch_role, watch_summary,
+    latency, link_health, noise_level, noise_ruler, paired, pairing, pairing_how, passkey_prompt,
+    sentence, share, slot_health, slot_state, state_name, status_label, switch_question, uptime,
+    usb_state, waiting_keyboard, waits_for_passkey, wall_clock, watch_role, watch_summary,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -707,8 +707,14 @@ struct Session<T: Transport> {
     pane: Pane,
     overlay: Option<Overlay>,
     message: String,
-    /// The line opening pairing put in `message`, cleared once the window closes.
-    pairing_message: Option<String>,
+    /// Set by esc while the pairing box shows, until the window closes.
+    pairing_hidden: bool,
+}
+
+enum Shown {
+    Overlay,
+    ReplyFailed,
+    Pairing,
 }
 
 /// A box that takes the next key.
@@ -747,6 +753,8 @@ enum Outcome {
     Quit,
     /// Answered after a redraw, since a noise survey blocks for seconds.
     Answer(Prompt),
+    /// Reads the status before the next draw.
+    Poll,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -786,6 +794,7 @@ impl App {
             }
             match self.handle(key.code) {
                 Some(Outcome::Quit) => return Ok(()),
+                Some(Outcome::Poll) => last_poll = None,
                 Some(Outcome::Answer(prompt)) => {
                     terminal.draw(|f| self.draw(f))?;
                     if let Some(session) = self.session_mut() {
@@ -839,7 +848,7 @@ impl<T: Transport> Session<T> {
             pane: Pane::History,
             overlay: None,
             message: String::new(),
-            pairing_message: None,
+            pairing_hidden: false,
         }
     }
 
@@ -856,10 +865,7 @@ impl<T: Transport> Session<T> {
                 return None;
             }
             Some(Overlay::Choosing(Choice::Passkey)) => {
-                if let Some(no_passkey) = chosen_no_passkey(key) {
-                    self.pair(no_passkey);
-                }
-                return None;
+                return chosen_no_passkey(key).and_then(|no_passkey| self.pair(no_passkey));
             }
             Some(Overlay::Confirming(prompt)) => {
                 return (key == KeyCode::Char('y')).then(|| {
@@ -869,6 +875,10 @@ impl<T: Transport> Session<T> {
             }
             Some(Overlay::Failed(_)) => return None,
             None => {}
+        }
+        if key == KeyCode::Esc && matches!(self.shown(), Some(Shown::Pairing)) {
+            self.pairing_hidden = true;
+            return None;
         }
         let rows = drawn.event_rows;
         let history = &mut self.history;
@@ -889,7 +899,7 @@ impl<T: Transport> Session<T> {
             KeyCode::Char(c) => match self.key(c) {
                 Some(Key::Ask(prompt)) => self.overlay = Some(Overlay::Confirming(prompt)),
                 Some(Key::Choose(choice)) => self.overlay = Some(Overlay::Choosing(choice)),
-                Some(Key::Pair) => self.pair(false),
+                Some(Key::Pair) => return self.pair(false),
                 Some(Key::Moves) => self.show_moves(),
                 Some(Key::Devices) => self.show_devices(),
                 None => {}
@@ -929,14 +939,17 @@ impl<T: Transport> Session<T> {
         }
     }
 
-    fn pair(&mut self, no_passkey: bool) {
+    fn pair(&mut self, no_passkey: bool) -> Option<Outcome> {
         let protocol = self.protocol();
         match crate::cli::pair(&mut self.device, protocol, no_passkey) {
-            Ok((line, _)) => {
-                self.pairing_message = Some(line.clone());
-                self.message = line;
+            Ok(_) => {
+                self.pairing_hidden = false;
+                Some(Outcome::Poll)
             }
-            Err(e) => self.fail(&e),
+            Err(e) => {
+                self.fail(&e);
+                None
+            }
         }
     }
 
@@ -961,7 +974,6 @@ impl<T: Transport> Session<T> {
 
     /// Returns the error that lost the dongle.
     fn refresh(&mut self, status: Result<Status>) -> Result<()> {
-        let read = status.is_ok();
         let refreshed = status
             .and_then(|s| self.history.refresh(&mut self.device, s))
             .and_then(|()| self.reread_pane());
@@ -970,8 +982,8 @@ impl<T: Transport> Session<T> {
             Err(e) if e.is::<Lost>() => return Err(e),
             Err(e) => self.refresh_error = Some(error_text(&e)),
         }
-        if read {
-            self.drop_pairing_message_once_closed();
+        if !self.history.status.pairing_window.is_open() {
+            self.pairing_hidden = false;
         }
         Ok(())
     }
@@ -983,16 +995,6 @@ impl<T: Transport> Session<T> {
             Pane::History | Pane::Noise(_) => {}
         }
         Ok(())
-    }
-
-    /// The dongle closes its pairing window on its own, so the message outlives the window.
-    fn drop_pairing_message_once_closed(&mut self) {
-        if self.history.status.pairing_window.is_open() {
-            return;
-        }
-        if self.pairing_message.take().as_ref() == Some(&self.message) {
-            self.message.clear();
-        }
     }
 
     fn answer(&mut self, prompt: Prompt) {
@@ -1020,11 +1022,53 @@ impl<T: Transport> Session<T> {
         }
     }
 
+    /// An overlay covers a failed reply, which covers the pairing box; the overlay takes keys first.
+    fn shown(&self) -> Option<Shown> {
+        if self.overlay.is_some() {
+            Some(Shown::Overlay)
+        } else if self.refresh_error.is_some() {
+            Some(Shown::ReplyFailed)
+        } else if self.history.status.pairing_window.is_open() && !self.pairing_hidden {
+            Some(Shown::Pairing)
+        } else {
+            None
+        }
+    }
+
     fn modal(&self) -> Option<Modal> {
-        self.overlay_modal().or_else(|| {
-            self.refresh_error
+        match self.shown()? {
+            Shown::Overlay => self.overlay_modal(),
+            Shown::ReplyFailed => self
+                .refresh_error
                 .as_ref()
-                .map(|e| Modal::trouble("Reply failed", e, None))
+                .map(|e| Modal::trouble("Reply failed", e, None)),
+            Shown::Pairing => self.pairing_modal(),
+        }
+    }
+
+    fn pairing_modal(&self) -> Option<Modal> {
+        let (title, body) = match &self.history.status.pairing_window {
+            PairingWindow::Closed => return None,
+            PairingWindow::Open => (
+                "Pairing open",
+                words(&sentence(pairing_how(self.protocol(), false))),
+            ),
+            PairingWindow::PasskeyAwaited(a) => {
+                let [before, digits, after] = passkey_prompt(a);
+                let body = words(&sentence(&before))
+                    .into_iter()
+                    .chain([Span::styled(digits, PASSKEY_STYLE)])
+                    .chain(words(&after))
+                    .collect();
+                ("Passkey", body)
+            }
+        };
+        Some(Modal {
+            title,
+            body,
+            keys: Vec::new(),
+            note: Some("esc hides"),
+            color: Color::Yellow,
         })
     }
 
@@ -1041,14 +1085,6 @@ impl<T: Transport> Session<T> {
     }
 
     fn help(&self, width: usize) -> Vec<Line<'static>> {
-        if let PairingWindow::PasskeyAwaited(a) = &self.history.status.pairing_window {
-            let [before, digits, after] = passkey_prompt(a);
-            let pieces = words(&before)
-                .into_iter()
-                .chain([Span::styled(digits, PASSKEY_STYLE)])
-                .chain(words(&after));
-            return flow(pieces, " ", width);
-        }
         if !self.message.is_empty() {
             return flow(words(&self.message), " ", width);
         }
@@ -1885,7 +1921,7 @@ mod tests {
 
     #[test]
     fn the_unifying_footer_flows_onto_the_last_rows_of_an_80_column_screen() {
-        let mut app = app_with(status_of(Protocol::Unifying));
+        let mut app = app_with(closed(status_of(Protocol::Unifying)));
         let rows = screen(&drawn(&mut app));
         assert_eq!(
             rows[22].trim_end(),
@@ -2520,14 +2556,25 @@ mod tests {
                 }),
                 0,
             ),
-            status_of(Protocol::Unifying),
+            closed(status_of(Protocol::Unifying)),
         );
-        press(&mut app, 'a');
-        assert!(session(&mut app).overlay.is_none());
+        assert!(matches!(
+            app.handle(KeyCode::Char('a')),
+            Some(Outcome::Poll)
+        ));
         assert_eq!(sent.get(), Some(Command::Pair as u8));
+        assert!(session(&mut app).overlay.is_none());
+        assert!(boxed(&mut app).is_empty());
+        refreshed_with_pairing(&mut app, Protocol::Unifying, true);
         assert_eq!(
-            footer(&mut app),
-            "within 30 s, switch the keyboard off and on, after holding an Easy-Switch key\nuntil it blinks fast if it has them"
+            boxed(&mut app),
+            [
+                "Pairing open",
+                "Switch the keyboard off and on, after holding an Easy-Switch",
+                "key until it blinks fast if it has them",
+                "",
+                "esc hides"
+            ]
         );
     }
 
@@ -2559,12 +2606,12 @@ mod tests {
         press(&mut app, 'n');
         assert_eq!(sent.get(), Some((Command::Pair as u8, 1)));
         assert_eq!(
-            footer(&mut app),
-            "within 30 s, put the keyboard or mouse in Bluetooth pairing mode"
+            boxed(&mut app)[1],
+            "Put the keyboard or mouse in Bluetooth pairing mode"
         );
         press(&mut app, 'a');
         press(&mut app, 'x');
-        assert!(boxed(&mut app).is_empty());
+        assert_eq!(boxed(&mut app)[0], "Pairing open");
         assert!(footer(&mut app).starts_with("a pair"));
         assert_eq!(sent.get(), Some((Command::Pair as u8, 1)));
         press(&mut app, 'a');
@@ -2662,19 +2709,23 @@ mod tests {
     }
 
     #[test]
-    fn the_footer_asks_for_the_passkey_with_its_digits_highlighted() {
+    fn the_pairing_box_asks_for_the_passkey_with_its_digits_highlighted() {
         let mut s = status_of(Protocol::Bluetooth);
         s.pairing_window = awaited(42, None);
         let mut app = app_with(s);
-        session(&mut app).message = pairing_open(Protocol::Bluetooth, true);
         assert_eq!(
-            footer(&mut app),
-            "type 000042 on the keyboard and press Enter"
+            boxed(&mut app),
+            [
+                "Passkey",
+                "Type 000042 on the keyboard and press Enter",
+                "",
+                "esc hides"
+            ]
         );
         let terminal = drawn(&mut app);
         let row = screen(&terminal)
             .iter()
-            .position(|r| r.starts_with("type 000042"))
+            .position(|r| r.contains("Type 000042"))
             .unwrap() as u16;
         assert!(
             cell_at(&terminal, row, "000042")
@@ -2682,7 +2733,7 @@ mod tests {
                 .contains(Modifier::BOLD)
         );
         assert!(
-            !cell_at(&terminal, row, "type")
+            !cell_at(&terminal, row, "Type")
                 .modifier
                 .contains(Modifier::BOLD)
         );
@@ -2690,32 +2741,58 @@ mod tests {
 
     #[test]
     fn the_pair_key_in_nuphy_mode_says_to_hold_fn_4() {
-        let mut app = app_showing("");
+        let mut app = app_with(closed(status_of(Protocol::Nuphy)));
         press(&mut app, 'a');
+        refreshed_with_pairing(&mut app, Protocol::Nuphy, true);
         assert_eq!(
-            footer(&mut app),
-            "within 30 s, hold Fn+4 on the keyboard for 3 s"
+            boxed(&mut app),
+            [
+                "Pairing open",
+                "Hold Fn+4 on the keyboard for 3 s",
+                "",
+                "esc hides"
+            ]
         );
     }
 
     #[test]
-    fn the_pairing_message_goes_with_a_closed_status_even_when_the_fetch_fails() {
-        let closed =
-            crate::protocol::tests::edit(&status_payload(Protocol::Nuphy, 60_000, 1, 0), |s| {
-                s.pairing_window = 0
-            });
-        let device = Device::new(
-            Fake::new(move |req| match req[0] {
-                1 => parts(req[0], req[1], &closed),
-                _ => vec![error_part(req[0], req[1], ErrorCode::Radio as u8)],
-            }),
-            0,
-        );
-        let mut app = app_on(device, status_of(Protocol::Nuphy));
-        show_pairing(&mut app, Protocol::Nuphy);
-        let status = session(&mut app).device.status();
-        app.refresh(status);
-        assert_eq!(session(&mut app).message, "");
+    fn the_pairing_box_shows_while_the_status_reads_pairing_open_and_goes_after() {
+        for protocol in Protocol::ALL {
+            let mut app = app_with(closed(status_of(protocol)));
+            assert!(boxed(&mut app).is_empty(), "{protocol:?}");
+            refreshed_with_pairing(&mut app, protocol, true);
+            assert_eq!(boxed(&mut app)[0], "Pairing open", "{protocol:?}");
+            refreshed_with_pairing(&mut app, protocol, false);
+            assert!(boxed(&mut app).is_empty(), "{protocol:?}");
+        }
+    }
+
+    #[test]
+    fn esc_hides_the_pairing_box_until_the_next_window() {
+        let mut app = app_with(status_of(Protocol::Nuphy));
+        session(&mut app).pane = Pane::Devices(Vec::new());
+        app.handle(KeyCode::Esc);
+        assert!(boxed(&mut app).is_empty());
+        assert!(matches!(session(&mut app).pane, Pane::Devices(_)));
+        refreshed_with_pairing(&mut app, Protocol::Nuphy, true);
+        assert!(boxed(&mut app).is_empty());
+        refreshed_with_pairing(&mut app, Protocol::Nuphy, false);
+        refreshed_with_pairing(&mut app, Protocol::Nuphy, true);
+        assert_eq!(boxed(&mut app)[0], "Pairing open");
+    }
+
+    #[test]
+    fn keys_act_as_usual_under_the_pairing_box_and_a_question_covers_it() {
+        let mut app = app_with(status_of(Protocol::Nuphy));
+        press(&mut app, 'c');
+        assert_eq!(boxed(&mut app)[0], "Confirm");
+        press(&mut app, 'x');
+        assert_eq!(boxed(&mut app)[0], "Pairing open");
+    }
+
+    fn closed(mut s: Status) -> Status {
+        s.pairing_window = PairingWindow::Closed;
+        s
     }
 
     fn refreshed_with_pairing(app: &mut App<Fake>, protocol: Protocol, open: bool) {
@@ -2731,44 +2808,16 @@ mod tests {
     }
 
     fn refreshed_with_events(app: &mut App<Fake>, protocol: Protocol, new: u32) {
-        let mut s = status_of(protocol);
+        let mut s = closed(status_of(protocol));
         s.minute_next = s.minute_oldest;
         s.events_total += new;
         app.refresh(Ok(s));
-    }
-
-    fn show_pairing<T: Transport>(app: &mut App<T>, protocol: Protocol) {
-        let s = session(app);
-        s.message = pairing_open(protocol, false);
-        s.pairing_message = Some(s.message.clone());
     }
 
     fn app_showing(message: &str) -> App<Fake> {
         let mut app = app_with(status_of(Protocol::Nuphy));
         session(&mut app).message = message.into();
         app
-    }
-
-    #[test]
-    fn the_pairing_message_stays_while_the_status_reads_pairing() {
-        for protocol in Protocol::ALL {
-            let mut app = app_showing("");
-            show_pairing(&mut app, protocol);
-            refreshed_with_pairing(&mut app, protocol, true);
-            assert_eq!(session(&mut app).message, pairing_open(protocol, false));
-        }
-    }
-
-    #[test]
-    fn the_pairing_message_goes_once_the_status_no_longer_reads_pairing() {
-        let mut app = app_showing("");
-        show_pairing(&mut app, Protocol::Unifying);
-        refreshed_with_pairing(&mut app, Protocol::Unifying, false);
-        assert_eq!(session(&mut app).message, "");
-        assert_eq!(
-            footer(&mut app),
-            "n noise  m moves  a pair  d devices  p protocol  r reboot  b bootloader  c clear\n[/] channel  ←/→ history  ↑/↓ events  esc back  q quit"
-        );
     }
 
     #[test]
@@ -2833,7 +2882,10 @@ mod tests {
 
     #[test]
     fn a_failure_box_takes_the_next_key_and_nothing_else() {
-        let mut app = app_on(Device::new(Unplugged, 0), status_of(Protocol::Nuphy));
+        let mut app = app_on(
+            Device::new(Unplugged, 0),
+            closed(status_of(Protocol::Nuphy)),
+        );
         session(&mut app).answer(Prompt::Action(Action::Reboot));
         press(&mut app, 'r');
         assert!(session(&mut app).overlay.is_none());
@@ -2842,7 +2894,7 @@ mod tests {
 
     #[test]
     fn a_failed_reply_shows_in_a_box_until_a_refresh_succeeds() {
-        let mut app = app_with(status_of(Protocol::Nuphy));
+        let mut app = app_with(closed(status_of(Protocol::Nuphy)));
         app.refresh(Err(anyhow::anyhow!(
             "the dongle did not answer Status in time"
         )));
@@ -2850,7 +2902,7 @@ mod tests {
             boxed(&mut app),
             ["Reply failed", "the dongle did not answer Status in time"]
         );
-        app.refresh(Ok(status_of(Protocol::Nuphy)));
+        app.refresh(Ok(closed(status_of(Protocol::Nuphy))));
         assert!(boxed(&mut app).is_empty());
     }
 
@@ -3053,7 +3105,7 @@ mod tests {
     fn app_watching(watch: Vec<u8>) -> (App<Fake>, std::rc::Rc<std::cell::Cell<usize>>) {
         let asked = std::rc::Rc::new(std::cell::Cell::new(0));
         let count = asked.clone();
-        let mut status = status_of(Protocol::Nuphy);
+        let mut status = closed(status_of(Protocol::Nuphy));
         status.channel = 41;
         let app = app_on(
             Device::new(

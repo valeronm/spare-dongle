@@ -126,19 +126,25 @@ pub fn switch_question(to: Protocol) -> String {
 }
 
 pub fn pairing_open(protocol: Protocol, passkey_asked: bool) -> String {
-    let how: String = match (protocol, passkey_asked) {
-        (Protocol::Nuphy, _) => "hold Fn+4 on the keyboard for 3 s".into(),
+    format!("within 30 s, {}", pairing_how(protocol, passkey_asked))
+}
+
+pub fn pairing_how(protocol: Protocol, passkey_asked: bool) -> &'static str {
+    match (protocol, passkey_asked) {
+        (Protocol::Nuphy, _) => "hold Fn+4 on the keyboard for 3 s",
         (Protocol::Unifying, _) => {
-            "switch the keyboard off and on, after holding an Easy-Switch key until it blinks fast if it has them".into()
+            "switch the keyboard off and on, after holding an Easy-Switch key until it blinks fast if it has them"
         }
-        (Protocol::Bluetooth, true) => {
-            "put the keyboard in Bluetooth pairing mode".into()
-        }
-        (Protocol::Bluetooth, false) => {
-            "put the keyboard or mouse in Bluetooth pairing mode".into()
-        }
-    };
-    format!("within 30 s, {how}")
+        (Protocol::Bluetooth, true) => "put the keyboard in Bluetooth pairing mode",
+        (Protocol::Bluetooth, false) => "put the keyboard or mouse in Bluetooth pairing mode",
+    }
+}
+
+pub fn sentence(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
 }
 
 pub fn passkey_digits(passkey: u32) -> String {
