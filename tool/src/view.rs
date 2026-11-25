@@ -19,12 +19,12 @@ use ratatui::{
 
 use crate::device::{self, Device, Lost, Transport};
 use crate::format::{
-    ChannelRole, LinkHealth, NOISE_QUESTION, action_question, battery, bucket_label, channel_role,
-    counted_share, describe_event, device_at, device_lines, firmware, forget_question, last_packet,
-    latency, link_health, noise_level, noise_ruler, paired, pairing, pairing_how, passkey_prompt,
-    protocol_security, sentence, share, slot_health, slot_state, state_name, status_label,
-    switch_question, uptime, usb_state, waiting_keyboard, waits_for_passkey, wall_clock,
-    watch_role, watch_summary,
+    ChannelRole, LinkHealth, NOISE_QUESTION, action_question, battery, bootloader_and_softdevice,
+    bucket_label, channel_role, counted_share, describe_event, device_at, device_lines,
+    forget_question, last_packet, latency, link_health, noise_level, noise_ruler, paired, pairing,
+    pairing_how, passkey_prompt, protocol_security, reset_by, sentence, share, slot_health,
+    slot_state, state_name, status_label, switch_question, uptime, usb_state, version,
+    waiting_keyboard, waits_for_passkey, wall_clock, watch_role, watch_summary,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -539,9 +539,11 @@ impl Choice {
     }
 }
 
+#[derive(Clone)]
 struct Modal {
     title: &'static str,
-    body: Vec<Span<'static>>,
+    /// Paragraphs, each flowed onto lines of its own.
+    body: Vec<Vec<Span<'static>>>,
     /// Each key with what it does.
     keys: Vec<(String, String)>,
     note: Option<&'static str>,
@@ -552,7 +554,7 @@ impl Modal {
     fn trouble(title: &'static str, text: &str, note: Option<&'static str>) -> Self {
         Modal {
             title,
-            body: words(text),
+            body: vec![words(text)],
             keys: Vec::new(),
             note,
             color: Color::Red,
@@ -562,7 +564,7 @@ impl Modal {
     fn question(title: &'static str, body: &str, keys: Vec<(String, String)>) -> Self {
         Modal {
             title,
-            body: words(body),
+            body: vec![words(body)],
             keys,
             note: Some("any other key cancels"),
             color: HINT_COLOR,
@@ -592,18 +594,29 @@ fn draw_modal(f: &mut Frame, m: Modal) {
                 .map(|n| Line::from(Span::styled(n, Style::new().add_modifier(Modifier::DIM)))),
         )
         .collect();
-    let unwrapped = |pieces: Vec<Line<'static>>, separator| {
-        flow(pieces, separator, usize::MAX)
-            .first()
-            .map_or(0, Line::width)
+    let unwrapped = |pieces: &[Line], separator: &str| {
+        pieces.iter().map(Line::width).sum::<usize>()
+            + separator.chars().count() * pieces.len().saturating_sub(1)
     };
-    let body: Vec<Line<'static>> = m.body.into_iter().map(Line::from).collect();
-    let content = unwrapped(body.clone(), " ").max(unwrapped(keys.clone(), "  "));
+    let body: Vec<Vec<Line<'static>>> = m
+        .body
+        .into_iter()
+        .map(|paragraph| paragraph.into_iter().map(Line::from).collect())
+        .collect();
+    let content = body
+        .iter()
+        .map(|paragraph| unwrapped(paragraph, " "))
+        .chain([unwrapped(&keys, "  ")])
+        .max()
+        .unwrap_or(0);
     let width = (content + FRAME)
         .min(MODAL_WIDTH)
         .min(usize::from(f.area().width));
     let inner = width.saturating_sub(FRAME).max(1);
-    let mut lines = flow(body, " ", inner);
+    let mut lines: Vec<Line<'static>> = body
+        .into_iter()
+        .flat_map(|paragraph| flow(paragraph, " ", inner))
+        .collect();
     if !keys.is_empty() {
         lines.push(Line::default());
         lines.extend(flow(keys, "  ", inner));
@@ -632,6 +645,7 @@ enum Key {
     Pair,
     Moves,
     Devices,
+    Info,
 }
 
 fn action_keys(protocol: Protocol) -> Vec<(char, &'static str, Key)> {
@@ -645,6 +659,7 @@ fn action_keys(protocol: Protocol) -> Vec<(char, &'static str, Key)> {
     );
     const CLEAR: (char, &str, Key) = ('c', "clear", Key::Ask(Prompt::Action(Action::Clear)));
     const DEVICES: (char, &str, Key) = ('d', "devices", Key::Devices);
+    const INFO: (char, &str, Key) = ('i', "info", Key::Info);
     let channels = protocol.has_esb();
     let pair = if protocol == Protocol::Bluetooth {
         ('a', "pair", Key::Choose(Choice::Passkey))
@@ -661,6 +676,7 @@ fn action_keys(protocol: Protocol) -> Vec<(char, &'static str, Key)> {
         Some(REBOOT),
         Some(BOOTLOADER),
         Some(CLEAR),
+        Some(INFO),
     ]
     .into_iter()
     .flatten()
@@ -725,7 +741,8 @@ enum Shown {
 enum Overlay {
     Choosing(Choice),
     Confirming(Prompt),
-    Failed(String),
+    /// Closed by any key.
+    Notice(Modal),
 }
 
 enum Pane {
@@ -877,7 +894,7 @@ impl<T: Transport> Session<T> {
                     Outcome::Answer(prompt)
                 });
             }
-            Some(Overlay::Failed(_)) => return None,
+            Some(Overlay::Notice(_)) => return None,
             None => {}
         }
         if key == KeyCode::Esc && matches!(self.shown(), Some(Shown::Pairing)) {
@@ -906,6 +923,9 @@ impl<T: Transport> Session<T> {
                 Some(Key::Pair) => return self.pair(false),
                 Some(Key::Moves) => self.show_moves(),
                 Some(Key::Devices) => self.show_devices(),
+                Some(Key::Info) => {
+                    self.overlay = Some(Overlay::Notice(info_modal(&self.history.status)));
+                }
                 None => {}
             },
             KeyCode::Esc => self.pane = Pane::History,
@@ -973,7 +993,11 @@ impl<T: Transport> Session<T> {
 
     fn fail(&mut self, e: &anyhow::Error) {
         self.message.clear();
-        self.overlay = Some(Overlay::Failed(error_text(e)));
+        self.overlay = Some(Overlay::Notice(Modal::trouble(
+            "Failed",
+            &error_text(e),
+            Some("any key closes"),
+        )));
     }
 
     /// Returns the error that lost the dongle.
@@ -1069,7 +1093,7 @@ impl<T: Transport> Session<T> {
         };
         Some(Modal {
             title,
-            body,
+            body: vec![body],
             keys: Vec::new(),
             note: Some("esc hides"),
             color: Color::Yellow,
@@ -1084,7 +1108,7 @@ impl<T: Transport> Session<T> {
                 &p.question(self.protocol()),
                 vec![("y".into(), "yes".into())],
             ),
-            Overlay::Failed(e) => Modal::trouble("Failed", e, Some("any key closes")),
+            Overlay::Notice(m) => m.clone(),
         })
     }
 
@@ -1238,10 +1262,28 @@ fn protocol_color(protocol: Protocol) -> Color {
     }
 }
 
+fn info_modal(s: &Status) -> Modal {
+    let [bootloader, softdevice] = bootloader_and_softdevice(s);
+    let rows = [
+        format!("firmware {}", version(s.firmware_version)),
+        bootloader,
+        softdevice,
+        reset_by(s.reset_cause),
+        concat!("tool ", env!("CARGO_PKG_VERSION")).to_string(),
+    ];
+    Modal {
+        title: "Info",
+        body: rows.iter().map(|row| words(row)).collect(),
+        keys: Vec::new(),
+        note: Some("any key closes"),
+        color: HINT_COLOR,
+    }
+}
+
 fn dongle_title(status: Option<&Status>) -> Line<'static> {
     let mut title = Line::from(crate::PRODUCT);
     if let Some(s) = status {
-        title.push_span(Span::raw(" · "));
+        title.push_span(Span::raw(format!(" {} · ", version(s.firmware_version))));
         title.push_span(Span::styled(
             s.protocol().name(),
             BOLD.fg(protocol_color(s.protocol())),
@@ -1305,10 +1347,6 @@ fn dongle_lines(status: Option<&Status>) -> Vec<Line<'static>> {
     if s.protocol().has_esb() {
         rows.push(status_row("channels", channel_spans(s)));
     }
-    rows.push(status_row(
-        "firmware",
-        [Span::raw(firmware(s).join(SEPARATOR))],
-    ));
     rows
 }
 
@@ -1966,7 +2004,7 @@ mod tests {
         );
         assert_eq!(
             rows[23].trim_end(),
-            "[/] channel  ←/→ history  ↑/↓ events  esc back  q quit"
+            "i info  [/] channel  ←/→ history  ↑/↓ events  esc back  q quit"
         );
         let text = rows.join("\n");
         for part in ["SpareDongle", "signal dBm", "events"] {
@@ -2074,11 +2112,11 @@ mod tests {
         );
         assert_eq!(
             rows[22].trim_end(),
-            "n noise  m moves  a pair  d devices  p protocol  r reboot  b bootloader  c clear  [/] channel"
+            "n noise  m moves  a pair  d devices  p protocol  r reboot  b bootloader  c clear  i info"
         );
         assert_eq!(
             rows[23].trim_end(),
-            "←/→ history  ↑/↓ events  esc back  q quit"
+            "[/] channel  ←/→ history  ↑/↓ events  esc back  q quit"
         );
     }
 
@@ -2103,13 +2141,15 @@ mod tests {
             "r reboot",
             "b bootloader",
             "c clear",
+            "i info",
             "[/] channel",
             "←/→ history",
             "↑/↓ events",
             "esc back",
             "q quit",
         ];
-        assert_eq!(texts(&app.connection.view(141).1), [hints.join("  ")]);
+        let line = hints.join("  ");
+        assert_eq!(texts(&app.connection.view(line.chars().count()).1), [line]);
     }
 
     #[test]
@@ -2122,6 +2162,7 @@ mod tests {
             "r reboot",
             "b bootloader",
             "c clear",
+            "i info",
             "←/→ history",
             "↑/↓ events",
             "esc back",
@@ -2275,8 +2316,8 @@ mod tests {
 
     const KEYBOARD_TITLE: &str = "┌ keyboard · MX Keys ─";
     const MOUSE_TITLE: &str = "┌ mouse · MX Master 3S ─";
-    /// In Bluetooth mode, under the dongle box's dongle and firmware rows.
-    const DEVICE_TITLE_ROW: usize = 4;
+    /// In Bluetooth mode, under the dongle box's dongle row.
+    const DEVICE_TITLE_ROW: usize = 3;
     /// In NuPhy and Unifying mode, where the dongle box adds a channels row.
     const CHANNELS_DEVICE_TITLE_ROW: usize = DEVICE_TITLE_ROW + 1;
     const CHANNELS_LINK_ROW: usize = CHANNELS_DEVICE_TITLE_ROW + 1;
@@ -2295,11 +2336,8 @@ mod tests {
         .to_string()
     }
 
-    /// The firmware row spans the view.
-    const FIRMWARE_LABEL: &str = "firmware ";
-
     /// The narrowest view that draws its one slot's device box, the chart titles and the dongle
-    /// box uncut, all but the dongle box's firmware row.
+    /// box uncut.
     fn narrowest_whole(mut app: App<Fake>) -> u16 {
         let h = history(&mut app);
         let device = &h.slots[0].device;
@@ -2325,7 +2363,6 @@ mod tests {
                             && lines
                                 .iter()
                                 .enumerate()
-                                .filter(|(_, line)| !line.starts_with(FIRMWARE_LABEL))
                                 .all(|(i, line)| inside_box(&rows[top + 1 + i]) == line)
                     })
                     && rows[chart_row].contains(&chart_legend)
@@ -2354,7 +2391,7 @@ mod tests {
         let width = 2 * PANEL_MIN_WIDTH;
         let rows = drawn_at(&mut app, width, 30);
         assert!(
-            rows[0].starts_with("┌ SpareDongle · Bluetooth ─"),
+            rows[0].starts_with("┌ SpareDongle 1.2.3 · Bluetooth ─"),
             "{rows:#?}"
         );
         assert_eq!(rows.iter().filter(|r| r.contains("│dongle ")).count(), 1);
@@ -2766,12 +2803,32 @@ mod tests {
     }
 
     #[test]
-    fn the_dongle_box_ends_with_the_firmware_bootloader_and_softdevice() {
-        let rows = dongle_lines(Some(&status_of(Protocol::Bluetooth)));
+    fn the_dongle_box_title_holds_the_firmware_version() {
         assert_eq!(
-            rows.last().map(|l| l.to_string()).as_deref(),
-            Some("firmware  1.2.3   bootloader 0.6.0   SoftDevice S140 6.1.1")
+            dongle_title(Some(&status_of(Protocol::Nuphy))).to_string(),
+            format!("SpareDongle 1.2.3 · {}", Protocol::Nuphy.name())
         );
+    }
+
+    #[test]
+    fn i_shows_the_versions_and_the_reset_cause_until_any_key() {
+        let mut app = app_with(closed(status_of(Protocol::Bluetooth)));
+        press(&mut app, 'i');
+        assert_eq!(
+            boxed(&mut app),
+            [
+                "Info",
+                "firmware 1.2.3",
+                "bootloader 0.6.0",
+                "SoftDevice S140 6.1.1",
+                "reset by pin",
+                concat!("tool ", env!("CARGO_PKG_VERSION")),
+                "",
+                "any key closes"
+            ]
+        );
+        press(&mut app, 'x');
+        assert!(boxed(&mut app).is_empty());
     }
 
     #[test]
@@ -3444,7 +3501,7 @@ mod tests {
         let terminal = status_box(&s);
         let rows = screen(&terminal);
         assert!(
-            rows[0].starts_with("┌ SpareDongle · NuPhy ─"),
+            rows[0].starts_with("┌ SpareDongle 1.2.3 · NuPhy ─"),
             "{}",
             rows[0]
         );
@@ -3459,20 +3516,19 @@ mod tests {
             inside_box(&rows[2]),
             "channels  16 22 26 30 34 44 48 58 72 78"
         );
-        assert!(rows[3].starts_with("│firmware "), "{}", rows[3]);
-        assert!(rows[4].starts_with('└'), "{}", rows[4]);
+        assert!(rows[3].starts_with('└'), "{}", rows[3]);
         assert!(
-            rows[5].starts_with("┌ keyboard · MX Keys · 85%, charging ─"),
+            rows[4].starts_with("┌ keyboard · MX Keys · 85%, charging ─"),
             "{}",
-            rows[5]
+            rows[4]
         );
         assert_eq!(
-            inside_box(&rows[6]),
+            inside_box(&rows[5]),
             "link      connected   -71 dBm   last packet 12 ms ago"
         );
-        assert_eq!(inside_box(&rows[7]), "security  no protection");
-        assert_eq!(inside_box(&rows[8]), "latency   0.9 ms average, 4.2 ms max");
-        assert!(rows[9].starts_with('└'), "{}", rows[9]);
+        assert_eq!(inside_box(&rows[6]), "security  no protection");
+        assert_eq!(inside_box(&rows[7]), "latency   0.9 ms average, 4.2 ms max");
+        assert!(rows[8].starts_with('└'), "{}", rows[8]);
     }
 
     #[test]
@@ -3535,7 +3591,7 @@ mod tests {
         let terminal = status_box(&status_of(Protocol::Unifying));
         let rows = screen(&terminal);
         assert!(
-            rows[0].starts_with("┌ SpareDongle · Unifying ─"),
+            rows[0].starts_with("┌ SpareDongle 1.2.3 · Unifying ─"),
             "{}",
             rows[0]
         );

@@ -492,7 +492,7 @@ const RESET_CAUSES: [&str; 17] = [
     "flash",
 ];
 
-pub fn reset_causes(bits: u32) -> String {
+fn reset_causes(bits: u32) -> String {
     let names: Vec<_> = RESET_CAUSES
         .iter()
         .enumerate()
@@ -506,12 +506,16 @@ pub fn reset_causes(bits: u32) -> String {
     }
 }
 
+pub fn reset_by(bits: u32) -> String {
+    format!("reset by {}", reset_causes(bits))
+}
+
 pub fn version<T: std::fmt::Display>([major, minor, patch]: [T; 3]) -> String {
     format!("{major}.{minor}.{patch}")
 }
 
-/// The firmware's version, then the bootloader's and the SoftDevice's, each with its name.
-pub fn firmware(s: &Status) -> [String; 3] {
+/// The bootloader's version and the SoftDevice's, each with its name.
+pub fn bootloader_and_softdevice(s: &Status) -> [String; 2] {
     let bootloader = s.bootloader_version.map_or("unknown".into(), version);
     let softdevice = match s.softdevice {
         SoftDevice::Absent => "no SoftDevice".into(),
@@ -521,11 +525,7 @@ pub fn firmware(s: &Status) -> [String; 3] {
             format!("SoftDevice S{id}{version}")
         }
     };
-    [
-        version(s.firmware_version),
-        format!("bootloader {bootloader}"),
-        softdevice,
-    ]
+    [format!("bootloader {bootloader}"), softdevice]
 }
 
 pub fn uptime(ms: u64) -> String {
@@ -657,7 +657,7 @@ pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String 
     let device = |addr: &[u8; EVENT_ADDR_LEN]| event_device(addr, stored, protocol);
     match e.detail {
         Ok(Detail::Boot { reset_cause }) => {
-            format!("booted, reset by {}", reset_causes(reset_cause))
+            format!("booted, {}", reset_by(reset_cause))
         }
         Ok(Detail::Paired {
             own: [a, b, c],
@@ -1642,10 +1642,10 @@ mod tests {
     }
 
     #[test]
-    fn the_firmware_names_the_bootloader_and_softdevice_under_it() {
+    fn the_bootloader_and_softdevice_are_named() {
         assert_eq!(
-            firmware(&nuphy()),
-            ["1.2.3", "bootloader 0.6.0", "SoftDevice S140 6.1.1"]
+            bootloader_and_softdevice(&nuphy()),
+            ["bootloader 0.6.0", "SoftDevice S140 6.1.1"]
         );
     }
 
@@ -1655,16 +1655,16 @@ mod tests {
         s.bootloader_version = None;
         s.softdevice = SoftDevice::Absent;
         assert_eq!(
-            firmware(&s),
-            ["1.2.3", "bootloader unknown", "no SoftDevice"]
+            bootloader_and_softdevice(&s),
+            ["bootloader unknown", "no SoftDevice"]
         );
         s.softdevice = SoftDevice::Unnamed { fwid: 0x00b6 };
-        assert_eq!(firmware(&s)[2], "SoftDevice FWID 0x00b6");
+        assert_eq!(bootloader_and_softdevice(&s)[1], "SoftDevice FWID 0x00b6");
         s.softdevice = SoftDevice::Named {
             id: 140,
             version: None,
         };
-        assert_eq!(firmware(&s)[2], "SoftDevice S140");
+        assert_eq!(bootloader_and_softdevice(&s)[1], "SoftDevice S140");
     }
 
     #[test]

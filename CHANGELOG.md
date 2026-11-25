@@ -36,6 +36,9 @@
   dongle box's title in its own color: NuPhy teal, Unifying orange, Bluetooth blue.
 - In NuPhy and Unifying mode `status` and the live view show the keyboard's security: no
   protection, or weak at any time.
+- The live view shows the firmware version in the dongle box's title, and the `i` key opens a box
+  with the bootloader and SoftDevice versions, the last reset cause and the tool's version, in
+  place of the firmware row.
 
 ## [0.5.0] - 2026-11-21
 

@@ -10,10 +10,10 @@ use diagwire::{CHANNEL_FIRST, CHANNEL_LAST, NUPHY_PAIRING_CHANNEL};
 use crate::board::{self, State};
 use crate::device::{self, Device, Refused, Transport};
 use crate::format::{
-    NOISE_QUESTION, action_question, battery, channel_description, describe_event, firmware,
-    flash_question, flashed, hex, last_packet, latency, noise_level, paired, pairing,
-    pairing_offer, protocol_security, reset_causes, state_name, status_label, unifying_kind,
-    uptime, usb_state, wall_clock,
+    NOISE_QUESTION, action_question, battery, bootloader_and_softdevice, channel_description,
+    describe_event, flash_question, flashed, hex, last_packet, latency, noise_level, paired,
+    pairing, pairing_offer, protocol_security, reset_by, state_name, status_label, unifying_kind,
+    uptime, usb_state, version, wall_clock,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -52,7 +52,13 @@ fn status_lines(s: &Status, devices: &[SlotStatus]) -> Vec<String> {
         state_name(s).to_string()
     };
     let rows = vec![
-        ("firmware", firmware(s).join(", ")),
+        (
+            "firmware",
+            std::iter::once(version(s.firmware_version))
+                .chain(bootloader_and_softdevice(s))
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
         ("protocol", s.protocol().name().to_string()),
         ("link", link),
         (
@@ -62,11 +68,7 @@ fn status_lines(s: &Status, devices: &[SlotStatus]) -> Vec<String> {
         ("usb", usb_state(s.usb_live, s.usb_suspended).to_string()),
         (
             "uptime",
-            format!(
-                "{}, reset by {}",
-                uptime(s.uptime_ms),
-                reset_causes(s.reset_cause)
-            ),
+            format!("{}, {}", uptime(s.uptime_ms), reset_by(s.reset_cause)),
         ),
         ("counters", counters.join(" ")),
         (
