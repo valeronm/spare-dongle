@@ -97,6 +97,42 @@ static void test_media_report_carries_its_usage(void)
 	CHECK_EQ(out.report.usage, 0x00e9);
 }
 
+static void test_a_usage_outside_the_descriptor_is_sent_as_released(void)
+{
+	static const struct {
+		enum report_kind kind;
+		uint16_t declared, outside;
+	} cases[] = {
+		{REPORT_CONSUMER, REPORT_CONSUMER_MAX, REPORT_CONSUMER_MAX + 1},
+		{REPORT_SYSTEM, REPORT_SYSTEM_MIN, REPORT_SYSTEM_MIN - 1},
+		{REPORT_SYSTEM, REPORT_SYSTEM_MAX, REPORT_SYSTEM_MAX + 1},
+	};
+	struct report_entry out;
+
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		struct report declared = {.kind = cases[i].kind, .usage = cases[i].declared};
+		struct report outside = {.kind = cases[i].kind, .usage = cases[i].outside};
+
+		before();
+		CHECK(!reports_update(&r, &outside, REPORT_UNSTAMPED));
+		CHECK(!reports_any_held(&r));
+		CHECK(reports_update(&r, &declared, REPORT_UNSTAMPED));
+		CHECK(reports_peek(&r, REPORT_IFACE_EXTRA, &out));
+		CHECK_EQ(out.report.usage, cases[i].declared);
+		reports_pop(&r, REPORT_IFACE_EXTRA);
+		CHECK(reports_update(&r, &outside, REPORT_UNSTAMPED));
+		CHECK(reports_peek(&r, REPORT_IFACE_EXTRA, &out));
+		CHECK_EQ(out.report.usage, 0);
+	}
+}
+
+static void test_a_usage_outside_the_descriptor_gives_way_to_the_other_source(void)
+{
+	CHECK_EQ(reports_consumer(REPORT_CONSUMER_MAX + 1, 0x006f).usage, 0x006f);
+	CHECK_EQ(reports_consumer(REPORT_CONSUMER_MAX, 0x006f).usage, REPORT_CONSUMER_MAX);
+	CHECK_EQ(reports_consumer(0, 0x006f).usage, 0x006f);
+}
+
 static void test_while_not_live_only_the_current_state_survives(void)
 {
 	struct report_entry out;
@@ -649,6 +685,8 @@ int main(void)
 	RUN(test_repeated_report_is_queued_once);
 	RUN(test_quick_tap_keeps_press_and_release_in_order);
 	RUN(test_media_report_carries_its_usage);
+	RUN(test_a_usage_outside_the_descriptor_is_sent_as_released);
+	RUN(test_a_usage_outside_the_descriptor_gives_way_to_the_other_source);
 	RUN(test_while_not_live_only_the_current_state_survives);
 	RUN(test_release_all_lets_go_of_a_held_key);
 	RUN(test_release_all_lets_go_of_held_media_and_system_keys);

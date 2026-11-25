@@ -67,12 +67,14 @@ static void keys_down(const struct hidmap_field *f, const uint8_t *data, uint8_t
 	}
 }
 
-static uint16_t first_usage(const struct hidmap_field *f, const uint8_t *data)
+static uint16_t first_usage(const struct hidmap_field *f, const uint8_t *data,
+			    enum report_kind kind)
 {
 	for (uint8_t i = 0; i < f->count; i++) {
 		int32_t usage = usage_at(f, data, i);
 
-		if (usage > 0 && usage <= UINT16_MAX) {
+		if (usage > 0 && usage <= UINT16_MAX &&
+		    reports_usage_declared(kind, (uint16_t)usage)) {
 			return (uint16_t)usage;
 		}
 	}
@@ -87,11 +89,6 @@ static void keyboard_report(const struct hidkeys *k, struct report *out)
 			out->keys[byte] |= k->sources[i].down[byte];
 		}
 	}
-}
-
-static uint16_t within(uint16_t usage, uint16_t min, uint16_t max)
-{
-	return usage < min || usage > max ? 0 : usage;
 }
 
 size_t hidkeys_translate(struct hidkeys *k, const struct hidmap *m, uint8_t report_id,
@@ -118,7 +115,7 @@ size_t hidkeys_translate(struct hidkeys *k, const struct hidmap *m, uint8_t repo
 		}
 		if (kind != REPORT_KEYBOARD) {
 			if (usage[kind] == 0) {
-				usage[kind] = first_usage(f, data);
+				usage[kind] = first_usage(f, data, kind);
 			}
 		} else {
 			if (!down) {
@@ -138,13 +135,13 @@ size_t hidkeys_translate(struct hidkeys *k, const struct hidmap *m, uint8_t repo
 	if (carries[REPORT_CONSUMER]) {
 		out[n++] = (struct report){
 			.kind = REPORT_CONSUMER,
-			.usage = within(usage[REPORT_CONSUMER], 1, REPORT_CONSUMER_MAX),
+			.usage = usage[REPORT_CONSUMER],
 		};
 	}
 	if (carries[REPORT_SYSTEM]) {
 		out[n++] = (struct report){
 			.kind = REPORT_SYSTEM,
-			.usage = within(usage[REPORT_SYSTEM], REPORT_SYSTEM_MIN, REPORT_SYSTEM_MAX),
+			.usage = usage[REPORT_SYSTEM],
 		};
 	}
 	return n;

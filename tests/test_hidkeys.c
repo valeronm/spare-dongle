@@ -182,6 +182,26 @@ static void out_of_range_usages_are_dropped(void)
 	CHECK_EQ(out[0].usage, 0x82);
 }
 
+static void a_usage_in_range_is_taken_after_one_out_of_range(void)
+{
+	static const uint8_t two_consumer_usages[] = {
+		0x05, 0x01, 0x09, 0x06, 0xa1, 0x01, 0x85, 0x01, 0x05, 0x07, 0x19, 0x00, 0x29,
+		0xff, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x06, 0x81, 0x00, 0xc0,
+		0x05, 0x0c, 0x09, 0x01, 0xa1, 0x01, 0x85, 0x03, 0x15, 0x00, 0x26, 0xff, 0x03,
+		0x19, 0x00, 0x2a, 0xff, 0x03, 0x75, 0x10, 0x95, 0x02, 0x81, 0x00, 0xc0,
+	};
+	struct report out[REPORT_KINDS];
+	struct hidmap m;
+
+	CHECK_EQ(hidmap_parse(two_consumer_usages, sizeof(two_consumer_usages), DEVICE_KIND_KEYBOARD,
+			      &m),
+		 HIDMAP_OK);
+	hidkeys_reset(&keys);
+	CHECK_EQ(send(&m, 3, "a102e900", out), 1);
+	CHECK_EQ(out[0].kind, REPORT_CONSUMER);
+	CHECK_EQ(out[0].usage, 0xe9);
+}
+
 static void array_values_below_four_are_not_keys(void)
 {
 	struct report out[REPORT_KINDS];
@@ -291,6 +311,7 @@ int main(void)
 	RUN(bitmap_report_merges_with_the_array_report);
 	RUN(seven_keys_from_two_reports_are_all_held);
 	RUN(out_of_range_usages_are_dropped);
+	RUN(a_usage_in_range_is_taken_after_one_out_of_range);
 	RUN(array_values_below_four_are_not_keys);
 	RUN(a_short_report_is_ignored);
 	RUN(an_unknown_report_id_writes_nothing);

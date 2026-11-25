@@ -33,7 +33,22 @@ int reports_clamp(int value, int min, int max)
 
 struct report reports_consumer(uint16_t changed, uint16_t other)
 {
-	return (struct report){.kind = REPORT_CONSUMER, .usage = changed != 0 ? changed : other};
+	return (struct report){
+		.kind = REPORT_CONSUMER,
+		.usage = reports_usage_declared(REPORT_CONSUMER, changed) ? changed : other,
+	};
+}
+
+bool reports_usage_declared(enum report_kind kind, uint16_t usage)
+{
+	switch (kind) {
+	case REPORT_CONSUMER:
+		return usage >= 1 && usage <= REPORT_CONSUMER_MAX;
+	case REPORT_SYSTEM:
+		return usage >= REPORT_SYSTEM_MIN && usage <= REPORT_SYSTEM_MAX;
+	default:
+		return false;
+	}
 }
 
 static bool has_key(const uint8_t keys[REPORT_KEYS_LEN], unsigned usage)
@@ -216,19 +231,24 @@ unsigned reports_update(struct reports *r, const struct report *next, struct rep
 {
 	struct report *current = &r->current[next->kind];
 	struct report_usb out;
+	struct report sent;
 
 	if (next->kind == REPORT_KEYBOARD) {
 		return update_keys(r, next, stamp);
 	}
-	if (same_state(current, next) && !has_motion(next)) {
+	sent = *next;
+	if (next->kind != REPORT_MOUSE && !reports_usage_declared(next->kind, next->usage)) {
+		sent.usage = 0;
+	}
+	if (same_state(current, &sent) && !has_motion(next)) {
 		return 0;
 	}
-	*current = *next;
+	*current = sent;
 	if (next->kind == REPORT_MOUSE) {
 		/* A mouse's held state is its buttons; its motion is sent once. */
 		current->mouse = (struct report_mouse){.buttons = next->mouse.buttons};
 	}
-	out = to_usb(next);
+	out = to_usb(&sent);
 	return queue(r, &out, stamp);
 }
 

@@ -1377,6 +1377,22 @@ static void test_media_frames_carry_the_usage_in_bytes_2_and_3(void)
 	CHECK_EQ(l.media_usage, 0);
 }
 
+static void test_a_media_usage_outside_the_descriptor_is_not_held(void)
+{
+	uint8_t f[sizeof(media_volume_up)];
+	struct unifying_link l;
+	struct report r;
+
+	unifying_link_reset(&l);
+	memcpy(f, media_volume_up, sizeof(f));
+	f[2] = (REPORT_CONSUMER_MAX + 1) & 0xff;
+	f[3] = (REPORT_CONSUMER_MAX + 1) >> 8;
+	seal(f, sizeof(f));
+	CHECK(unifying_media_report(&l, checked(f, sizeof(f)), &r));
+	CHECK_EQ(r.usage, 0);
+	CHECK(!unifying_link_reconnect(&l, 0x07, checked(connect_10, sizeof(connect_10))));
+}
+
 static void test_a_media_frame_of_another_type_or_length_is_refused(void)
 {
 	uint8_t f[sizeof(media_volume_up)];
@@ -3790,6 +3806,7 @@ int main(void)
 	RUN(test_a_plaintext_without_the_marker_byte_is_rejected_and_keeps_the_counter);
 	RUN(test_an_unencrypted_keyboard_frame_is_refused);
 	RUN(test_media_frames_carry_the_usage_in_bytes_2_and_3);
+	RUN(test_a_media_usage_outside_the_descriptor_is_not_held);
 	RUN(test_a_media_frame_of_another_type_or_length_is_refused);
 	RUN(test_the_led_frame_carries_the_led_bits);
 	RUN(test_keep_alive_frames_set_the_timeout);

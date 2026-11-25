@@ -116,8 +116,10 @@ struct reports {
 void reports_init(struct reports *r);
 int reports_clamp(int value, int min, int max);
 /* The consumer report of two sources that each hold one usage: the usage that changed wins, and a
- * released one gives way to the other source's held usage. */
+ * released one or one the USB report descriptors do not declare gives way to the other source's
+ * held usage. */
 struct report reports_consumer(uint16_t changed, uint16_t other);
+bool reports_usage_declared(enum report_kind kind, uint16_t usage);
 /* Converts wheel steps of from_steps per notch into to_steps per notch, keeping the part of a step
  * not yet sent in carry. */
 int reports_scale_wheel(int *carry, int value, int from_steps, int to_steps);
@@ -132,7 +134,8 @@ bool reports_keys_empty(const struct report *r);
  * Returns one bit per enum report_iface whose report changed, mouse motion counting as a change,
  * whether or not it was queued. A keyboard report's held keys are split into the boot report and
  * the NKRO report: a held key keeps its place, a newly held key takes the first empty boot slot in
- * usage order or else the NKRO report, and a key 0xe0 or above with no free slot is dropped.
+ * usage order or else the NKRO report, and a key 0xe0 or above with no free slot is dropped. A
+ * consumer or system usage the USB report descriptors do not declare is sent as released.
  */
 unsigned reports_update(struct reports *r, const struct report *next, struct report_stamp stamp);
 void reports_release_all(struct reports *r);

@@ -509,10 +509,13 @@ size_t unifying_keystroke(struct unifying_link *l, const uint8_t key[UNIFYING_KE
 bool unifying_media_report(struct unifying_link *l, const struct unifying_frame *f,
 			   struct report *out)
 {
+	uint16_t usage;
+
 	if (!shaped(f, MEDIA_FRAME_LEN, REPORT_MEDIA)) {
 		return false;
 	}
-	l->media_usage = f->bytes[2] | f->bytes[3] << 8;
+	usage = f->bytes[2] | f->bytes[3] << 8;
+	l->media_usage = reports_usage_declared(REPORT_CONSUMER, usage) ? usage : 0;
 	*out = reports_consumer(l->media_usage, l->divert_usage);
 	return true;
 }
