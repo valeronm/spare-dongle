@@ -30,6 +30,7 @@
 - In NuPhy mode a keyboard paired onto channel 50 stays paired when the dongle restarts.
 - In NuPhy mode pairing may give the keyboard channels 26, 50 and 80.
 - In NuPhy mode `channels` accepts 50 and 80.
+- The live view asks its questions in a box over the view, not on the bottom line.
 
 ## [0.5.0] - 2026-11-21
 

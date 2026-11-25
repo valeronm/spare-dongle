@@ -11,8 +11,8 @@ use ratatui::{
     symbols,
     text::{Line, Span},
     widgets::{
-        Axis, Bar, BarChart, BarGroup, Block, Borders, Chart, Dataset, GraphType, List, ListItem,
-        Paragraph,
+        Axis, Bar, BarChart, BarGroup, Block, BorderType, Borders, Chart, Clear, Dataset,
+        GraphType, List, ListItem, Padding, Paragraph,
         canvas::{Context, Painter},
     },
 };
@@ -476,13 +476,12 @@ enum Prompt {
 
 impl Prompt {
     fn question(&self, running: Protocol) -> String {
-        let question = match self {
+        match self {
             Prompt::Noise => NOISE_QUESTION.to_string(),
             Prompt::Action(action) => action_question(*action).to_string(),
             Prompt::Switch(to) => switch_question(*to),
             Prompt::Forget(device) => forget_question(device, running),
-        };
-        format!("{question} y/n")
+        }
     }
 }
 
@@ -498,22 +497,10 @@ fn protocol_key(protocol: Protocol) -> char {
     }
 }
 
-fn choice_question(running: Protocol) -> String {
-    let choices: Vec<String> = other_protocols(running)
-        .map(|p| format!("{} {}", protocol_key(p), p.name()))
-        .collect();
-    format!(
-        "Switch to which protocol? {}  (any other key cancels)",
-        choices.join("  ")
-    )
-}
-
 fn chosen(running: Protocol, key: KeyCode) -> Option<Protocol> {
     let KeyCode::Char(c) = key else { return None };
     other_protocols(running).find(|p| protocol_key(*p) == c)
 }
-
-const PASSKEY_QUESTION: &str = "Pair how? p with a passkey  n no passkey  (any other key cancels)";
 
 fn chosen_no_passkey(key: KeyCode) -> Option<bool> {
     match key {
@@ -530,12 +517,96 @@ enum Choice {
 }
 
 impl Choice {
-    fn question(self, running: Protocol) -> String {
+    fn modal(self, running: Protocol) -> Modal {
         match self {
-            Choice::Protocol => choice_question(running),
-            Choice::Passkey => PASSKEY_QUESTION.to_string(),
+            Choice::Protocol => Modal::question(
+                "Switch protocol",
+                "Switch to which protocol?",
+                other_protocols(running)
+                    .map(|p| (protocol_key(p).to_string(), p.name().to_string()))
+                    .collect(),
+            ),
+            Choice::Passkey => Modal::question(
+                "Pair",
+                "Pair how?",
+                vec![
+                    ("p".into(), "with a passkey".into()),
+                    ("n".into(), "no passkey".into()),
+                ],
+            ),
         }
     }
+}
+
+struct Modal {
+    title: &'static str,
+    body: Vec<Span<'static>>,
+    /// Each key with what it does.
+    keys: Vec<(String, String)>,
+    note: Option<&'static str>,
+    color: Color,
+}
+
+impl Modal {
+    fn question(title: &'static str, body: &str, keys: Vec<(String, String)>) -> Self {
+        Modal {
+            title,
+            body: words(body),
+            keys,
+            note: Some("any other key cancels"),
+            color: Color::Cyan,
+        }
+    }
+}
+
+const MODAL_WIDTH: usize = 64;
+
+fn draw_modal(f: &mut Frame, m: Modal) {
+    const FRAME: usize = 4;
+    let key_style = Style::new().fg(m.color).add_modifier(Modifier::BOLD);
+    let keys: Vec<Line<'static>> = m
+        .keys
+        .into_iter()
+        .map(|(key, does)| {
+            Line::from(vec![
+                Span::styled(key, key_style),
+                Span::raw(format!(" {does}")),
+            ])
+        })
+        .chain(
+            m.note
+                .map(|n| Line::from(Span::styled(n, Style::new().add_modifier(Modifier::DIM)))),
+        )
+        .collect();
+    let unwrapped = |pieces: Vec<Line<'static>>, separator| {
+        flow(pieces, separator, usize::MAX)
+            .first()
+            .map_or(0, Line::width)
+    };
+    let body: Vec<Line<'static>> = m.body.into_iter().map(Line::from).collect();
+    let content = unwrapped(body.clone(), " ").max(unwrapped(keys.clone(), "  "));
+    let width = (content + FRAME)
+        .min(MODAL_WIDTH)
+        .min(usize::from(f.area().width));
+    let inner = width.saturating_sub(FRAME).max(1);
+    let mut lines = flow(body, " ", inner);
+    lines.push(Line::default());
+    lines.extend(flow(keys, "  ", inner));
+    let as_length = |n: usize| Constraint::Length(u16::try_from(n).unwrap_or(u16::MAX));
+    let area = f
+        .area()
+        .centered(as_length(width), as_length(lines.len() + 2));
+    f.render_widget(Clear, area);
+    f.render_widget(
+        Paragraph::new(lines).block(
+            Block::bordered()
+                .border_type(BorderType::Thick)
+                .border_style(Style::new().fg(m.color))
+                .title(padded(m.title))
+                .padding(Padding::horizontal(1)),
+        ),
+        area,
+    );
 }
 
 #[derive(Clone)]
@@ -582,18 +653,24 @@ fn action_keys(protocol: Protocol) -> Vec<(char, &'static str, Key)> {
 
 /// Packs pieces greedily into lines of at most `width` columns, so a line breaks only between pieces.
 fn flow(
-    pieces: impl IntoIterator<Item = Span<'static>>,
+    pieces: impl IntoIterator<Item = impl Into<Line<'static>>>,
     separator: &'static str,
     width: usize,
 ) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     for piece in pieces {
+        let piece = piece.into();
         match lines.last_mut() {
-            Some(line) if line.width() + separator.chars().count() + piece.width() <= width => {
+            Some(line)
+                if line
+                    .width()
+                    .saturating_add(separator.chars().count() + piece.width())
+                    <= width =>
+            {
                 line.push_span(Span::raw(separator));
-                line.push_span(piece);
+                line.spans.extend(piece.spans);
             }
-            _ => lines.push(Line::from(piece)),
+            _ => lines.push(piece),
         }
     }
     lines
@@ -914,13 +991,19 @@ impl<T: Transport> Session<T> {
         self.message = result.unwrap_or_else(|e| format!("failed: {}", error_text(&e)));
     }
 
-    fn help(&self, width: usize) -> Vec<Line<'static>> {
+    fn modal(&self) -> Option<Modal> {
         if let Some(choice) = self.choosing {
-            return flow(words(&choice.question(self.protocol())), " ", width);
+            return Some(choice.modal(self.protocol()));
         }
-        if let Some(p) = &self.prompt {
-            return flow(words(&p.question(self.protocol())), " ", width);
-        }
+        let p = self.prompt.as_ref()?;
+        Some(Modal::question(
+            "Confirm",
+            &p.question(self.protocol()),
+            vec![("y".into(), "yes".into())],
+        ))
+    }
+
+    fn help(&self, width: usize) -> Vec<Line<'static>> {
         if let PairingWindow::PasskeyAwaited(a) = &self.history.status.pairing_window {
             let [before, digits, after] = passkey_prompt(a);
             let pieces = words(&before)
@@ -1049,6 +1132,9 @@ impl<T: Transport> App<T> {
         };
         let event_rows = draw_events(f, bottom, history);
         f.render_widget(Paragraph::new(help), footer);
+        if let Some(modal) = session.and_then(Session::modal) {
+            draw_modal(f, modal);
+        }
         self.drawn = Drawn {
             event_rows,
             plot_width,
@@ -1660,6 +1746,32 @@ mod tests {
         lines.iter().map(Line::to_string).collect()
     }
 
+    fn boxed<T: Transport>(app: &mut App<T>) -> Vec<String> {
+        let rows: Vec<Vec<char>> = screen(&drawn(app))
+            .iter()
+            .map(|r| r.chars().collect())
+            .collect();
+        let Some((top, left)) = rows
+            .iter()
+            .enumerate()
+            .find_map(|(y, r)| r.iter().position(|&c| c == '┏').map(|x| (y, x)))
+        else {
+            return Vec::new();
+        };
+        let right = rows[top].iter().position(|&c| c == '┓').unwrap();
+        rows[top..]
+            .iter()
+            .take_while(|r| r[left] != '┗')
+            .map(|r| {
+                r[left + 1..right]
+                    .iter()
+                    .collect::<String>()
+                    .trim_matches(['━', ' '])
+                    .to_string()
+            })
+            .collect()
+    }
+
     fn footer<T: Transport>(app: &mut App<T>) -> String {
         let rows = screen(&drawn(app));
         rows[rows.len() - app.connection.view(80).1.len()..]
@@ -1911,10 +2023,15 @@ mod tests {
         );
         assert_eq!(cell_at(&terminal, mouse_row, "C8:F2").fg, Color::Reset);
         press(&mut app, '2');
-        assert!(
-            footer(&mut app).starts_with("Forget MX Master 3S (C8:F2:E0:11:3C:5A)?"),
-            "{}",
-            footer(&mut app)
+        assert_eq!(
+            boxed(&mut app),
+            [
+                "Confirm",
+                "Forget MX Master 3S (C8:F2:E0:11:3C:5A)? It has to be paired",
+                "again to be used.",
+                "",
+                "y yes  any other key cancels"
+            ]
         );
         let Some(Outcome::Answer(prompt)) = app.handle(KeyCode::Char('y')) else {
             panic!("y should answer the forget question");
@@ -1944,11 +2061,7 @@ mod tests {
         refreshed_with_pairing(&mut app, Protocol::Nuphy, false);
         assert_eq!(reads.get(), 2);
         press(&mut app, '1');
-        assert!(
-            footer(&mut app).starts_with("Forget MX Keys (ID 01d99aa6)?"),
-            "{}",
-            footer(&mut app)
-        );
+        assert!(boxed(&mut app)[1].starts_with("Forget MX Keys (ID 01d99aa6)?"));
         app.handle(KeyCode::Esc);
         app.handle(KeyCode::Esc);
         refreshed_with_pairing(&mut app, Protocol::Nuphy, false);
@@ -2262,9 +2375,20 @@ mod tests {
         assert!(matches!(s.key('p'), Some(Key::Choose(Choice::Protocol))));
         s.handle(KeyCode::Char('p'), Drawn::default());
         assert_eq!(
-            texts(&s.help(200)),
-            ["Switch to which protocol? n NuPhy  b Bluetooth  (any other key cancels)"]
+            boxed(&mut app),
+            [
+                "Switch protocol",
+                "Switch to which protocol?",
+                "",
+                "n NuPhy  b Bluetooth  any other key cancels"
+            ]
         );
+        assert!(
+            footer(&mut app).starts_with("n noise"),
+            "{}",
+            footer(&mut app)
+        );
+        let s = session(&mut app);
         assert!(s.handle(KeyCode::Char('b'), Drawn::default()).is_none());
         assert!(matches!(
             s.prompt,
@@ -2275,6 +2399,27 @@ mod tests {
             outcome,
             Some(Outcome::Answer(Prompt::Switch(Protocol::Bluetooth)))
         ));
+    }
+
+    #[test]
+    fn a_box_highlights_its_keys() {
+        let mut app = app_with(status_of(Protocol::Unifying));
+        press(&mut app, 'p');
+        let terminal = drawn(&mut app);
+        let row = screen(&terminal)
+            .iter()
+            .position(|r| r.contains("n NuPhy"))
+            .unwrap() as u16;
+        let key = cell_at(&terminal, row, "n NuPhy");
+        assert_eq!(key.fg, Color::Cyan);
+        assert!(key.modifier.contains(Modifier::BOLD));
+        let label = cell_at(&terminal, row, "NuPhy");
+        assert!(!label.modifier.contains(Modifier::BOLD));
+        assert!(
+            cell_at(&terminal, row, "any other key")
+                .modifier
+                .contains(Modifier::DIM)
+        );
     }
 
     #[test]
@@ -2361,8 +2506,13 @@ mod tests {
         press(&mut app, 'a');
         assert_eq!(sent.get(), None);
         assert_eq!(
-            footer(&mut app),
-            "Pair how? p with a passkey  n no passkey  (any other key cancels)"
+            boxed(&mut app),
+            [
+                "Pair",
+                "Pair how?",
+                "",
+                "p with a passkey  n no passkey  any other key cancels"
+            ]
         );
         press(&mut app, 'n');
         assert_eq!(sent.get(), Some((Command::Pair as u8, 1)));
@@ -2372,6 +2522,7 @@ mod tests {
         );
         press(&mut app, 'a');
         press(&mut app, 'x');
+        assert!(boxed(&mut app).is_empty());
         assert!(footer(&mut app).starts_with("a pair"));
         assert_eq!(sent.get(), Some((Command::Pair as u8, 1)));
         press(&mut app, 'a');
