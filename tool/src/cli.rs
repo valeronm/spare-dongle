@@ -12,8 +12,8 @@ use crate::device::{self, Device, Refused, Transport};
 use crate::format::{
     NOISE_QUESTION, action_question, battery, channel_description, describe_event, firmware,
     flash_question, flashed, hex, last_packet, latency, noise_level, paired, pairing,
-    pairing_offer, reset_causes, state_name, status_label, unifying_kind, uptime, usb_state,
-    wall_clock,
+    pairing_offer, protocol_security, reset_causes, state_name, status_label, unifying_kind,
+    uptime, usb_state, wall_clock,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -136,6 +136,10 @@ fn slot_rows(s: &Status, slot: &Slot, d: &SlotStatus) -> Vec<(&'static str, Stri
     }
     if let Some(p) = d.pairing {
         rows.push(("security", pairing(p)));
+    } else if (slot.stored || slot.connected)
+        && let Some(rating) = protocol_security(s.protocol())
+    {
+        rows.push(("security", rating.into()));
     }
     let counters: Vec<String> = s
         .protocol()
@@ -1213,6 +1217,7 @@ mod tests {
                 "keyboard  MX Keys, ID 7015a329, connected",
                 "signal    -71 dBm, last packet 12 ms ago",
                 "battery   85%, charging",
+                "security  no protection",
                 "counters  packets 1000 losses 4 gaps 8",
                 "latency   0.9 ms average, 4.2 ms max",
             ]
@@ -1247,6 +1252,7 @@ mod tests {
                 "keyboard  MX Keys, serial b8bcd5b3, WPID 7015, connected",
                 "signal    -71 dBm, last packet 12 ms ago",
                 "battery   85%, charging",
+                "security  weak at any time",
                 "counters  packets 1000",
                 "latency   0.9 ms average, 4.2 ms max",
             ]

@@ -34,6 +34,8 @@
   shows a failure or a lost dongle, in a box over the view instead of on the bottom line.
 - The live view highlights each key in its footer and its boxes, and shows the protocol in the
   dongle box's title in its own color: NuPhy teal, Unifying orange, Bluetooth blue.
+- In NuPhy and Unifying mode `status` and the live view show the keyboard's security: no
+  protection, or weak at any time.
 
 ## [0.5.0] - 2026-11-21
 

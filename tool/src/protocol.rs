@@ -74,8 +74,6 @@ impl ErrorText for ErrorCode {
 }
 
 pub trait ProtocolInfo: Sized {
-    /// Whether the dongle reports how each device paired.
-    fn reports_pairing(self) -> bool;
     fn counts(self, counter: Counter) -> bool;
     fn counted<T>(self, counter: Counter, value: T) -> Option<T>;
     fn name(self) -> &'static str;
@@ -84,10 +82,6 @@ pub trait ProtocolInfo: Sized {
 }
 
 impl ProtocolInfo for Protocol {
-    fn reports_pairing(self) -> bool {
-        self == Self::Bluetooth
-    }
-
     fn counts(self, counter: Counter) -> bool {
         self.counters().contains(&counter)
     }

@@ -22,8 +22,9 @@ use crate::format::{
     ChannelRole, LinkHealth, NOISE_QUESTION, action_question, battery, bucket_label, channel_role,
     counted_share, describe_event, device_at, device_lines, firmware, forget_question, last_packet,
     latency, link_health, noise_level, noise_ruler, paired, pairing, pairing_how, passkey_prompt,
-    sentence, share, slot_health, slot_state, state_name, status_label, switch_question, uptime,
-    usb_state, waiting_keyboard, waits_for_passkey, wall_clock, watch_role, watch_summary,
+    protocol_security, sentence, share, slot_health, slot_state, state_name, status_label,
+    switch_question, uptime, usb_state, waiting_keyboard, waits_for_passkey, wall_clock,
+    watch_role, watch_summary,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -1312,7 +1313,7 @@ fn dongle_lines(status: Option<&Status>) -> Vec<Line<'static>> {
 }
 
 fn device_rows(protocol: Option<Protocol>) -> u16 {
-    2 + u16::from(protocol.is_some_and(Protocol::reports_pairing))
+    2 + u16::from(protocol.is_some())
 }
 
 fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<'static>> {
@@ -1343,6 +1344,15 @@ fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<
         rows.push(status_row(
             "security",
             [Span::styled(pairing(p), Style::new().fg(pairing_color(p)))],
+        ));
+    } else if device
+        .and_then(|d| s.slot(d.slot))
+        .is_some_and(|slot| slot.stored || slot.connected)
+        && let Some(rating) = protocol_security(s.protocol())
+    {
+        rows.push(status_row(
+            "security",
+            [Span::styled(rating, Style::new().fg(Color::Red))],
         ));
     }
     if let Some(d) = device.filter(|d| s.connected(d.slot)) {
@@ -1982,6 +1992,28 @@ mod tests {
     }
 
     #[test]
+    fn an_esb_keyboard_box_rates_its_protocol_security_in_red() {
+        for (protocol, rating) in [
+            (Protocol::Nuphy, "security  no protection"),
+            (Protocol::Unifying, "security  weak at any time"),
+        ] {
+            let mut app = app_with(closed(status_of(protocol)));
+            let terminal = drawn(&mut app);
+            let row = screen(&terminal)
+                .iter()
+                .position(|r| r.contains(rating))
+                .unwrap_or_else(|| panic!("{protocol:?}: no {rating}"))
+                as u16;
+            let label = rating.trim_start_matches("security  ");
+            assert_eq!(
+                cell_at(&terminal, row, label).fg,
+                Color::Red,
+                "{protocol:?}"
+            );
+        }
+    }
+
+    #[test]
     fn the_footer_highlights_each_key() {
         let mut app = app_with(closed(status_of(Protocol::Unifying)));
         let terminal = drawn(&mut app);
@@ -2303,11 +2335,11 @@ mod tests {
 
     #[test]
     fn a_slot_panel_is_as_wide_as_the_view_needs_for_one_slot() {
-        let mouse = app_with(mouse_status());
+        let mouse = app_with(closed(mouse_status()));
         let needed = [
-            app_with(status_of(Protocol::Nuphy)),
-            app_with(status_of(Protocol::Unifying)),
-            app_with(status_of(Protocol::Bluetooth)),
+            app_with(closed(status_of(Protocol::Nuphy))),
+            app_with(closed(status_of(Protocol::Unifying))),
+            app_with(closed(status_of(Protocol::Bluetooth))),
             mouse,
         ]
         .into_iter()
@@ -2500,7 +2532,7 @@ mod tests {
             noise: None,
         };
         history(&mut app).events = vec![(0, active)];
-        let text = screen(&drawn(&mut app)).join("\n");
+        let text = drawn_at(&mut app, 80, 30).join("\n");
         assert!(
             text.contains("active keyboard MX Keys, address eb"),
             "{text}"
@@ -3438,8 +3470,9 @@ mod tests {
             inside_box(&rows[6]),
             "link      connected   -71 dBm   last packet 12 ms ago"
         );
-        assert_eq!(inside_box(&rows[7]), "latency   0.9 ms average, 4.2 ms max");
-        assert!(rows[8].starts_with('└'), "{}", rows[8]);
+        assert_eq!(inside_box(&rows[7]), "security  no protection");
+        assert_eq!(inside_box(&rows[8]), "latency   0.9 ms average, 4.2 ms max");
+        assert!(rows[9].starts_with('└'), "{}", rows[9]);
     }
 
     #[test]

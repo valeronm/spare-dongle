@@ -430,6 +430,16 @@ pub fn last_packet(age_ms: Option<u32>) -> String {
     })
 }
 
+/// The rating the protocol sets for every device it carries; Bluetooth rates each device by how
+/// it paired instead.
+pub fn protocol_security(protocol: Protocol) -> Option<&'static str> {
+    match protocol {
+        Protocol::Nuphy => Some("no protection"),
+        Protocol::Unifying => Some("weak at any time"),
+        Protocol::Bluetooth => None,
+    }
+}
+
 pub fn pairing(p: Pairing) -> String {
     let method = if p.secure { "secure" } else { "legacy" };
     let passkey = if p.passkey { "passkey" } else { "no passkey" };
