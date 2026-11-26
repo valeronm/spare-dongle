@@ -53,8 +53,8 @@ Only the Pro Micro has been tested. A nice!nano or another clone with the same b
 work. Other nRF52840 boards need their own Zephyr board target, and `spare-dongle flash`
 and the udev rule recognize only this bootloader.
 
-The dongle is a standard USB keyboard and mouse, so it needs no driver; it has been used on Linux
-and macOS, and Windows is untested.
+The dongle is a standard USB keyboard and mouse, so it needs no driver; it has been used on Linux,
+macOS and Windows.
 
 <p align="center">
   <img src="docs/images/dongle.jpg" width="400" alt="The Pro Micro nRF52840 in the printed case, with the lid beside it">
