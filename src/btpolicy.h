@@ -24,6 +24,8 @@ struct btpolicy_advert {
 	bool connectable;
 	bool directed;
 	bool hid_service;
+	/* Lists Logitech's service, which a Logi Bolt device advertises. */
+	bool bolt;
 	bool stored;
 	/* From the appearance for a new device, from the stored list for a stored one. */
 	enum device_kind kind;
@@ -143,5 +145,10 @@ void btpolicy_unhush(struct btpolicy *p);
  * after its drop, since the slow scan can miss a device's adverts for longer than
  * BTPOLICY_QUIET_MS. */
 enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, uint32_t now_ms);
+/* A Bolt mouse demands a passkey once told it pairs with a Bolt receiver, and enters it by
+ * clicks; a Bolt keyboard has not been seen to take that. */
+bool btpolicy_pairs_by_clicks(enum device_kind kind, bool bolt);
+/* The passkey cut to the DIAG_CLICK_PASSKEY_BITS a device enters by clicks. */
+uint32_t btpolicy_click_passkey(uint32_t passkey);
 
 #endif

@@ -125,18 +125,17 @@ pub fn switch_question(to: Protocol) -> String {
     )
 }
 
-pub fn pairing_open(protocol: Protocol, passkey_asked: bool) -> String {
-    format!("within 30 s, {}", pairing_how(protocol, passkey_asked))
+pub fn pairing_open(protocol: Protocol) -> String {
+    format!("within 30 s, {}", pairing_how(protocol))
 }
 
-pub fn pairing_how(protocol: Protocol, passkey_asked: bool) -> &'static str {
-    match (protocol, passkey_asked) {
-        (Protocol::Nuphy, _) => "hold Fn+4 on the keyboard for 3 s",
-        (Protocol::Unifying, _) => {
+pub fn pairing_how(protocol: Protocol) -> &'static str {
+    match protocol {
+        Protocol::Nuphy => "hold Fn+4 on the keyboard for 3 s",
+        Protocol::Unifying => {
             "switch the keyboard off and on, after holding an Easy-Switch key until it blinks fast if it has them"
         }
-        (Protocol::Bluetooth, true) => "put the keyboard in Bluetooth pairing mode",
-        (Protocol::Bluetooth, false) => "put the keyboard or mouse in Bluetooth pairing mode",
+        Protocol::Bluetooth => "put the keyboard or mouse in Bluetooth pairing mode",
     }
 }
 
@@ -147,22 +146,43 @@ pub fn sentence(text: &str) -> String {
     })
 }
 
-pub fn passkey_digits(passkey: u32) -> String {
-    format!("{passkey:06}")
+/// The passkey as entered: six digits, or one click per bit, the most significant first.
+pub fn passkey_entry(a: &AwaitedPasskey) -> String {
+    if !a.clicked {
+        return format!("{:06}", a.passkey);
+    }
+    (0..diagwire::CLICK_PASSKEY_BITS)
+        .rev()
+        .map(|bit| {
+            if a.passkey >> bit & 1 == 1 {
+                "right"
+            } else {
+                "left"
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
-/// The keyboard's advertised name, or "keyboard" where it gave none.
-pub fn waiting_keyboard(a: &AwaitedPasskey) -> &str {
-    a.name.as_deref().unwrap_or("keyboard")
+/// The device's advertised name, or a word for it where it gave none.
+pub fn waiting_device(a: &AwaitedPasskey) -> &str {
+    a.name
+        .as_deref()
+        .unwrap_or(if a.clicked { "device" } else { "keyboard" })
 }
 
-/// The words asking for the passkey a keyboard waits for: those before the digits, the digits, and
-/// those after them.
+/// The words asking for the passkey a device waits for: those before the passkey, the passkey,
+/// and those after it.
 pub fn passkey_prompt(a: &AwaitedPasskey) -> [String; 3] {
+    let (verb, then) = if a.clicked {
+        ("click", ", then both buttons together")
+    } else {
+        ("type", " and press Enter")
+    };
     [
-        "type".into(),
-        passkey_digits(a.passkey),
-        format!("on the {} and press Enter", waiting_keyboard(a)),
+        verb.into(),
+        passkey_entry(a),
+        format!("on the {}{then}", waiting_device(a)),
     ]
 }
 
@@ -170,7 +190,7 @@ pub fn waits_for_passkey(who: &str) -> String {
     format!("{who} waits for the passkey")
 }
 
-pub const PAIRING_CLOSED_UNPAIRED: &str = "pairing closed with no keyboard paired";
+pub const PAIRING_CLOSED_UNPAIRED: &str = "pairing closed with no device paired";
 
 pub fn moved(from: u8, to: u8) -> String {
     if from == to {
@@ -916,8 +936,8 @@ mod tests {
     #[test]
     fn a_flash_of_firmware_in_a_newer_protocol_says_to_update_the_tool() {
         assert_eq!(
-            flashed(read_status(&status_in_protocol(6)).unwrap()),
-            "flashed; the dongle speaks diagnostic protocol 6, this tool 5; install the \
+            flashed(read_status(&status_in_protocol(7)).unwrap()),
+            "flashed; the dongle speaks diagnostic protocol 7, this tool 6; install the \
              spare-dongle tool from the firmware's release"
         );
     }
@@ -1319,15 +1339,11 @@ mod tests {
     #[test]
     fn a_bluetooth_pairing_opens_without_showing_a_passkey() {
         assert_eq!(
-            pairing_open(Protocol::Bluetooth, true),
-            "within 30 s, put the keyboard in Bluetooth pairing mode"
-        );
-        assert_eq!(
-            pairing_open(Protocol::Bluetooth, false),
+            pairing_open(Protocol::Bluetooth),
             "within 30 s, put the keyboard or mouse in Bluetooth pairing mode"
         );
         assert_eq!(
-            pairing_open(Protocol::Nuphy, false),
+            pairing_open(Protocol::Nuphy),
             "within 30 s, hold Fn+4 on the keyboard for 3 s"
         );
     }
@@ -1337,6 +1353,7 @@ mod tests {
         let a = AwaitedPasskey {
             passkey: 1234,
             name: None,
+            clicked: false,
         };
         assert_eq!(
             passkey_prompt(&a).join(" "),
@@ -1350,10 +1367,29 @@ mod tests {
         let a = AwaitedPasskey {
             passkey: 1234,
             name: Some("MX Keys".into()),
+            clicked: false,
         };
         assert_eq!(
             passkey_prompt(&a).join(" "),
             "type 001234 on the MX Keys and press Enter"
+        );
+    }
+
+    #[test]
+    fn a_clicked_passkey_reads_as_ten_clicks_then_both_buttons() {
+        let a = AwaitedPasskey {
+            passkey: 623,
+            name: Some("MX Master".into()),
+            clicked: true,
+        };
+        assert_eq!(
+            passkey_prompt(&a).join(" "),
+            "click right, left, left, right, right, left, right, right, right, right \
+             on the MX Master, then both buttons together"
+        );
+        assert_eq!(
+            passkey_prompt(&a)[1],
+            "right, left, left, right, right, left, right, right, right, right"
         );
     }
 

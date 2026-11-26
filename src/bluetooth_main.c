@@ -74,6 +74,7 @@ static struct {
 } runs[DEVICE_KINDS];
 static bool passkey_asked;
 static uint32_t awaited_passkey;
+static bool awaited_clicked;
 static uint32_t rssi_tried_ms;
 static bool reported[DEVICE_SLOTS];
 static uint32_t report_ms[DEVICE_SLOTS];
@@ -141,7 +142,8 @@ static void fill_status(struct diag_status *st, uint8_t slot)
 		char name[BLE_NAME_MAX + 1];
 
 		ble_copy_name(pairwin_holder(&window), name);
-		st->pairing_window = DIAG_WINDOW_PASSKEY_AWAITED;
+		st->pairing_window =
+			awaited_clicked ? DIAG_WINDOW_PASSKEY_CLICKED : DIAG_WINDOW_PASSKEY_AWAITED;
 		st->passkey = awaited_passkey;
 		strncpy((char *)st->passkey_name, name, sizeof(st->passkey_name));
 	} else {
@@ -312,7 +314,7 @@ static void on_advert(const struct btpolicy_advert *heard)
 		break;
 	}
 	ble_scan(BTPOLICY_SCAN_OFF);
-	err = ble_connect(a.kind, a.addr, a.name);
+	err = ble_connect(a.kind, a.addr, a.name, btpolicy_pairs_by_clicks(a.kind, a.bolt));
 	if (err) {
 		printk("bluetooth connect not started: %d\n", err);
 		return;
@@ -545,7 +547,8 @@ static void on_event(const struct ble_event *ev)
 		break;
 	case BLE_PASSKEY_AWAITED:
 		if (pairwin_hold(&window, ev->kind, k_uptime_get_32())) {
-			awaited_passkey = ev->passkey;
+			awaited_passkey = ev->passkey.value;
+			awaited_clicked = ev->passkey.clicked;
 			ble_copy_name(ev->kind, name);
 			printk("bluetooth passkey awaited by \"%s\"\n", name);
 			log_device((struct diag_detail){.tag = DIAG_DETAIL_BT_PASSKEY_AWAITED}, ev->kind);

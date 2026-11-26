@@ -234,3 +234,13 @@ void btpolicy_unhush(struct btpolicy *p)
 		p->hushes[k].on = false;
 	}
 }
+
+bool btpolicy_pairs_by_clicks(enum device_kind kind, bool bolt)
+{
+	return bolt && kind == DEVICE_KIND_MOUSE;
+}
+
+uint32_t btpolicy_click_passkey(uint32_t passkey)
+{
+	return passkey % (1u << DIAG_CLICK_PASSKEY_BITS);
+}

@@ -24,7 +24,7 @@ use crate::format::{
     forget_question, last_packet, latency, link_health, noise_level, noise_ruler, paired, pairing,
     pairing_how, passkey_prompt, protocol_security, reset_by, sentence, share, slot_health,
     slot_state, state_name, status_label, switch_question, uptime, usb_state, version,
-    waiting_keyboard, waits_for_passkey, wall_clock, watch_role, watch_summary,
+    waiting_device, waits_for_passkey, wall_clock, watch_role, watch_summary,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -1079,13 +1079,13 @@ impl<T: Transport> Session<T> {
             PairingWindow::Closed => return None,
             PairingWindow::Open => (
                 "Pairing open",
-                words(&sentence(pairing_how(self.protocol(), false))),
+                words(&sentence(pairing_how(self.protocol()))),
             ),
             PairingWindow::PasskeyAwaited(a) => {
-                let [before, digits, after] = passkey_prompt(a);
+                let [before, passkey, after] = passkey_prompt(a);
                 let body = words(&sentence(&before))
                     .into_iter()
-                    .chain([Span::styled(digits, BOLD)])
+                    .chain(words(&passkey).into_iter().map(|w| w.style(BOLD)))
                     .chain(words(&after))
                     .collect();
                 ("Passkey", body)
@@ -1334,7 +1334,7 @@ fn dongle_lines(status: Option<&Status>) -> Vec<Line<'static>> {
     let pairing = match &s.pairing_window {
         PairingWindow::Closed => None,
         PairingWindow::Open => Some("pairing open".to_string()),
-        PairingWindow::PasskeyAwaited(a) => Some(waits_for_passkey(waiting_keyboard(a))),
+        PairingWindow::PasskeyAwaited(a) => Some(waits_for_passkey(waiting_device(a))),
     };
     if let Some(label) = pairing {
         dongle.push(Span::raw(SEPARATOR));
@@ -1678,7 +1678,9 @@ mod tests {
     use crate::device::tests::{Fake, error_part, parts};
     use crate::format::pairing_open;
     use crate::protocol::REPORT_LEN;
-    use crate::protocol::tests::{awaited, mouse_status, nuphy, status_of, status_running};
+    use crate::protocol::tests::{
+        awaited, clicked, mouse_status, nuphy, status_of, status_running,
+    };
     use crate::protocol::{
         BluetoothLink, Command, Detail, ErrorCode, Link, Noise, Pairing, Protocol, Rssi, SlotMinute,
     };
@@ -1979,7 +1981,7 @@ mod tests {
 
     #[test]
     fn a_message_breaks_between_words() {
-        let message = pairing_open(Protocol::Unifying, false);
+        let message = pairing_open(Protocol::Unifying);
         let lines = texts(&flow(words(&message), " ", 80));
         assert_eq!(lines.len(), 2, "{lines:?}");
         assert!(lines.iter().all(|l| l.chars().count() <= 80), "{lines:?}");
@@ -2884,6 +2886,31 @@ mod tests {
         );
         assert!(
             !cell_at(&terminal, row, "Type")
+                .modifier
+                .contains(Modifier::BOLD)
+        );
+    }
+
+    #[test]
+    fn the_pairing_box_wraps_every_click_of_a_clicked_passkey() {
+        let mut s = status_of(Protocol::Bluetooth);
+        s.pairing_window = clicked(623, Some("MX Master"));
+        let mut app = app_with(s);
+        let text = boxed(&mut app).join(" ");
+        assert!(
+            text.contains(
+                "Click right, left, left, right, right, left, right, right, right, right on the \
+                 MX Master, then both buttons together"
+            ),
+            "{text}"
+        );
+        let terminal = drawn(&mut app);
+        let row = screen(&terminal)
+            .iter()
+            .position(|r| r.contains("Click right,"))
+            .unwrap() as u16;
+        assert!(
+            cell_at(&terminal, row, "right,")
                 .modifier
                 .contains(Modifier::BOLD)
         );

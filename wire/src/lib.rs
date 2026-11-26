@@ -7,7 +7,7 @@
 #![no_std]
 
 /// Bumped only when a layout that a release has shipped, or what a value in it means, changes.
-pub const VERSION: u8 = 5;
+pub const VERSION: u8 = 6;
 pub const REPORT_LEN: usize = 64;
 pub const HEADER_LEN: usize = 4;
 pub const CHUNK: usize = REPORT_LEN - HEADER_LEN;
@@ -35,6 +35,8 @@ pub const PAIRING_PASSKEY: u8 = 0x04;
 pub const PAIR_NO_PASSKEY: u32 = 1;
 /// The pair reply under Bluetooth: 1 if a passkey is to be typed.
 pub const PAIR_REPLY_LEN: usize = 1;
+/// A passkey under `Window::PasskeyClicked` has this many bits, one click each.
+pub const CLICK_PASSKEY_BITS: u32 = 10;
 pub const ADDR_LEN: usize = 7;
 /// The most devices a device list carries.
 pub const STORED_MAX: usize = 8;
@@ -275,12 +277,15 @@ pub enum Window {
     Closed,
     Open,
     PasskeyAwaited,
+    /// The passkey is entered by clicks.
+    PasskeyClicked,
 }
 
 codes!(Window {
     Closed,
     Open,
-    PasskeyAwaited
+    PasskeyAwaited,
+    PasskeyClicked
 });
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -526,8 +531,8 @@ pub struct Status {
     pub protocol: u8,
     /// A `Window`.
     pub pairing_window: u8,
-    /// The passkey a keyboard waits for and its name, padded with zeros; zero outside
-    /// `Window::PasskeyAwaited`.
+    /// The passkey a device waits for and its name, padded with zeros; zero outside
+    /// `Window::PasskeyAwaited` and `Window::PasskeyClicked`.
     pub passkey: u32,
     pub passkey_name: [u8; NAME_MAX],
     pub keyboard_serial: [u8; 4],

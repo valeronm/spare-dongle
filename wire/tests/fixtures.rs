@@ -20,6 +20,7 @@ fn numbers_match_fixtures() {
     assert_eq!(numbers(&EventType::ALL), fixture("event-types.hex"));
     assert_eq!(numbers(&Divert::ALL), fixture("divert-outcomes.hex"));
     assert_eq!(numbers(&Wheel::ALL), fixture("wheel-outcomes.hex"));
+    assert_eq!(numbers(&Window::ALL), fixture("windows.hex"));
     assert_eq!(
         [BUSY_DBM as u8, STRONG_DBM as u8].to_vec(),
         fixture("noise-limits.hex")

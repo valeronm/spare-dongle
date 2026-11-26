@@ -380,22 +380,30 @@ pub enum PairingWindow {
     PasskeyAwaited(AwaitedPasskey),
 }
 
-/// A keyboard waiting for its passkey to be typed on it.
+/// A device waiting for its passkey to be entered on it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AwaitedPasskey {
     pub passkey: u32,
     /// The name it advertised.
     pub name: Option<String>,
+    /// Entered by clicks, one per bit.
+    pub clicked: bool,
 }
 
 impl PairingWindow {
     fn from_wire(window: u8, passkey: u32, name: Option<String>) -> Result<Self> {
+        let awaited = |clicked| {
+            Self::PasskeyAwaited(AwaitedPasskey {
+                passkey,
+                name,
+                clicked,
+            })
+        };
         match Window::from_code(window) {
             Some(Window::Closed) => Ok(Self::Closed),
             Some(Window::Open) => Ok(Self::Open),
-            Some(Window::PasskeyAwaited) => {
-                Ok(Self::PasskeyAwaited(AwaitedPasskey { passkey, name }))
-            }
+            Some(Window::PasskeyAwaited) => Ok(awaited(false)),
+            Some(Window::PasskeyClicked) => Ok(awaited(true)),
             None => Err(unknown("pairing window")),
         }
     }
@@ -794,11 +802,20 @@ pub(crate) mod tests {
         parse_hex(&fixture_text(name))
     }
 
-    pub(crate) fn awaited(passkey: u32, name: Option<&str>) -> PairingWindow {
+    fn passkey_window(passkey: u32, name: Option<&str>, clicked: bool) -> PairingWindow {
         PairingWindow::PasskeyAwaited(AwaitedPasskey {
             passkey,
             name: name.map(str::to_string),
+            clicked,
         })
+    }
+
+    pub(crate) fn awaited(passkey: u32, name: Option<&str>) -> PairingWindow {
+        passkey_window(passkey, name, false)
+    }
+
+    pub(crate) fn clicked(passkey: u32, name: Option<&str>) -> PairingWindow {
+        passkey_window(passkey, name, true)
     }
 
     /// `payload`, a status reply, with `edit` applied to its fields.
@@ -867,7 +884,15 @@ pub(crate) mod tests {
             let (code, passkey, name) = match window {
                 PairingWindow::Closed => (Window::Closed, 0, None),
                 PairingWindow::Open => (Window::Open, 0, None),
-                PairingWindow::PasskeyAwaited(a) => (Window::PasskeyAwaited, a.passkey, a.name),
+                PairingWindow::PasskeyAwaited(a) => (
+                    if a.clicked {
+                        Window::PasskeyClicked
+                    } else {
+                        Window::PasskeyAwaited
+                    },
+                    a.passkey,
+                    a.name,
+                ),
             };
             s.pairing_window = code as u8;
             s.passkey = passkey;
@@ -1298,8 +1323,17 @@ pub(crate) mod tests {
 
     #[test]
     fn an_unknown_pairing_window_is_refused() {
-        let payload = edited("status.hex", |s| s.pairing_window = 3);
+        let payload = edited("status.hex", |s| s.pairing_window = 4);
         assert!(read_status(&payload).is_err());
+    }
+
+    #[test]
+    fn a_clicked_passkey_window_reads_as_a_passkey_entered_by_clicks() {
+        let payload = status_with_window(Protocol::Bluetooth, clicked(623, Some("MX Master")), 0);
+        assert_eq!(
+            read_status(&payload).unwrap().unwrap().pairing_window,
+            clicked(623, Some("MX Master"))
+        );
     }
 
     #[test]
@@ -1449,8 +1483,8 @@ pub(crate) mod tests {
     #[test]
     fn an_older_dongle_is_told_to_take_this_tools_firmware() {
         assert_eq!(
-            refusal(4),
-            "the dongle speaks diagnostic protocol 4, this tool 5; flash the firmware from this \
+            refusal(5),
+            "the dongle speaks diagnostic protocol 5, this tool 6; flash the firmware from this \
              tool's release with `spare-dongle flash`"
         );
     }
@@ -1458,8 +1492,8 @@ pub(crate) mod tests {
     #[test]
     fn a_newer_dongle_is_told_to_take_its_releases_tool() {
         assert_eq!(
-            refusal(6),
-            "the dongle speaks diagnostic protocol 6, this tool 5; install the spare-dongle tool \
+            refusal(7),
+            "the dongle speaks diagnostic protocol 7, this tool 6; install the spare-dongle tool \
              from the firmware's release"
         );
     }

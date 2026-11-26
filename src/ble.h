@@ -59,7 +59,10 @@ struct ble_event {
 		/* BLE_PAIRED: the device was typed the offered passkey. */
 		bool passkey_used;
 		/* BLE_PASSKEY_AWAITED: the passkey the device was given. */
-		uint32_t passkey;
+		struct {
+			uint32_t value;
+			bool clicked;
+		} passkey;
 		/* BLE_REPORT: the bytes exclude the report ID. */
 		struct {
 			uint32_t received_us;
@@ -80,8 +83,10 @@ int ble_scan(enum btpolicy_scan mode);
 /* Every call that returns 0 ends in one BLE_DISCONNECTED for the slot, after a BLE_FAILED when a
  * stage failed. */
 int ble_connect(enum device_kind kind, const uint8_t addr[BTPOLICY_ADDR_LEN],
-		const char *advertised_name);
-/* While on, a keyboard able to take a passkey is asked for this six-digit one as it pairs. */
+		const char *advertised_name, bool clicks);
+/* While on, a keyboard able to take a passkey is asked for this six-digit one as it pairs, and a
+ * device connected with clicks is told it pairs with a Bolt receiver and asked for its low
+ * DIAG_CLICK_PASSKEY_BITS. */
 int ble_offer_passkey(bool on, uint32_t value);
 uint8_t ble_stored_count(void);
 /* Copies up to cap bonded addresses and returns how many bonds there are. */

@@ -53,6 +53,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | HID++ passed to Logitech Options and Solaar | yes | no | 🔴 |
 | **Bluetooth only** | | | |
 | PCs without Bluetooth | no | yes | 🟢 |
+| Logi Bolt mice pair with a passkey | no | yes, entered as clicks | 🟢 |
 
 A report map the dongle cannot parse refuses the device, and so does a keyboard's map with no
 keyboard in it or a mouse's map with no relative pointer, such as a tablet's.
@@ -98,10 +99,11 @@ in range can pair and be stored. With a passkey, only a device the passkey is ty
 and the dongle offers each passkey to one attempt only, since a failed attempt can reveal it. Each
 pairing shows in the events and in `spare-dongle devices`.
 
-The MX Master 3S pairs with LE Secure Connections and no passkey, since it has no keys to type one
-on; the Air75 V2 pairs legacy with no passkey step, and the MX Keys legacy with the passkey typed.
-No device tested pairs with LE Secure Connections and a passkey. Pairing again does not change a
-device's way.
+The MX Master 3S, a Logi Bolt mouse, pairs with LE Secure Connections and a passkey entered as ten
+clicks, as it does with a Bolt receiver, and with no passkey when pairing is opened without one.
+Ten clicks give 1024 passkeys, so one standing in the middle of the pairing succeeds once in 1024
+tries rather than once in a million. The Air75 V2 pairs legacy with no passkey step, and the MX Keys
+legacy with the passkey typed. Pairing again does not change a device's way.
 
 | | PC's Bluetooth | SpareDongle |  |
 |---|---|---|---|
@@ -156,6 +158,10 @@ What the code does not show:
   stored.
 - Zephyr keeps the pairing method in the bond's keys, so it reads the same after a reboot and for a
   device that is not connected.
+- A Logi Bolt device lists Logitech's service `0xFD72` in its advert. A Bolt receiver writes `02` to
+  its characteristic `fd720003` in the clear before pairing; a Bolt mouse then pairs as a
+  keyboard-only device and takes the passkey as ten clicks, the most significant bit first, right
+  for 1, closed by both buttons. A Bolt keyboard has not been tried.
 
 ### Reports
 

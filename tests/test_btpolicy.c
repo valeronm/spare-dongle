@@ -347,6 +347,19 @@ static void the_appearance_gives_the_kind(void)
 	CHECK_EQ(btpolicy_kind_of(0x03c4), DEVICE_NO_KIND);
 }
 
+static void only_a_bolt_mouse_pairs_by_clicks(void)
+{
+	CHECK(btpolicy_pairs_by_clicks(DEVICE_KIND_MOUSE, true));
+	CHECK(!btpolicy_pairs_by_clicks(DEVICE_KIND_MOUSE, false));
+	CHECK(!btpolicy_pairs_by_clicks(DEVICE_KIND_KEYBOARD, true));
+}
+
+static void a_click_passkey_keeps_the_low_ten_bits(void)
+{
+	CHECK_EQ(btpolicy_click_passkey(999999), 575);
+	CHECK_EQ(btpolicy_click_passkey(1023), 1023);
+}
+
 static void a_new_device_of_no_kind_is_refused(void)
 {
 	struct btpolicy_advert a = new_advert(1);
@@ -616,6 +629,8 @@ int main(void)
 	RUN(a_stored_keyboard_without_its_key_lost_its_bond);
 	RUN(only_connectable_stored_or_hid_adverts_are_of_interest);
 	RUN(the_appearance_gives_the_kind);
+	RUN(only_a_bolt_mouse_pairs_by_clicks);
+	RUN(a_click_passkey_keeps_the_low_ten_bits);
 	RUN(a_new_device_of_no_kind_is_refused);
 	RUN(a_mouse_connects_beside_a_ready_keyboard);
 	RUN(one_device_is_set_up_at_a_time);

@@ -4,6 +4,9 @@
 
 - Bluetooth keyboards and mice send their input more often, a mouse as often as it does on a Logi
   Bolt receiver.
+- A Logi Bolt mouse pairs with a passkey, entered as left and right clicks that the tool shows, as on
+  a Logi Bolt receiver.
+- The diagnostic protocol is now 6, so the 0.6.1 tool can only `flash` new firmware.
 
 ## [0.6.1] - 2026-11-26
 

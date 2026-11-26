@@ -20,6 +20,8 @@
 
 K_MSGQ_DEFINE(ble_events, sizeof(struct ble_event), 16, 4);
 
+#define UUID_LOGITECH 0xfd72
+
 BUILD_ASSERT(CONFIG_BT_MAX_CONN == DEVICE_KINDS);
 BUILD_ASSERT(CONFIG_BT_MAX_PAIRED == BTPOLICY_STORED_MAX);
 BUILD_ASSERT(BTPOLICY_APPEARANCE_KEYBOARD == BT_APPEARANCE_HID_KEYBOARD);
@@ -40,7 +42,10 @@ struct link {
 	size_t map_len;
 	char name[BLE_NAME_MAX + 1];
 	struct bt_gatt_read_params name_read;
+	struct bt_gatt_discover_params mode_discover;
+	struct bt_gatt_write_params mode_write;
 	enum discovery wanted;
+	bool clicks;
 	bool failed;
 	bool passkey_used;
 };
@@ -441,11 +446,78 @@ static void print_params(struct link *l)
 	}
 }
 
+/* A link lost during the Bolt mode write reports its loss through its disconnect. */
+static void request_security(struct link *l)
+{
+	int ret = bt_conn_set_security(l->conn, BT_SECURITY_L2);
+
+	if (ret && ret != -ENOTCONN) {
+		fail(l, BLE_STAGE_SECURITY, ret);
+	}
+}
+
+/* A Bolt receiver writes 02 here before pairing, after which the device demands a passkey. */
+static struct bt_uuid_128 bolt_mode_uuid = BT_UUID_INIT_128(
+	BT_UUID_128_ENCODE(UUID_LOGITECH << 16 | 0x0003, 0x0000, 0x1000, 0x8000, 0x011f2000046d));
+static const uint8_t bolt_mode = 0x02;
+
+/* Pairing goes ahead whatever the write's outcome. */
+static void on_bolt_mode_written(struct bt_conn *conn, uint8_t err,
+				 struct bt_gatt_write_params *params)
+{
+	struct link *l = CONTAINER_OF(params, struct link, mode_write);
+
+	ARG_UNUSED(conn);
+	if (err) {
+		printk("bluetooth %s Bolt mode not written: att error %u\n",
+		       device_kind_name(kind_of(l)), err);
+	}
+	request_security(l);
+}
+
+static uint8_t on_bolt_mode_found(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+				  struct bt_gatt_discover_params *params)
+{
+	struct link *l = CONTAINER_OF(params, struct link, mode_discover);
+
+	if (!attr) {
+		printk("bluetooth %s has no Bolt mode\n", device_kind_name(kind_of(l)));
+		request_security(l);
+		return BT_GATT_ITER_STOP;
+	}
+	l->mode_write = (struct bt_gatt_write_params){
+		.func = on_bolt_mode_written,
+		.handle = ((const struct bt_gatt_chrc *)attr->user_data)->value_handle,
+		.data = &bolt_mode,
+		.length = sizeof(bolt_mode),
+	};
+	if (bt_gatt_write(conn, &l->mode_write) != 0) {
+		request_security(l);
+	}
+	return BT_GATT_ITER_STOP;
+}
+
+/* Only a new pairing gets the write, since a bonded device reconnects encrypted. */
+static bool write_bolt_mode(struct link *l)
+{
+	if (!offering || !l->clicks ||
+	    bt_le_bond_exists(BT_ID_DEFAULT, bt_conn_get_dst(l->conn))) {
+		return false;
+	}
+	l->mode_discover = (struct bt_gatt_discover_params){
+		.uuid = &bolt_mode_uuid.uuid,
+		.func = on_bolt_mode_found,
+		.start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE,
+		.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE,
+		.type = BT_GATT_DISCOVER_CHARACTERISTIC,
+	};
+	return bt_gatt_discover(l->conn, &l->mode_discover) == 0;
+}
+
 static void on_connected(struct bt_conn *conn, uint8_t err)
 {
 	struct link *l = link_of_conn(conn);
 	struct ble_event ev = {.type = BLE_CONNECTED};
-	int ret;
 
 	if (!l) {
 		return;
@@ -461,9 +533,8 @@ static void on_connected(struct bt_conn *conn, uint8_t err)
 	print_params(l);
 	l->passkey_used = false;
 	l->failed = false;
-	ret = bt_conn_set_security(conn, BT_SECURITY_L2);
-	if (ret) {
-		fail(l, BLE_STAGE_SECURITY, ret);
+	if (!write_bolt_mode(l)) {
+		request_security(l);
 	}
 }
 
@@ -550,9 +621,10 @@ static bool parse_field(struct bt_data *data, void *user_data)
 		return true;
 	}
 	for (size_t i = 0; i + 1 < data->data_len; i += 2) {
-		if (sys_get_le16(&data->data[i]) == BT_UUID_HIDS_VAL) {
-			a->hid_service = true;
-		}
+		uint16_t uuid = sys_get_le16(&data->data[i]);
+
+		a->hid_service |= uuid == BT_UUID_HIDS_VAL;
+		a->bolt |= uuid == UUID_LOGITECH;
 	}
 	return true;
 }
@@ -635,7 +707,7 @@ int ble_scan(enum btpolicy_scan mode)
 	BT_LE_CONN_PARAM(SHORTEST_INTERVAL, SHORTEST_INTERVAL, 0, BT_GAP_MS_TO_CONN_TIMEOUT(4000))
 
 int ble_connect(enum device_kind kind, const uint8_t addr[BTPOLICY_ADDR_LEN],
-		const char *advertised_name)
+		const char *advertised_name, bool clicks)
 {
 	struct link *l = &links[kind];
 	bt_addr_le_t peer;
@@ -645,6 +717,7 @@ int ble_connect(enum device_kind kind, const uint8_t addr[BTPOLICY_ADDR_LEN],
 		return -EALREADY;
 	}
 	copy_name(l->name, advertised_name, strlen(advertised_name));
+	l->clicks = clicks;
 	memcpy(&peer, addr, sizeof(peer));
 	err = bt_conn_le_create(&peer, BT_CONN_LE_CREATE_CONN, SETUP_CONN_PARAM, &l->conn);
 	if (err) {
@@ -660,8 +733,14 @@ static uint32_t on_app_passkey(struct bt_conn *conn)
 	uint32_t offered = passkey;
 
 	if (l) {
+		if (l->clicks) {
+			offered = btpolicy_click_passkey(offered);
+		}
 		l->passkey_used = true;
-		emit(l, (struct ble_event){.type = BLE_PASSKEY_AWAITED, .passkey = offered});
+		emit(l, (struct ble_event){
+				.type = BLE_PASSKEY_AWAITED,
+				.passkey = {.value = offered, .clicked = l->clicks},
+			});
 	}
 	passkey = BT_PASSKEY_RAND;
 	return offered;

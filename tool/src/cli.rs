@@ -183,8 +183,8 @@ fn window_state(window: &PairingWindow) -> String {
         PairingWindow::Open => "open".into(),
         PairingWindow::PasskeyAwaited(a) => format!(
             "open, {}: {}",
-            format::waits_for_passkey(format::waiting_keyboard(a)),
-            format::passkey_digits(a.passkey)
+            format::waits_for_passkey(format::waiting_device(a)),
+            format::passkey_entry(a)
         ),
     }
 }
@@ -205,7 +205,7 @@ pub fn pair<T: Transport>(
         );
     }
     let passkey_asked = dev.pair(no_passkey)?;
-    Ok((format::pairing_open(protocol, passkey_asked), passkey_asked))
+    Ok((format::pairing_open(protocol), passkey_asked))
 }
 
 /// Follows the pairing window until it closes, writing the passkey once a keyboard waits for it,
@@ -224,13 +224,13 @@ pub fn follow_pairing<T: Transport>(
         match &s.pairing_window {
             PairingWindow::Closed => break s,
             PairingWindow::PasskeyAwaited(a) if shown != Some(a.passkey) => {
-                let [before, digits, after] = format::passkey_prompt(a);
-                let digits = if highlight {
-                    digits.as_str().bold().to_string()
+                let [before, passkey, after] = format::passkey_prompt(a);
+                let passkey = if highlight {
+                    passkey.as_str().bold().to_string()
                 } else {
-                    digits
+                    passkey
                 };
-                writeln!(out, "{before} {digits} {after}")?;
+                writeln!(out, "{before} {passkey} {after}")?;
                 shown = Some(a.passkey);
             }
             _ => {}
@@ -680,7 +680,7 @@ mod tests {
     use super::*;
     use crate::device::tests::{Fake, error_part, parts};
     use crate::protocol::tests::{
-        awaited, mouse_status, nuphy, status_of, status_with_window, unifying,
+        awaited, clicked, mouse_status, nuphy, status_of, status_with_window, unifying,
     };
     use crate::protocol::{BluetoothLink, Command, Link, Protocol};
 
@@ -970,7 +970,7 @@ mod tests {
         assert!(asked);
         assert_eq!(
             line,
-            "within 30 s, put the keyboard in Bluetooth pairing mode"
+            "within 30 s, put the keyboard or mouse in Bluetooth pairing mode"
         );
     }
 
@@ -984,6 +984,15 @@ mod tests {
             "{:#?}",
             lines(&s)
         );
+    }
+
+    #[test]
+    fn a_status_shows_the_clicks_a_mouse_waits_for() {
+        let mut s = status_of(Protocol::Bluetooth);
+        s.pairing_window = clicked(623, Some("MX Master"));
+        let want = "pairing   open, MX Master waits for the passkey: \
+                    right, left, left, right, right, left, right, right, right, right";
+        assert!(lines(&s).contains(&want.to_string()), "{:#?}", lines(&s));
     }
 
     fn event_record(kind: diagwire::EventType, c: u8) -> diagwire::Event {
@@ -1057,7 +1066,7 @@ mod tests {
         follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, false).unwrap();
         assert_eq!(
             String::from_utf8(out).unwrap(),
-            "pairing closed with no keyboard paired\n"
+            "pairing closed with no device paired\n"
         );
     }
 

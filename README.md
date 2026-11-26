@@ -129,11 +129,12 @@ low power while pairing. If the link gets worse after the Wi-Fi around you chang
 Keys, first hold an Easy-Switch key until it blinks fast.
 
 **Bluetooth:** the dongle connects one keyboard and one mouse at a time, or either alone.
-Run `spare-dongle pair` and put the keyboard in Bluetooth pairing mode. Once it connects, the tool
-prints a six-digit passkey: type it on the keyboard and press Enter. A failed attempt closes
+Run `spare-dongle pair` and put the keyboard or mouse in Bluetooth pairing mode. Once it connects,
+the tool prints a six-digit passkey: type it on the keyboard and press Enter. A Logi Bolt mouse takes
+its passkey as ten clicks, which the tool prints instead. A failed attempt closes
 pairing, and running `pair` again gives a new passkey. A keyboard with no passkey step, such as the Air75 V2, pairs with
-`spare-dongle pair --no-passkey`. A mouse pairs in either window without a passkey: put it in
-pairing mode while pairing is open. Opening pairing keeps the connected devices, and a device that
+`spare-dongle pair --no-passkey`. Any other mouse pairs in either window without a passkey: put
+it in pairing mode while pairing is open. Opening pairing keeps the connected devices, and a device that
 pairs takes the place of the connected one of its kind. Once a device is stored, plugging the
 dongle in opens nothing. [docs/tool.md](docs/tool.md#bluetooth-mode) covers the stored devices.
 
