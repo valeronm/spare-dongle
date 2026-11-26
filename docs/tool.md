@@ -3,7 +3,7 @@
 `spare-dongle` reads and controls a running dongle over its vendor HID interface while the keyboard
 types, and flashes its firmware. `spare-dongle --help` lists the commands and each one's options;
 `--serial` picks a board when more than one is plugged in. `noise`, `reboot`, `bootloader`, `flash`,
-`clear` and `forget` ask first, and `--yes` skips the question.
+`clear`, `reset` and `forget` ask first, and `--yes` skips the question.
 
 - [Live view](#live-view)
 - [Reading the dongle](#reading-the-dongle)
@@ -113,3 +113,5 @@ Event lines name a stored device and give a forgotten one's address.
   still running its factory program.
 - `bootloader` restarts the dongle into its UF2 bootloader, and `reboot` restarts its firmware.
 - `clear` zeroes the counters, history and events.
+- `reset` erases every device, Bluetooth bond and setting the dongle stores, its protocol included,
+  and reboots it as a new dongle.

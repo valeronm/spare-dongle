@@ -136,6 +136,8 @@ pub enum Command {
     Heard,
     /// data is the device's address as `Heard` gives it; pairs that device only.
     PairWith,
+    /// Erases every stored record once the reply is sent, then reboots.
+    Reset,
 }
 
 codes!(Command {
@@ -155,6 +157,7 @@ codes!(Command {
     Forget,
     Heard,
     PairWith,
+    Reset,
 });
 
 impl Command {

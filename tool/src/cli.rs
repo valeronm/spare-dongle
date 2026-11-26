@@ -672,6 +672,7 @@ pub fn action<T: Transport>(dev: &mut Device<T>, action: Action, yes: bool) -> R
             Action::Reboot => "rebooting; the keyboard reconnects by itself",
             Action::Bootloader => "in the bootloader; flash it or replug it",
             Action::Clear => "cleared",
+            Action::Reset => "erased; the dongle reboots as new",
         };
         println!("{done}");
     }

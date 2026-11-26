@@ -18,6 +18,9 @@ pub fn action_question(action: Action) -> &'static str {
         Action::Reboot => "Reboot the dongle?",
         Action::Bootloader => "Reboot the dongle into its bootloader?",
         Action::Clear => "Clear the counters, history and events?",
+        Action::Reset => {
+            "Erase every device, bond and setting the dongle stores? The dongle reboots as new."
+        }
     }
 }
 

@@ -66,11 +66,20 @@ static void diag_thread(void *a, void *b, void *c)
 
 		k_msgq_get(&diag_parts, &p, K_FOREVER);
 		usb_diag_send(p.report);
-		if (p.after == DIAG_AFTER_REBOOT) {
+		switch (p.after) {
+		case DIAG_AFTER_REBOOT:
 			store_flush();
 			sys_reboot(SYS_REBOOT_COLD);
-		} else if (p.after == DIAG_AFTER_BOOTLOADER) {
+			break;
+		case DIAG_AFTER_RESET:
+			store_erase();
+			sys_reboot(SYS_REBOOT_COLD);
+			break;
+		case DIAG_AFTER_BOOTLOADER:
 			usb_reboot_to_bootloader();
+			break;
+		case DIAG_AFTER_NONE:
+			break;
 		}
 	}
 }

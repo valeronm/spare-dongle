@@ -10,6 +10,7 @@ enum diag_after {
 	DIAG_AFTER_NONE,
 	DIAG_AFTER_REBOOT,
 	DIAG_AFTER_BOOTLOADER,
+	DIAG_AFTER_RESET,
 };
 
 /* A request arriving while the queue is full is dropped. */

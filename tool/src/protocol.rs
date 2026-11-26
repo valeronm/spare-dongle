@@ -142,6 +142,7 @@ pub enum Action {
     Reboot,
     Bootloader,
     Clear,
+    Reset,
 }
 
 impl Action {
@@ -150,6 +151,7 @@ impl Action {
             Action::Reboot => Command::Reboot,
             Action::Bootloader => Command::Bootloader,
             Action::Clear => Command::Clear,
+            Action::Reset => Command::Reset,
         }
     }
 }

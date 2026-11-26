@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <zephyr/kernel.h>
+#include <zephyr/kvss/nvs.h>
 #include <zephyr/settings/settings.h>
 #include <zephyr/sys/printk.h>
 #include "btlist.h"
@@ -38,6 +39,24 @@ void store_run(struct k_work *work)
 void store_flush(void)
 {
 	k_work_queue_drain(&slow_writes, false);
+}
+
+BUILD_ASSERT(IS_ENABLED(CONFIG_SETTINGS_NVS), "store_erase clears the settings as NVS");
+
+void store_erase(void)
+{
+	void *fs;
+	int err;
+
+	/* A write still queued would land after the erase. */
+	store_flush();
+	err = settings_storage_get(&fs);
+	if (!err) {
+		err = nvs_clear(fs);
+	}
+	if (err) {
+		printk("erasing the store failed: %d\n", err);
+	}
 }
 
 bool store_load_nuphy(void *out, size_t len)

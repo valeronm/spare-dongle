@@ -109,6 +109,8 @@ enum Cmd {
     },
     /// Zero the counters, history and events
     Clear(Confirm),
+    /// Erase every device, bond and setting the dongle stores, and reboot it as new
+    Reset(Confirm),
 }
 
 fn main() -> Result<()> {
@@ -184,6 +186,7 @@ fn main() -> Result<()> {
             c.yes,
         ),
         Cmd::Clear(c) => cli::action(&mut device::open(serial)?.0, Action::Clear, c.yes),
+        Cmd::Reset(c) => cli::action(&mut device::open(serial)?.0, Action::Reset, c.yes),
     }
 }
 

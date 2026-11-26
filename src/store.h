@@ -14,6 +14,8 @@ int store_init(void);
 void store_run(struct k_work *work);
 /* Waits for the work store_run holds; a reboot calls it first. */
 void store_flush(void);
+/* Erases every stored record; a store write after it fails until a reboot. */
+void store_erase(void);
 /* True only when exactly len bytes were stored. */
 bool store_load_nuphy(void *out, size_t len);
 int store_save_nuphy(const void *in, size_t len);

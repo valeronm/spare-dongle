@@ -842,6 +842,9 @@ bool core_take_request(struct diag_request *out)
 		case DIAG_COMMAND_BOOTLOADER:
 			diag_reply(out, NULL, 0, DIAG_AFTER_BOOTLOADER);
 			break;
+		case DIAG_COMMAND_RESET:
+			diag_reply(out, NULL, 0, DIAG_AFTER_RESET);
+			break;
 		case DIAG_COMMAND_HISTORY:
 			serve_minutes(out, payload);
 			break;
