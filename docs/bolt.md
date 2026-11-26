@@ -34,7 +34,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | Wakes a suspended PC | on any key or mouse movement; on Linux also right after the PC suspends, unless Solaar runs[^linux-wake] | on any key or mouse movement, once the device has stopped reconnecting after the PC slept | 🟢 |
 | Tells the keyboard the PC suspended | not checked | yes | |
 | **Pairing** | | | |
-| Pairing opens | in Logi Options+ or Solaar; devices sold with the receiver come paired[^white-paper] | at plug-in while nothing is paired, or on request | ⚪ |
+| Pairing opens | in Logi Options+ or Solaar; devices sold with the receiver come paired[^white-paper] | on request from the tool | ⚪ |
 | Forgets a device | in Logi Options+ or Solaar | yes, with the tool | ⚪ |
 | **Use** | | | |
 | Boot menus | yes, on a USB 2 port without a hub or dock[^bios] | yes | ⚪ |
@@ -84,7 +84,7 @@ are on Unifying.
 
 | | Bolt receiver | SpareDongle |  |
 |---|---|---|---|
-| Passkey at pairing | always[^white-paper] | when paired from the tool, not in the window opened at plug-in | 🔴 |
+| Passkey at pairing | always[^white-paper] | always | ⚪ |
 | Firmware | Logitech's, with rollback protection[^white-paper] | any image, see [Firmware updates](../README.md#firmware-updates) | 🔴 |
 
 ## On air

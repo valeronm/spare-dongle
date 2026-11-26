@@ -33,10 +33,10 @@ pub const PAIRING_SECURE: u8 = 0x02;
 pub const PAIRING_PASSKEY: u8 = 0x04;
 /// The device paired after the dongle put it in Logi Bolt mode.
 pub const PAIRING_BOLT: u8 = 0x08;
-/// A pairing window stays open this long, unless it waits for a first pairing or a device holds it.
+/// A NuPhy or Unifying pairing window stays open this long.
 pub const PAIR_WINDOW_MS: u32 = 30_000;
-/// A Bluetooth pairing window opened from the tool stays open this long, to read the devices heard
-/// and pick one.
+/// A Bluetooth pairing window stays open this long, to read the devices heard and pick one, unless a
+/// device holds it for its passkey.
 pub const PICK_WINDOW_MS: u32 = 60_000;
 /// A passkey under `Window::PasskeyClicked` has this many bits, one click each.
 pub const CLICK_PASSKEY_BITS: u32 = 10;
@@ -295,10 +295,12 @@ pub enum Window {
     PasskeyAwaited,
     /// The passkey is entered by clicks.
     PasskeyClicked,
-    /// Open from the tool, waiting for the user to pick a device from `Heard`.
+    /// Waiting for the user to pick a device from `Heard`.
     Picking,
     /// A device was picked, and the window waits for it to pair or ask for a passkey.
     Picked,
+    /// A keyboard is pairing, which may go on after the window's time has run out.
+    Pairing,
 }
 
 codes!(Window {
@@ -307,7 +309,8 @@ codes!(Window {
     PasskeyAwaited,
     PasskeyClicked,
     Picking,
-    Picked
+    Picked,
+    Pairing
 });
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -699,10 +702,7 @@ pub enum Detail {
         kind: u8,
         store_err: i32,
     },
-    PairingOpened {
-        cause: u8,
-        until_paired: bool,
-    },
+    PairingOpened,
     PairingClosed,
     PairingTimeout {
         /// The Unifying pairing request that went unanswered, from 0.
@@ -805,7 +805,7 @@ impl Detail {
             D::LinkMoved { .. } => T::LinkMoved,
             D::LinkGap { .. } => T::LinkGap,
             D::UnifyingPaired { .. } => T::UnifyingPaired,
-            D::PairingOpened { .. } => T::PairingOpened,
+            D::PairingOpened => T::PairingOpened,
             D::PairingClosed => T::PairingClosed,
             D::PairingTimeout { .. } => T::PairingTimeout,
             D::Reconnect { .. } => T::Reconnect,
@@ -840,9 +840,13 @@ impl Detail {
                 (rssi as u8, low, high, gap_ms)
             }
             D::Survey { picked } => (picked[0], picked[1], picked[2], 0),
-            D::Noise | D::UsbSuspend | D::UsbResume | D::Clear | D::PairingClosed | D::Attack => {
-                (0, 0, 0, 0)
-            }
+            D::Noise
+            | D::UsbSuspend
+            | D::UsbResume
+            | D::Clear
+            | D::PairingOpened
+            | D::PairingClosed
+            | D::Attack => (0, 0, 0, 0),
             D::LinkUp {
                 channel,
                 rssi,
@@ -872,10 +876,6 @@ impl Detail {
                 kind,
                 store_err,
             } => (wpid[0], wpid[1], kind, store_err as u32),
-            D::PairingOpened {
-                cause,
-                until_paired,
-            } => (cause, until_paired.into(), 0, 0),
             D::PairingTimeout { step } => (step, 0, 0, 0),
             D::Reconnect { release_all } => (release_all.into(), 0, 0, 0),
             D::BtConnected { addr }
@@ -971,10 +971,7 @@ impl Detail {
                 kind: e.c,
                 store_err: e.value as i32,
             },
-            T::PairingOpened => D::PairingOpened {
-                cause: e.a,
-                until_paired: e.b != 0,
-            },
+            T::PairingOpened => D::PairingOpened,
             T::PairingClosed => D::PairingClosed,
             T::PairingTimeout => D::PairingTimeout { step: e.a },
             T::Reconnect => D::Reconnect {

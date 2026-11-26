@@ -380,13 +380,15 @@ pub struct Status {
 pub enum PairingWindow {
     Closed,
     Open,
-    /// Opened from the tool and waiting for the user to pick a device it heard.
+    /// Waiting for the user to pick a device the dongle heard.
     Picking,
     /// Waiting for the picked device to pair or ask for a passkey.
     Picked {
         name: Option<String>,
     },
     PasskeyAwaited(AwaitedPasskey),
+    /// A keyboard is pairing, which may go on after the window's time has run out.
+    Pairing,
 }
 
 /// A device waiting for its passkey to be entered on it.
@@ -429,6 +431,7 @@ impl PairingWindow {
             Some(Window::PasskeyClicked) => Ok(awaited(true, name)),
             Some(Window::Picking) => Ok(Self::Picking),
             Some(Window::Picked) => Ok(Self::Picked { name }),
+            Some(Window::Pairing) => Ok(Self::Pairing),
             None => Err(unknown("pairing window")),
         }
     }
@@ -951,6 +954,7 @@ pub(crate) mod tests {
                 PairingWindow::Open => (Window::Open, 0, None, 0),
                 PairingWindow::Picking => (Window::Picking, 0, None, 0),
                 PairingWindow::Picked { name } => (Window::Picked, 0, name, 0),
+                PairingWindow::Pairing => (Window::Pairing, 0, None, 0),
                 PairingWindow::PasskeyAwaited(a) => (
                     if a.clicked {
                         Window::PasskeyClicked
@@ -1088,6 +1092,17 @@ pub(crate) mod tests {
         payload.truncate(20);
         assert!(read_devices(&payload).is_err());
         assert_eq!(read_devices(&[0]).unwrap(), []);
+    }
+
+    #[test]
+    fn a_status_reads_a_keyboard_pairing() {
+        let payload = edit(&status_running(Protocol::Nuphy as u8), |s| {
+            s.pairing_window = Window::Pairing as u8
+        });
+        assert_eq!(
+            decoded(&payload).map(|s| s.pairing_window),
+            Some(PairingWindow::Pairing)
+        );
     }
 
     #[test]
@@ -1418,7 +1433,7 @@ pub(crate) mod tests {
 
     #[test]
     fn an_unknown_pairing_window_is_refused() {
-        let payload = edited("status.hex", |s| s.pairing_window = 6);
+        let payload = edited("status.hex", |s| s.pairing_window = Window::ALL.len() as u8);
         assert!(read_status(&payload).is_err());
     }
 

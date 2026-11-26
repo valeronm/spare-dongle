@@ -56,6 +56,8 @@ static uint8_t own_slot_channel(const struct link *l)
 
 static void go_idle(struct link *l, uint32_t now_ms, struct link_out *out)
 {
+	/* A keyboard holds the window only while it pairs. */
+	out->window_closed |= pairwin_end_attempt(&l->window, DEVICE_KIND_KEYBOARD);
 	l->state = LINK_STATE_IDLE;
 	l->suspends_sent = 0;
 	l->slot_start_ms = now_ms;
@@ -108,7 +110,8 @@ void link_forget(struct link *l, uint32_t now_ms, struct link_out *out)
 	}
 	l->host_leds = kept.host_leds;
 	l->host_suspended = kept.host_suspended;
-	link_open_pairing(l, PAIRWIN_REQUEST, now_ms);
+	l->window = kept.window;
+	out->window_closed |= pairwin_end_attempt(&l->window, DEVICE_KIND_KEYBOARD);
 }
 
 void link_record_of(const struct link *l, struct link_record *out)
@@ -144,7 +147,8 @@ static void on_pairing_message(struct link *l, const struct nuphy_msg *m, uint32
 		l->last_rx_ms = now_ms;
 	}
 	if (m->kind == NUPHY_PAIR_REQUEST) {
-		if (l->state == LINK_STATE_IDLE && link_pairing_open(l, now_ms)) {
+		if (l->state == LINK_STATE_IDLE &&
+		    pairwin_hold(&l->window, DEVICE_KIND_KEYBOARD, now_ms)) {
 			memcpy(l->requester_id, m->ids.keyboard, NUPHY_ID_LEN);
 			l->last_rx_ms = now_ms;
 			if (next_offer_ready(l, now_ms)) {
@@ -163,7 +167,6 @@ static void on_pairing_message(struct link *l, const struct nuphy_msg *m, uint32
 		set_own(l, l->offered);
 		memcpy(l->keyboard_id, l->requester_id, NUPHY_ID_LEN);
 		l->keyboard_name = (struct nuphy_name){0};
-		pairwin_close(&l->window);
 		out->save_pairing = true;
 		l->state = LINK_STATE_CONFIRMED;
 		/* The keyboard addresses pipe 1 once this confirm is acknowledged. */
@@ -219,6 +222,7 @@ bool link_on_message(struct link *l, const struct nuphy_msg *m, uint8_t pipe, ui
 	switch (l->state) {
 	case LINK_STATE_CONFIRMED:
 		/* This packet's ACK carried the status queued on entering this state. */
+		pairwin_close(&l->window);
 		move_home(l, now_ms, out);
 		break;
 	case LINK_STATE_MOVING_HOME:
@@ -234,7 +238,6 @@ bool link_on_message(struct link *l, const struct nuphy_msg *m, uint8_t pipe, ui
 	case LINK_STATE_IDLE:
 		l->state = on_pairing_channel(l) ? LINK_STATE_MOVING_HOME : LINK_STATE_CONNECTED;
 		out->up = true;
-		pairwin_link_up(&l->window);
 		reply_status(l, now_ms, out);
 		break;
 	case LINK_STATE_CONNECTED:
@@ -283,8 +286,8 @@ void link_tick(struct link *l, uint32_t now_ms, struct link_out *out)
 		break;
 	case LINK_STATE_IDLE:
 		/* A keyboard that fails a send sweeps its channels within milliseconds. */
-		if (l->own_known && !link_pairing_open(l, now_ms)) {
-			if (on_pairing_channel(l)) {
+		if (!link_pairing_open(l, now_ms)) {
+			if (l->own_known && on_pairing_channel(l)) {
 				set_channel(l, l->home, out);
 			}
 		} else if (now_ms - l->slot_start_ms >= SLOT_MS) {
@@ -302,7 +305,7 @@ void link_tick(struct link *l, uint32_t now_ms, struct link_out *out)
 	case LINK_STATE_SURVEY:
 		break;
 	}
-	out->window_closed = !attempting(l) && pairwin_ran_out(&l->window, now_ms);
+	out->window_closed |= pairwin_ran_out(&l->window, now_ms);
 }
 
 void link_radio_resumed(struct link *l, uint32_t now_ms)
@@ -328,9 +331,14 @@ void link_set_host_suspended(struct link *l, bool suspended)
 	}
 }
 
-void link_open_pairing(struct link *l, enum pairwin_cause cause, uint32_t now_ms)
+void link_open_pairing(struct link *l, uint32_t now_ms)
 {
-	pairwin_open(&l->window, cause, l->own_known, DIAG_PAIR_WINDOW_MS, now_ms);
+	pairwin_open(&l->window, DIAG_PAIR_WINDOW_MS, now_ms);
+}
+
+enum diag_window link_window(const struct link *l, uint32_t now_ms)
+{
+	return pairwin_window(&l->window, now_ms);
 }
 
 bool link_pairing_open(const struct link *l, uint32_t now_ms)
@@ -340,7 +348,7 @@ bool link_pairing_open(const struct link *l, uint32_t now_ms)
 
 bool link_pairing(const struct link *l, uint32_t now_ms)
 {
-	return link_pairing_open(l, now_ms) || attempting(l);
+	return link_window(l, now_ms) != DIAG_WINDOW_CLOSED;
 }
 
 bool link_channels_allowed(const uint8_t channels[LINK_OWN_CHANNELS])

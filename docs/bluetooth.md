@@ -33,7 +33,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | Wakes a suspended PC | on any key or mouse movement | the same, once the device has stopped reconnecting after the PC slept | ⚪ |
 | Tells the keyboard the PC suspended | on Linux | yes | ⚪ |
 | **Pairing** | | | |
-| Pairing opens | in the PC's settings | at plug-in while nothing is paired, or on request | ⚪ |
+| Pairing opens | in the PC's settings | on request from the tool | ⚪ |
 | Forgets a device | in the PC's settings | yes, with the tool | ⚪ |
 | **Use** | | | |
 | Boot menus | no | yes | 🟢 |
@@ -94,18 +94,16 @@ also opens the traffic recorded before the key was found. Later, an attacker can
 link drop by jamming the radio, whatever the way, and the device reconnects once the jamming stops,
 at the latest when it is next used.
 
-Outside pairing, only a stored device connects. Pairing from the tool pairs only the device picked
-from the list of those heard, so a device nearby cannot slip in; a device that spoofs the picked
-one's name and address can. The dongle offers every picked device a passkey, which a device that
-asks for one has to type, and offers each passkey to one attempt only, since a failed attempt can
-reveal it. A keyboard that cannot take a passkey pairs without one. The window opened at plug-in
-while nothing is stored pairs the first device it hears, with no passkey. Each pairing shows in the
-events and in `spare-dongle devices`.
+Outside pairing, only a stored device connects. Pairing opens only from the tool and pairs only the
+device picked from the list of those heard, so a device nearby cannot slip in; a device that spoofs
+the picked one's name and address can. The dongle offers every picked device a passkey, which a
+device that asks for one has to type, and offers each passkey to one attempt only, since a failed
+attempt can reveal it. A keyboard that cannot take a passkey pairs without one. Each pairing shows
+in the events and in `spare-dongle devices`.
 
 The MX Master 3S, a Logi Bolt mouse, pairs with LE Secure Connections and a passkey of ten clicks,
-one of only 1024 ([Logi Bolt](bolt.md#security)), and with no passkey in the window opened at
-plug-in. The Air75 V2 pairs legacy with no passkey step, and the MX Keys
-legacy with the passkey typed. Pairing again does not change a device's way.
+one of only 1024 ([Logi Bolt](bolt.md#security)). The Air75 V2 pairs legacy with no passkey step,
+and the MX Keys legacy with the passkey typed. Pairing again does not change a device's way.
 
 | | PC's Bluetooth | SpareDongle |  |
 |---|---|---|---|

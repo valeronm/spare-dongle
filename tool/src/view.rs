@@ -19,11 +19,11 @@ use ratatui::{
 
 use crate::device::{self, Device, Lost, Transport};
 use crate::format::{
-    ChannelRole, LinkHealth, NOISE_QUESTION, TITLE_SEPARATOR, Tone, action_question, battery,
-    bootloader_and_softdevice, bucket_label, channel_role, counted_share, describe_event,
-    device_at, device_lines, forget_question, heard_lines, last_packet, latency, link_health,
-    name_parts, noise_level, noise_ruler, paired, pairing, pairing_how, pairing_picked,
-    passkey_prompt, picking_how, protocol_security, reset_by, sentence, share, slot_health,
+    ChannelRole, KEYBOARD_PAIRING, LinkHealth, NOISE_QUESTION, TITLE_SEPARATOR, Tone,
+    action_question, battery, bootloader_and_softdevice, bucket_label, channel_role, counted_share,
+    describe_event, device_at, device_lines, forget_question, heard_lines, last_packet, latency,
+    link_health, name_parts, noise_level, noise_ruler, paired, pairing, pairing_how,
+    pairing_picked, passkey_prompt, protocol_security, reset_by, sentence, share, slot_health,
     slot_state, state_name, status_label, switch_question, uptime, usb_state, version,
     waiting_device, waits_for_passkey, wall_clock, watch_role, watch_summary,
 };
@@ -1086,12 +1086,9 @@ impl<T: Transport> Session<T> {
         let mut keys = Vec::new();
         let (title, body) = match &self.history.status.pairing_window {
             PairingWindow::Closed => return None,
-            PairingWindow::Open => (
-                "Pairing open",
-                vec![paragraph(&sentence(pairing_how(self.protocol())))],
-            ),
-            PairingWindow::Picking => {
-                let how = paragraph(&sentence(picking_how()));
+            PairingWindow::Pairing => ("Pairing", vec![paragraph(&sentence(KEYBOARD_PAIRING))]),
+            PairingWindow::Open | PairingWindow::Picking => {
+                let how = paragraph(&sentence(pairing_how(self.protocol())));
                 let lines = heard_lines(&self.heard)
                     .into_iter()
                     .map(|line| vec![toned_line(line)]);
@@ -1208,7 +1205,7 @@ impl<T: Transport> App<T> {
             PairingWindow::PasskeyAwaited(_)
             | PairingWindow::Picking
             | PairingWindow::Picked { .. } => crate::cli::PAIRING_POLL,
-            PairingWindow::Closed | PairingWindow::Open => POLL_EVERY,
+            PairingWindow::Closed | PairingWindow::Open | PairingWindow::Pairing => POLL_EVERY,
         }
     }
 
@@ -1414,6 +1411,7 @@ fn dongle_lines(status: Option<&Status>) -> Vec<Line<'static>> {
     let pairing = match &s.pairing_window {
         PairingWindow::Closed => None,
         PairingWindow::Open | PairingWindow::Picking => Some("pairing open".to_string()),
+        PairingWindow::Pairing => Some(KEYBOARD_PAIRING.to_string()),
         PairingWindow::Picked { name } => Some(pairing_picked(name.as_deref())),
         PairingWindow::PasskeyAwaited(a) => Some(waits_for_passkey(waiting_device(a))),
     };
@@ -2885,6 +2883,19 @@ mod tests {
     }
 
     #[test]
+    fn a_keyboard_pairing_shows_in_the_dongle_row_and_a_box() {
+        let mut s = status_of(Protocol::Nuphy);
+        s.pairing_window = PairingWindow::Pairing;
+        assert!(
+            dongle_lines(Some(&s))[0]
+                .to_string()
+                .ends_with("   a keyboard is pairing")
+        );
+        let mut app = app_with(s);
+        assert_eq!(boxed(&mut app)[..2], ["Pairing", "A keyboard is pairing"]);
+    }
+
+    #[test]
     fn the_status_shows_a_keyboard_waiting_for_the_passkey() {
         let mut s = status_of(Protocol::Bluetooth);
         s.pairing_window = awaited(42, None);
@@ -3058,7 +3069,9 @@ mod tests {
 
     fn refreshed_with_pairing(app: &mut App<Fake>, protocol: Protocol, open: bool) {
         let mut s = status_of(protocol);
-        s.pairing_window = if open {
+        s.pairing_window = if open && protocol == Protocol::Bluetooth {
+            PairingWindow::Picking
+        } else if open {
             PairingWindow::Open
         } else {
             PairingWindow::Closed
@@ -3138,23 +3151,8 @@ mod tests {
         assert_eq!(app_with(s.clone()).poll_every(), crate::cli::PAIRING_POLL);
         s.pairing_window = PairingWindow::Picked { name: None };
         assert_eq!(app_with(s.clone()).poll_every(), crate::cli::PAIRING_POLL);
-        s.pairing_window = PairingWindow::Open;
+        s.pairing_window = PairingWindow::Closed;
         assert_eq!(app_with(s).poll_every(), POLL_EVERY);
-    }
-
-    #[test]
-    fn a_bluetooth_window_opened_at_plug_in_asks_for_no_pick() {
-        let mut app = app_with(closed(status_of(Protocol::Bluetooth)));
-        refreshed_with_pairing(&mut app, Protocol::Bluetooth, true);
-        assert_eq!(
-            boxed(&mut app),
-            [
-                "Pairing open",
-                "Put the keyboard or mouse in Bluetooth pairing mode",
-                "",
-                "esc hides"
-            ]
-        );
     }
 
     fn refreshed_with_events(app: &mut App<Fake>, protocol: Protocol, new: u32) {

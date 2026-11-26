@@ -332,7 +332,7 @@ static void on_advert(const struct btpolicy_advert *heard)
 	if (a.stored) {
 		a.kind = btlist_kind(&list, a.addr);
 	}
-	switch (btpair_wants(&pair, &policy, &a, ble_stored_count(), now)) {
+	switch (btpair_wants(&pair, &policy, &a, now)) {
 	case BTPOLICY_IGNORE:
 		return;
 	case BTPOLICY_REPLACE:
@@ -351,20 +351,23 @@ static void on_advert(const struct btpolicy_advert *heard)
 	btpolicy_connecting(&policy, &a);
 }
 
-static void end_passkey_attempt(enum device_kind kind)
+static void attempt_failed(enum device_kind kind, bool refused)
 {
-	if (pairwin_end_attempt(&pair.window, kind)) {
+	if (btpair_attempt_failed(&pair, kind, refused, k_uptime_get_32())) {
 		core_log_pairing_closed();
 	}
 }
 
 static void on_failed(const struct ble_event *ev)
 {
+	enum btpolicy_security outcome;
+
 	printk("bluetooth %s failed: %d\n", ble_stage_name(ev->failed.stage), ev->failed.error);
 	if (ev->failed.stage != BLE_STAGE_SECURITY) {
 		return;
 	}
-	switch (btpair_security_failed(&pair, &policy, ev->kind, ev->failed.why)) {
+	outcome = btpolicy_security_failed(&policy, ev->kind, ev->failed.why);
+	switch (outcome) {
 	case BTPOLICY_PAIRING_REFUSED:
 		printk("bluetooth pairing refused\n");
 		core_log(slot_of(ev->kind),
@@ -375,11 +378,10 @@ static void on_failed(const struct ble_event *ev)
 		printk("bluetooth device lost its bond\n");
 		log_device((struct diag_detail){.tag = DIAG_DETAIL_BT_BOND_LOST}, ev->kind);
 		break;
-	case BTPOLICY_REFUSED_BEFORE:
 	case BTPOLICY_SECURITY_FAILED:
 		break;
 	}
-	end_passkey_attempt(ev->kind);
+	attempt_failed(ev->kind, outcome == BTPOLICY_PAIRING_REFUSED);
 }
 
 static void device_ready(enum device_kind kind)
@@ -449,7 +451,7 @@ static void on_disconnected(enum device_kind kind, uint8_t reason)
 		}
 		hidkeys_reset(&keys);
 	}
-	end_passkey_attempt(kind);
+	attempt_failed(kind, false);
 	connection_over(kind);
 	btpolicy_disconnected(&policy, kind, k_uptime_get_32(),
 			      reason == BLE_REASON_NOT_ESTABLISHED);
@@ -603,6 +605,7 @@ static void open_pairing(const struct diag_request *req)
 		diag_reply_error(req, DIAG_ERROR_RADIO, 0);
 		return;
 	}
+	/* Only a pairing adds to the list, and it closes the window. */
 	if (ble_stored_count() >= BTPOLICY_STORED_MAX) {
 		diag_reply_error(req, DIAG_ERROR_LIST_FULL, 0);
 		return;
@@ -616,7 +619,7 @@ static void open_pairing(const struct diag_request *req)
 		return;
 	}
 	btpair_open_to_pick(&pair, k_uptime_get_32());
-	core_log_pairing_opened(&pair.window);
+	core_log_pairing_opened();
 	printk("pairing open for %u s\n", DIAG_PICK_WINDOW_MS / 1000);
 	diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
 }
@@ -752,14 +755,8 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 		core_mark_radio_failed();
 		printk("bluetooth start failed: %d\n", start_err);
 	} else {
-		uint8_t stored = ble_stored_count();
-
 		load_list();
-		printk("bluetooth started, %u stored\n", stored);
-		if (stored == 0) {
-			btpair_open_at_boot(&pair, k_uptime_get_32());
-			core_log_pairing_opened(&pair.window);
-		}
+		printk("bluetooth started, %u stored\n", ble_stored_count());
 	}
 
 	for (;;) {

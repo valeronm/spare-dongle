@@ -33,7 +33,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | Wakes a suspended PC | on any key | the same | ⚪ |
 | Tells the keyboard the PC suspended | no: the link carries no such message | the same | ⚪ |
 | **Pairing** | | | |
-| Pairing opens | on request from Logitech Options or Solaar | 30 s after plugging in, or on request | 🟢 |
+| Pairing opens | on request from Logitech Options or Solaar | on request from the tool | ⚪ |
 | Forgets a device | with Logitech Options or Solaar | yes, with the tool | ⚪ |
 | **Use** | | | |
 | Boot menus | yes | yes | ⚪ |

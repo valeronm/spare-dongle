@@ -306,8 +306,7 @@ static void fill_status(struct diag_status *st, uint8_t slot)
 
 	ARG_UNUSED(slot);
 	st->link_state = unifying_session_status(&session, now);
-	st->pairing_window = unifying_pairing_window_open(&session.pairing, now) ? DIAG_WINDOW_OPEN
-										  : DIAG_WINDOW_CLOSED;
+	st->pairing_window = unifying_pairing_window(&session.pairing, now);
 	st->channel = session.channel;
 	if (session.heard) {
 		st->last_rssi = session.rssi;
@@ -367,7 +366,7 @@ static void forget_keyboard(const struct diag_request *req, uint64_t now)
 		diag_reply_error(req, DIAG_ERROR_STORE, 0);
 		return;
 	}
-	unifying_session_forget(&session, place, now, &out);
+	unifying_session_forget(&session, place, &out);
 	if (out.set_channel) {
 		radio_err = core_set_channel(out.channel);
 	}
@@ -375,8 +374,10 @@ static void forget_keyboard(const struct diag_request *req, uint64_t now)
 	if (out.release_all) {
 		core_release_keys();
 	}
-	core_keyboard_forgotten(req, out.window_opened ? &session.pairing.window : NULL,
-				radio_err != 0 || listen_err != 0 ? DIAG_ERROR_RADIO : 0);
+	core_keyboard_forgotten(req, radio_err != 0 || listen_err != 0 ? DIAG_ERROR_RADIO : 0);
+	if (out.window_closed) {
+		core_log_pairing_closed();
+	}
 }
 
 static void serve_diag(const struct diag_request *req, uint64_t now)
@@ -389,12 +390,12 @@ static void serve_diag(const struct diag_request *req, uint64_t now)
 		forget_keyboard(req, now);
 		break;
 	case DIAG_COMMAND_PAIR:
-		if (!unifying_session_open_pairing(&session, PAIRWIN_REQUEST, now)) {
+		if (!unifying_session_open_pairing(&session, now)) {
 			diag_reply_error(req, DIAG_ERROR_LIST_FULL, 0);
 			break;
 		}
 		printk("pairing open for %u s\n", DIAG_PAIR_WINDOW_MS / 1000);
-		core_log_pairing_opened(&session.pairing.window);
+		core_log_pairing_opened();
 		diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
 		break;
 	default:
@@ -430,7 +431,6 @@ FUNC_NORETURN void unifying_run(int store_err)
 	struct unifying_receiver receiver = {.wpid = {0x88, 0x02}};
 	uint8_t record[UNIFYING_RECORD_LEN];
 	uint32_t reported_drops = 0;
-	uint64_t now = (uint64_t)k_uptime_get();
 
 	core_start_history(&loop);
 	memcpy(receiver.base, &raw, sizeof(receiver.base));
@@ -443,9 +443,6 @@ FUNC_NORETURN void unifying_run(int store_err)
 			unifying_session_restore(&session, place, record);
 			printk("restored the keyboard in place %u\n", place);
 		}
-	}
-	if (unifying_session_open_pairing(&session, PAIRWIN_BOOT, now)) {
-		core_log_pairing_opened(&session.pairing.window);
 	}
 	sys_rand_get(next_nonce, sizeof(next_nonce));
 
@@ -461,10 +458,9 @@ FUNC_NORETURN void unifying_run(int store_err)
 		uint32_t dropped;
 		uint8_t leds;
 		bool changed;
-		bool got;
+		bool got = core_take_rx(&item, K_MSEC(TICK_MS));
+		uint64_t now = (uint64_t)k_uptime_get();
 
-		got = core_take_rx(&item, K_MSEC(TICK_MS));
-		now = (uint64_t)k_uptime_get();
 		if (got && unifying_session_frame(&session, item.pipe, item.data, item.len, item.rssi,
 						  now, next_nonce, aes_ecb, &out)) {
 			apply_frame(&out, &item);

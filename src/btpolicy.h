@@ -69,8 +69,6 @@ enum btpolicy_failure {
 
 enum btpolicy_security {
 	BTPOLICY_PAIRING_REFUSED,
-	/* The same device refused earlier in this window. */
-	BTPOLICY_REFUSED_BEFORE,
 	BTPOLICY_BOND_LOST,
 	BTPOLICY_SECURITY_FAILED,
 };
@@ -105,7 +103,7 @@ bool btpolicy_interesting(const struct btpolicy_advert *a);
 /* A stored device is not connected to while a pairing window is open, and only one device is set
  * up at a time. */
 enum btpolicy_want btpolicy_wants(struct btpolicy *p, const struct btpolicy_advert *a,
-				  bool window_open, uint8_t stored_count, uint32_t now_ms);
+				  bool window_open, uint32_t now_ms);
 void btpolicy_connecting(struct btpolicy *p, const struct btpolicy_advert *a);
 void btpolicy_dropping(struct btpolicy *p, enum device_kind kind);
 void btpolicy_connected(struct btpolicy *p, enum device_kind kind);

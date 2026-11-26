@@ -1,28 +1,16 @@
 #include "pairwin.h"
 
-void pairwin_open(struct pairwin *w, enum pairwin_cause cause, bool paired, uint32_t length_ms,
-		  uint32_t now_ms)
+void pairwin_open(struct pairwin *w, uint32_t length_ms, uint32_t now_ms)
 {
 	w->open = true;
-	w->until_paired = !paired;
 	w->holder = DEVICE_NO_KIND;
-	w->cause = cause;
 	w->opened_ms = now_ms;
 	w->length_ms = length_ms;
 }
 
 bool pairwin_is_open(const struct pairwin *w, uint32_t now_ms)
 {
-	return w->open &&
-	       (w->until_paired || w->holder != DEVICE_NO_KIND || now_ms - w->opened_ms < w->length_ms);
-}
-
-uint32_t pairwin_left_ms(const struct pairwin *w, uint32_t now_ms)
-{
-	if (w->until_paired || w->holder != DEVICE_NO_KIND || !pairwin_is_open(w, now_ms)) {
-		return 0;
-	}
-	return w->length_ms - (now_ms - w->opened_ms);
+	return w->open && (w->holder != DEVICE_NO_KIND || now_ms - w->opened_ms < w->length_ms);
 }
 
 void pairwin_close(struct pairwin *w)
@@ -53,11 +41,12 @@ bool pairwin_end_attempt(struct pairwin *w, enum device_kind holder)
 	return true;
 }
 
-void pairwin_link_up(struct pairwin *w)
+enum diag_window pairwin_window(const struct pairwin *w, uint32_t now_ms)
 {
-	if (w->cause == PAIRWIN_BOOT && !w->until_paired) {
-		w->open = false;
+	if (pairwin_holder(w) != DEVICE_NO_KIND) {
+		return DIAG_WINDOW_PAIRING;
 	}
+	return pairwin_is_open(w, now_ms) ? DIAG_WINDOW_OPEN : DIAG_WINDOW_CLOSED;
 }
 
 bool pairwin_ran_out(struct pairwin *w, uint32_t now_ms)

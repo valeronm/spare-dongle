@@ -35,7 +35,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | Wakes a suspended PC | on the keyboard's hello or any key | the same | ⚪ |
 | Tells the keyboard the PC suspended | yes | yes | ⚪ |
 | **Pairing** | | | |
-| Pairing opens | 30 s after plugging in | 30 s after plugging in, or on request | 🟢 |
+| Pairing opens | 30 s after plugging in | on request from the tool | 🔴 |
 | Forgets a device | no: a new pairing replaces the keyboard | yes, with the tool | 🟢 |
 | **Use** | | | |
 | Boot menus | yes | yes | ⚪ |
@@ -54,8 +54,8 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | HID++ used by the dongle | no: the keyboard speaks none | the same | ⚪ |
 | HID++ passed to Logitech Options and Solaar | no: the keyboard speaks none | the same | ⚪ |
 
-Both close pairing once the paired keyboard connects. With no keyboard paired, SpareDongle keeps
-it open until one pairs.
+The official dongle closes pairing once the paired keyboard connects, while SpareDongle keeps it
+open for its 30 seconds, since the tool opened it to pair another keyboard.
 
 The official dongle has a [second pairing slot](#second-pairing-slot) whose keyboard's keys it
 merges with the first one's, but no known NuPhy keyboard pairs into it, so SpareDongle does not
@@ -89,7 +89,7 @@ Both lose a packet that fails NuPhy's checksum ([Channels and delivery](#channel
 |---|---|---|---|
 | Keystroke encryption | none | none | ⚪ |
 | Who can type | anyone sending to the dongle's address | the same | ⚪ |
-| A new keyboard's pair request | answered for 30 s after plugging in | answered while pairing is open | 🟢 |
+| A new keyboard's pair request | answered for 30 s after plugging in | answered only while pairing is opened from the tool | 🟢 |
 | A pair request reusing the dongle's ID | answered at any time | ignored | 🟢 |
 | A frame restarting the dongle into its bootloader | obeyed | ignored | 🟢 |
 | Firmware | NuPhy-signed only | any image, see [Firmware updates](../README.md#firmware-updates) | 🔴 |

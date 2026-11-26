@@ -110,12 +110,12 @@ uint8_t unifying_find_place(const struct unifying_pairing *p, const uint8_t addr
 	return UNIFYING_NO_PLACE;
 }
 
-bool unifying_pairing_open(struct unifying_pairing *p, enum pairwin_cause cause, uint64_t now_ms)
+bool unifying_pairing_open(struct unifying_pairing *p, uint64_t now_ms)
 {
 	if (first_place(p, false) == UNIFYING_NO_PLACE) {
 		return false;
 	}
-	pairwin_open(&p->window, cause, unifying_has_device(p), DIAG_PAIR_WINDOW_MS, (uint32_t)now_ms);
+	pairwin_open(&p->window, DIAG_PAIR_WINDOW_MS, (uint32_t)now_ms);
 	return true;
 }
 
@@ -155,9 +155,14 @@ bool unifying_pairing_window_open(const struct unifying_pairing *p, uint64_t now
 	return pairwin_is_open(&p->window, (uint32_t)now_ms);
 }
 
+enum diag_window unifying_pairing_window(const struct unifying_pairing *p, uint64_t now_ms)
+{
+	return pairwin_window(&p->window, (uint32_t)now_ms);
+}
+
 bool unifying_pairing_active(const struct unifying_pairing *p, uint64_t now_ms)
 {
-	return unifying_pairing_window_open(p, now_ms) || attempting(p);
+	return unifying_pairing_window(p, now_ms) != DIAG_WINDOW_CLOSED;
 }
 
 uint8_t unifying_sweep_channel(struct unifying_sweep *s, const struct unifying_pairing *p,
@@ -311,10 +316,16 @@ size_t unifying_pairing_rx(struct unifying_pairing *p, const struct unifying_rec
 		bool repeat = attempting(p) && frame[0] == a->id;
 		uint8_t place = first_place(p, false);
 
-		return !unifying_pairing_window_open(p, now_ms) || repeat ||
-				       place == UNIFYING_NO_PLACE
-			       ? 0
-			       : start(a, r, place, nonce, frame, now_ms, reply, event);
+		size_t len;
+
+		if (!unifying_pairing_window_open(p, now_ms) || repeat || place == UNIFYING_NO_PLACE) {
+			return 0;
+		}
+		len = start(a, r, place, nonce, frame, now_ms, reply, event);
+		if (attempting(p)) {
+			pairwin_hold(&p->window, DEVICE_KIND_KEYBOARD, (uint32_t)now_ms);
+		}
+		return len;
 	}
 	if (step == 2 && a->state == UNIFYING_ANSWERED_1 && frame[0] == a->id) {
 		memcpy(a->device_nonce, &frame[3], UNIFYING_NONCE_LEN);
@@ -343,6 +354,7 @@ bool unifying_pairing_expired(struct unifying_pairing *p, uint64_t now_ms)
 {
 	if (attempting(p) && now_ms - p->attempt.last_ms > UNIFYING_PAIRING_TIMEOUT_MS) {
 		p->attempt = (struct unifying_attempt){0};
+		pairwin_end_attempt(&p->window, DEVICE_KIND_KEYBOARD);
 		return true;
 	}
 	return false;
@@ -742,8 +754,7 @@ void unifying_session_restore(struct unifying_session *s, uint8_t place,
 	}
 }
 
-void unifying_session_forget(struct unifying_session *s, uint8_t place, uint64_t now_ms,
-			     struct unifying_out *out)
+void unifying_session_forget(struct unifying_session *s, uint8_t place, struct unifying_out *out)
 {
 	bool was_active = place == s->active;
 	uint8_t channel = s->channel;
@@ -757,10 +768,11 @@ void unifying_session_forget(struct unifying_session *s, uint8_t place, uint64_t
 	unifying_link_reset(&s->links[place]);
 	if (!unifying_has_device(&s->pairing)) {
 		struct unifying_receiver r = s->receiver;
+		struct pairwin window = s->pairing.window;
 
 		unifying_session_init(s, &r);
-		unifying_session_open_pairing(s, PAIRWIN_REQUEST, now_ms);
-		out->window_opened = true;
+		s->pairing.window = window;
+		out->window_closed = pairwin_end_attempt(&s->pairing.window, DEVICE_KIND_KEYBOARD);
 	} else if (was_active) {
 		activate(s, first_place(&s->pairing, true), out);
 		s->heard = false;
@@ -773,10 +785,9 @@ void unifying_session_forget(struct unifying_session *s, uint8_t place, uint64_t
 	out->pipes = unifying_listen_pipes(&s->pairing);
 }
 
-bool unifying_session_open_pairing(struct unifying_session *s, enum pairwin_cause cause,
-				   uint64_t now_ms)
+bool unifying_session_open_pairing(struct unifying_session *s, uint64_t now_ms)
 {
-	return unifying_pairing_open(&s->pairing, cause, now_ms);
+	return unifying_pairing_open(&s->pairing, now_ms);
 }
 
 static void take_over(struct unifying_session *s, uint8_t place, struct unifying_out *out)
@@ -850,9 +861,6 @@ static bool place_frame(struct unifying_session *s, uint8_t place, const struct 
 		take_over(s, place, out);
 	}
 	mark_heard(s, rssi, now_ms, out);
-	if (!attempting(&s->pairing)) {
-		pairwin_link_up(&s->pairing.window);
-	}
 	if (n == 0 && hidpp_rx_frame(&s->hidpp, l, &s->battery, f, &typed[0])) {
 		n = 1;
 	}
@@ -927,7 +935,6 @@ void unifying_session_tick(struct unifying_session *s, uint64_t now_ms, bool led
 	uint8_t step = (uint8_t)s->pairing.attempt.state;
 	uint8_t pipes = unifying_listen_pipes(&s->pairing);
 	uint8_t next;
-	bool pending;
 
 	*out = (struct unifying_out){0};
 	if (s->heard && !s->silent && unifying_has_device(&s->pairing) &&
@@ -966,8 +973,8 @@ void unifying_session_tick(struct unifying_session *s, uint64_t now_ms, bool led
 			       "expired_step is the state");
 		out->expired_step = step;
 	}
-	pending = step != UNIFYING_IDLE && !out->attempt_expired;
-	out->window_closed = !pending && pairwin_ran_out(&s->pairing.window, (uint32_t)now_ms);
+	out->window_closed =
+		out->attempt_expired || pairwin_ran_out(&s->pairing.window, (uint32_t)now_ms);
 	next = unifying_sweep_channel(&s->sweep, &s->pairing, s->channel, now_ms);
 	if (next != s->channel) {
 		out->set_channel = true;

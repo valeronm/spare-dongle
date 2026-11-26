@@ -9,10 +9,19 @@
 - While a Logi Bolt mouse enters its passkey, `pair` counts the clicks made and the live view
   highlights the next click.
 - In Bluetooth mode `spare-dongle pair` and the live view's `a` list the devices heard in pairing
-  mode and pair only the one picked by its number, and pairing stays open for 60 seconds.
+  mode and pair only the one picked by its number, and pairing stays open for 60 seconds or until
+  that device refuses.
+- Pairing opens only after `spare-dongle pair` or the live view's `a`, not when the dongle is plugged
+  in or a NuPhy or Unifying keyboard is forgotten, and in NuPhy and Unifying mode it closes after 30
+  seconds even on a dongle with nothing paired.
+- In NuPhy and Unifying mode a failed pairing closes pairing, as in Bluetooth mode, instead of
+  leaving it open for the rest of its 30 seconds.
 - `spare-dongle pair --no-passkey` and the live view's choice between a passkey and none are gone:
-  every device paired from the tool is offered a passkey, and a keyboard that cannot take one pairs
-  without it.
+  every device is offered a passkey, and a keyboard that cannot take one pairs without it.
+- In NuPhy and Unifying mode the pairing row of `status` and the live view says "a keyboard is
+  pairing" until a pairing in progress ends.
+- The event for a pairing window that closes with nothing paired reads "pairing closed without a
+  pairing" instead of "pairing closed, nothing paired".
 - The live view ignores pasted text, which it used to take as key presses.
 - A button already held when a Bluetooth mouse connects, such as both buttons closing a Logi Bolt
   passkey, does nothing until it is released.

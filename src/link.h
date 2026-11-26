@@ -91,10 +91,8 @@ struct link {
 void link_init(struct link *l, const uint8_t dongle_id[NUPHY_ID_LEN],
 	       const struct link_record *record, uint32_t now_ms, struct link_out *out);
 void link_record_of(const struct link *l, struct link_record *out);
-/*
- * Drops the paired keyboard and opens pairing until another pairs, keeping the dongle ID, the
- * forced channels and the host state.
- */
+/* Drops the paired keyboard, keeping the dongle ID, the forced channels, the host state and the
+ * pairing window, which closes only when the forget cuts a pairing short. */
 void link_forget(struct link *l, uint32_t now_ms, struct link_out *out);
 /* False for a packet the dongle drops: no report in it reaches the host. */
 bool link_on_message(struct link *l, const struct nuphy_msg *m, uint8_t pipe, uint32_t now_ms,
@@ -119,9 +117,11 @@ void link_radio_resumed(struct link *l, uint32_t now_ms);
 void link_replies_dropped(struct link *l, uint32_t now_ms);
 void link_set_host_leds(struct link *l, uint8_t leds);
 void link_set_host_suspended(struct link *l, bool suspended);
-void link_open_pairing(struct link *l, enum pairwin_cause cause, uint32_t now_ms);
+void link_open_pairing(struct link *l, uint32_t now_ms);
 /* A pair request starts a pairing only while this is true. */
 bool link_pairing_open(const struct link *l, uint32_t now_ms);
+/* DIAG_WINDOW_PAIRING while a keyboard pairs, even past the window's time. */
+enum diag_window link_window(const struct link *l, uint32_t now_ms);
 /* Pairing is open or an attempt is in progress. */
 bool link_pairing(const struct link *l, uint32_t now_ms);
 bool link_connected(const struct link *l);

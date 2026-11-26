@@ -149,9 +149,11 @@ uint8_t unifying_sweep_channel(struct unifying_sweep *s, const struct unifying_p
 			       uint8_t current, uint64_t now_ms);
 
 /* False, with the window left closed, when every place is stored. */
-bool unifying_pairing_open(struct unifying_pairing *p, enum pairwin_cause cause, uint64_t now_ms);
+bool unifying_pairing_open(struct unifying_pairing *p, uint64_t now_ms);
 
 bool unifying_pairing_window_open(const struct unifying_pairing *p, uint64_t now_ms);
+/* DIAG_WINDOW_PAIRING while a keyboard pairs, even past the window's time. */
+enum diag_window unifying_pairing_window(const struct unifying_pairing *p, uint64_t now_ms);
 
 /* The window is open or an attempt is in progress, which may outlast the window. */
 bool unifying_pairing_active(const struct unifying_pairing *p, uint64_t now_ms);
@@ -355,7 +357,6 @@ struct unifying_out {
 	uint8_t pipes;
 	/* Meaningful only for UNIFYING_RX_PAIRED. */
 	uint8_t paired_place;
-	bool window_opened;
 	/* The active keyboard was heard for the first time or took over from another. */
 	bool active_identified;
 };
@@ -364,11 +365,10 @@ void unifying_session_init(struct unifying_session *s, const struct unifying_rec
 /* For each stored record after unifying_session_init, lowest place first. */
 void unifying_session_restore(struct unifying_session *s, uint8_t place,
 			      const uint8_t record[UNIFYING_RECORD_LEN]);
-/* Drops the place's keyboard; out tells the caller to release the keys when it was the active one,
- * to set the channel when it changed, to listen on pipes, and to log the pairing window, which
- * opens when no place is left stored. */
-void unifying_session_forget(struct unifying_session *s, uint8_t place, uint64_t now_ms,
-			     struct unifying_out *out);
+/* Drops the place's keyboard and keeps the pairing window unless it cuts a pairing short; out tells
+ * the caller to release the keys when it was the active one, to set the channel when it changed, to
+ * log a closed window, and to listen on pipes. */
+void unifying_session_forget(struct unifying_session *s, uint8_t place, struct unifying_out *out);
 
 /* False for a frame the session ignores. Frames on a place's pipe come from that place's
  * keyboard. */
@@ -393,8 +393,7 @@ void unifying_session_hidpp_queued(struct unifying_session *s, uint32_t taken_co
 void unifying_session_replies_dropped(struct unifying_session *s);
 
 /* False when every place is stored. */
-bool unifying_session_open_pairing(struct unifying_session *s, enum pairwin_cause cause,
-				   uint64_t now_ms);
+bool unifying_session_open_pairing(struct unifying_session *s, uint64_t now_ms);
 
 /* The receiver was off until now_ms, so silence before it is not the keyboard's. */
 void unifying_session_radio_resumed(struct unifying_session *s, uint64_t now_ms);

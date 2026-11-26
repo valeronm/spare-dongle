@@ -113,14 +113,11 @@ Unifying link key or Bluetooth bond keys.
 ## Pairing
 
 `spare-dongle pair`, or `a` in the live view, opens pairing for 30 seconds, or 60 in Bluetooth
-mode. A dongle with nothing paired keeps pairing open from the moment it is plugged in until a
-device pairs.
+mode. Plugging the dongle in opens nothing. A device that starts pairing keeps it open until it
+pairs or fails, and a failed attempt closes pairing.
 
-In NuPhy and Unifying mode, plugging the dongle in also opens pairing while a keyboard is paired,
-until that keyboard connects or 30 seconds pass; in Unifying mode it stays closed while six
-keyboards are stored. Its connecting closes the window, so to pair then, switch it off first or put
-it in pairing mode.
-A connected NuPhy keyboard keeps `spare-dongle pair` from hearing another one, so switch it off too.
+A connected NuPhy keyboard keeps `spare-dongle pair` from hearing another one, so switch it off
+first.
 In NuPhy mode a new keyboard replaces the one paired before; in Unifying mode it takes a free place.
 
 **NuPhy:** in 2.4G mode, hold Fn+4 for 3 seconds. Keep the keyboard close, since it transmits at
@@ -134,10 +131,9 @@ Keys, first hold an Easy-Switch key until it blinks fast.
 devices it hears in pairing mode, each keeping its number; type the number of yours. If the device
 asks for a passkey, the tool prints six digits to type on the keyboard and press Enter, or for a
 Logi Bolt mouse ten clicks. A keyboard with no passkey step, such as the Air75 V2, and most mice
-pair without one. A failed attempt closes pairing, and running `pair` again gives a new passkey.
+pair without one. Running `pair` again after a failed attempt gives a new passkey.
 Opening pairing keeps the connected devices, and a device that pairs takes the place of the
-connected one of its kind. With nothing stored, the window opened at plug-in pairs the first device
-without a list or a passkey; once a device is stored, plugging the dongle in opens nothing.
+connected one of its kind.
 [docs/tool.md](docs/tool.md#bluetooth-mode) covers the stored devices.
 
 ## LED

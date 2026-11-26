@@ -215,8 +215,7 @@ static void fill_status(struct diag_status *s, uint8_t slot)
 
 	ARG_UNUSED(slot);
 	s->link_state = link.state;
-	s->pairing_window =
-		link_pairing_open(&link, k_uptime_get_32()) ? DIAG_WINDOW_OPEN : DIAG_WINDOW_CLOSED;
+	s->pairing_window = link_window(&link, k_uptime_get_32());
 	s->channel = link.channel;
 	s->last_rssi = keyboard_rssi;
 	if (heard) {
@@ -308,7 +307,7 @@ static void forget_keyboard(const struct diag_request *req)
 	link_forget(&link, k_uptime_get_32(), &out);
 	apply(&out);
 	drop_keys();
-	core_keyboard_forgotten(req, &link.window, 0);
+	core_keyboard_forgotten(req, 0);
 }
 
 static void serve_diag(const struct diag_request *req)
@@ -324,9 +323,9 @@ static void serve_diag(const struct diag_request *req)
 		forget_keyboard(req);
 		break;
 	case DIAG_COMMAND_PAIR:
-		link_open_pairing(&link, PAIRWIN_REQUEST, k_uptime_get_32());
+		link_open_pairing(&link, k_uptime_get_32());
 		printk("pairing open for %u s\n", DIAG_PAIR_WINDOW_MS / 1000);
-		core_log_pairing_opened(&link.window);
+		core_log_pairing_opened();
 		diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
 		break;
 	default:
@@ -375,8 +374,6 @@ FUNC_NORETURN void nuphy_run(int store_err)
 	memcpy(id, &raw, sizeof(id));
 	stored = store_err == 0 && store_load_nuphy(&record, sizeof(record));
 	link_init(&link, id, stored ? &record : NULL, k_uptime_get_32(), &out);
-	link_open_pairing(&link, PAIRWIN_BOOT, k_uptime_get_32());
-	core_log_pairing_opened(&link.window);
 	if (store_err == 0 && store_load_forced(forced) && !link_force_channels(&link, forced)) {
 		printk("stored forced channels refused\n");
 	}

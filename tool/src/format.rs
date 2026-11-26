@@ -206,18 +206,11 @@ pub fn switch_question(to: Protocol) -> String {
 }
 
 pub fn pairing_open(protocol: Protocol) -> String {
-    match protocol {
-        Protocol::Bluetooth => format!(
-            "within {} s, {}",
-            diagwire::PICK_WINDOW_MS / 1000,
-            picking_how()
-        ),
-        Protocol::Nuphy | Protocol::Unifying => format!(
-            "within {} s, {}",
-            diagwire::PAIR_WINDOW_MS / 1000,
-            pairing_how(protocol)
-        ),
-    }
+    let window_ms = match protocol {
+        Protocol::Bluetooth => diagwire::PICK_WINDOW_MS,
+        Protocol::Nuphy | Protocol::Unifying => diagwire::PAIR_WINDOW_MS,
+    };
+    format!("within {} s, {}", window_ms / 1000, pairing_how(protocol))
 }
 
 pub fn pairing_how(protocol: Protocol) -> &'static str {
@@ -226,13 +219,8 @@ pub fn pairing_how(protocol: Protocol) -> &'static str {
         Protocol::Unifying => {
             "switch the keyboard off and on, after holding an Easy-Switch key until it blinks fast if it has them"
         }
-        Protocol::Bluetooth => "put the keyboard or mouse in Bluetooth pairing mode",
+        Protocol::Bluetooth => "put the keyboard or mouse in Bluetooth pairing mode, then pick it",
     }
-}
-
-/// Under Bluetooth, for a window opened from the tool.
-pub fn picking_how() -> &'static str {
-    "put the keyboard or mouse in Bluetooth pairing mode, then pick it"
 }
 
 pub fn sentence(text: &str) -> String {
@@ -513,6 +501,8 @@ pub fn state_name(s: &Status) -> &'static str {
         Link::Bluetooth(BluetoothLink::StartFailed) => "Bluetooth failed to start",
     }
 }
+
+pub const KEYBOARD_PAIRING: &str = "a keyboard is pairing";
 
 /// The slot's state; under NuPhy and Unifying, whose one slot is the link, the link's.
 pub fn slot_state(s: &Status, slot: &Slot) -> &'static str {
@@ -905,22 +895,8 @@ pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String 
             let device = name.map_or(kind.to_string(), |name| format!("{kind} {name}"));
             format!("paired {device}, WPID {}{}", hex(&wpid), saving(store_err))
         }
-        Ok(Detail::PairingOpened {
-            cause,
-            until_paired,
-        }) => {
-            let device = match protocol {
-                Protocol::Bluetooth => "device",
-                Protocol::Nuphy | Protocol::Unifying => "keyboard",
-            };
-            match (cause, until_paired) {
-                (1, true) => format!("pairing opened at boot, until a {device} pairs"),
-                (1, false) => "pairing opened at boot".into(),
-                (_, true) => format!("pairing opened, until a {device} pairs"),
-                _ => "pairing opened".into(),
-            }
-        }
-        Ok(Detail::PairingClosed) => "pairing closed, nothing paired".into(),
+        Ok(Detail::PairingOpened) => "pairing opened".into(),
+        Ok(Detail::PairingClosed) => "pairing closed without a pairing".into(),
         Ok(Detail::PairingTimeout { step }) => match protocol {
             Protocol::Nuphy => {
                 "pairing attempt timed out waiting for the keyboard's confirm".into()
@@ -1457,10 +1433,6 @@ mod tests {
             d(gone),
             "mouse disconnected: it went silent, 3 s after the last input"
         );
-        assert_eq!(
-            d(event(EventType::PairingOpened, 1, 1, 0, 0)),
-            "pairing opened at boot, until a device pairs"
-        );
         let refused = Event {
             slot: Some(1),
             ..event(EventType::BtRefused, 0, 0, 0, 0)
@@ -1732,16 +1704,8 @@ mod tests {
             "pairing opened"
         );
         assert_eq!(
-            d(event(EventType::PairingOpened, 1, 0, 0, 0)),
-            "pairing opened at boot"
-        );
-        assert_eq!(
-            d(event(EventType::PairingOpened, 1, 1, 0, 0)),
-            "pairing opened at boot, until a keyboard pairs"
-        );
-        assert_eq!(
             d(event(EventType::PairingClosed, 0, 0, 0, 0)),
-            "pairing closed, nothing paired"
+            "pairing closed without a pairing"
         );
         assert_eq!(
             d(event(EventType::PairingTimeout, 1, 0, 0, 0)),

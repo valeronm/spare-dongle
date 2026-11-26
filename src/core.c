@@ -244,11 +244,9 @@ void core_log(uint8_t slot, struct diag_detail d)
 	log_event(slot, d);
 }
 
-void core_log_pairing_opened(const struct pairwin *w)
+void core_log_pairing_opened(void)
 {
-	core_log(DEVICE_NO_SLOT, (struct diag_detail){.tag = DIAG_DETAIL_PAIRING_OPENED,
-					      .PAIRING_OPENED = {.cause = w->cause,
-								 .until_paired = w->until_paired}});
+	core_log(DEVICE_NO_SLOT, (struct diag_detail){.tag = DIAG_DETAIL_PAIRING_OPENED});
 }
 
 bool core_forget_matches(const struct diag_request *req, const struct diag_device *listed,
@@ -276,13 +274,9 @@ void core_log_address(uint8_t slot, struct diag_detail d, const uint8_t addr[DIA
 
 BUILD_ASSERT(DIAG_REQUEST_DATA_LEN == DIAG_ADDR_LEN);
 
-void core_keyboard_forgotten(const struct diag_request *req, const struct pairwin *w,
-			     enum diag_error error)
+void core_keyboard_forgotten(const struct diag_request *req, enum diag_error error)
 {
 	core_log_address(0, (struct diag_detail){.tag = DIAG_DETAIL_KEYBOARD_FORGOTTEN}, req->data);
-	if (w != NULL) {
-		core_log_pairing_opened(w);
-	}
 	if (error != 0) {
 		diag_reply_error(req, error, 0);
 		return;

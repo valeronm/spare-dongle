@@ -59,7 +59,7 @@ bool btpolicy_interesting(const struct btpolicy_advert *a)
 }
 
 enum btpolicy_want btpolicy_wants(struct btpolicy *p, const struct btpolicy_advert *a,
-				  bool window_open, uint8_t stored_count, uint32_t now_ms)
+				  bool window_open, uint32_t now_ms)
 {
 	const struct btpolicy_slot *s;
 
@@ -77,7 +77,7 @@ enum btpolicy_want btpolicy_wants(struct btpolicy *p, const struct btpolicy_adve
 		return s->state == BTPOLICY_IDLE && !window_open && waited ? BTPOLICY_CONNECT
 									    : BTPOLICY_IGNORE;
 	}
-	if (!window_open || a->directed || stored_count >= BTPOLICY_STORED_MAX) {
+	if (!window_open || a->directed) {
 		return BTPOLICY_IGNORE;
 	}
 	return s->state == BTPOLICY_IDLE ? BTPOLICY_CONNECT : BTPOLICY_REPLACE;

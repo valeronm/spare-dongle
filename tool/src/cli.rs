@@ -183,6 +183,7 @@ pub fn open_nuphy(
 fn window_state(window: &PairingWindow) -> String {
     match window {
         PairingWindow::Closed => "closed".into(),
+        PairingWindow::Pairing => format::KEYBOARD_PAIRING.into(),
         PairingWindow::Open => "open".into(),
         PairingWindow::Picking => "open, waiting for a device to be picked".into(),
         PairingWindow::Picked { name } => {
@@ -1341,6 +1342,16 @@ mod tests {
         assert_eq!(
             err,
             "only NuPhy mode has forced channels; the dongle runs Unifying (spare-dongle protocol nuphy switches it)"
+        );
+    }
+
+    #[test]
+    fn prints_a_keyboard_pairing_on_the_pairing_row() {
+        let mut s = status_of(Protocol::Nuphy);
+        s.pairing_window = PairingWindow::Pairing;
+        assert_eq!(
+            lines(&s)[3],
+            "pairing   a keyboard is pairing, offers channels 62 52 44, set by hand"
         );
     }
 

@@ -383,10 +383,7 @@ fn every_detail() -> Vec<Detail> {
             kind: 1,
             store_err: 0,
         },
-        Detail::PairingOpened {
-            cause: 1,
-            until_paired: true,
-        },
+        Detail::PairingOpened,
         Detail::PairingClosed,
         Detail::PairingTimeout { step: 1 },
         Detail::Reconnect { release_all: true },

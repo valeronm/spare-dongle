@@ -36,7 +36,7 @@ static void start(void)
 
 static enum btpolicy_want wants(const struct btpolicy_advert *a, uint32_t now_ms)
 {
-	return btpair_wants(&pair, &policy, a, 0, now_ms);
+	return btpair_wants(&pair, &policy, a, now_ms);
 }
 
 static struct diag_status status(uint32_t now_ms)
@@ -55,6 +55,13 @@ static bool named(const uint8_t name[DIAG_NAME_MAX], const char *want)
 	return memcmp(name, padded, sizeof(padded)) == 0;
 }
 
+static void pick(const struct btpolicy_advert *a, uint32_t now_ms)
+{
+	btpair_open_to_pick(&pair, now_ms);
+	wants(a, now_ms);
+	btpair_pick(&pair, a->addr, now_ms);
+}
+
 static void a_closed_window_takes_no_new_device(void)
 {
 	struct btpolicy_advert keyboard = new_keyboard(1);
@@ -63,17 +70,6 @@ static void a_closed_window_takes_no_new_device(void)
 	CHECK_EQ(status(0).pairing_window, DIAG_WINDOW_CLOSED);
 	CHECK_EQ(wants(&keyboard, 0), BTPOLICY_IGNORE);
 	CHECK(!btpair_is_open(&pair, 0));
-}
-
-static void the_window_opened_at_plug_in_takes_the_first_new_device(void)
-{
-	struct btpolicy_advert keyboard = new_keyboard(1);
-
-	start();
-	btpair_open_at_boot(&pair, 0);
-	CHECK_EQ(status(0).pairing_window, DIAG_WINDOW_OPEN);
-	CHECK_EQ(wants(&keyboard, 0), BTPOLICY_CONNECT);
-	CHECK(btpair_is_open(&pair, 10 * DIAG_PAIR_WINDOW_MS));
 }
 
 static void a_window_opened_to_pick_lists_the_new_devices_it_hears(void)
@@ -131,9 +127,6 @@ static void only_a_device_heard_while_picking_can_be_picked(void)
 
 	start();
 	CHECK(!btpair_pick(&pair, keyboard.addr, 0));
-	btpair_open_at_boot(&pair, 0);
-	wants(&keyboard, 0);
-	CHECK(!btpair_pick(&pair, keyboard.addr, 0));
 	btpair_open_to_pick(&pair, 0);
 	wants(&keyboard, 0);
 	CHECK(!btpair_pick(&pair, mouse.addr, 0));
@@ -148,9 +141,7 @@ static void a_window_that_runs_out_reads_closed_and_forgets_the_pick(void)
 	struct diag_heard heard[BTSEEN_MAX];
 
 	start();
-	btpair_open_to_pick(&pair, 0);
-	wants(&keyboard, 0);
-	btpair_pick(&pair, keyboard.addr, 0);
+	pick(&keyboard, 0);
 	CHECK(!pairwin_ran_out(&pair.window, DIAG_PICK_WINDOW_MS - 1));
 	CHECK_EQ(status(DIAG_PICK_WINDOW_MS).pairing_window, DIAG_WINDOW_CLOSED);
 	CHECK_EQ(wants(&keyboard, DIAG_PICK_WINDOW_MS), BTPOLICY_IGNORE);
@@ -167,9 +158,7 @@ static void a_clicked_passkey_holds_the_window_and_counts_the_clicks(void)
 	struct diag_status st;
 
 	start();
-	btpair_open_to_pick(&pair, 0);
-	wants(&mouse, 0);
-	btpair_pick(&pair, mouse.addr, 0);
+	pick(&mouse, 0);
 	CHECK(btpair_passkey_awaited(&pair, DEVICE_KIND_MOUSE, 623, true, "MX Master 3S", 100));
 	CHECK(btpair_keypress(&pair, DEVICE_KIND_MOUSE, BTPOLICY_KEY_ENTERED));
 	CHECK(!btpair_keypress(&pair, DEVICE_KIND_KEYBOARD, BTPOLICY_KEY_ENTERED));
@@ -178,8 +167,8 @@ static void a_clicked_passkey_holds_the_window_and_counts_the_clicks(void)
 	CHECK_EQ(st.passkey, 623);
 	CHECK_EQ(st.passkey_entered, 1);
 	CHECK(named(st.pairing_name, "MX Master 3S"));
-	CHECK(!pairwin_end_attempt(&pair.window, DEVICE_KIND_KEYBOARD));
-	CHECK(pairwin_end_attempt(&pair.window, DEVICE_KIND_MOUSE));
+	CHECK(!btpair_attempt_failed(&pair, DEVICE_KIND_KEYBOARD, false, 10 * DIAG_PICK_WINDOW_MS));
+	CHECK(btpair_attempt_failed(&pair, DEVICE_KIND_MOUSE, false, 10 * DIAG_PICK_WINDOW_MS));
 	CHECK_EQ(status(10 * DIAG_PICK_WINDOW_MS).pairing_window, DIAG_WINDOW_CLOSED);
 }
 
@@ -189,19 +178,18 @@ static void the_pick_holds_while_the_picked_device_waits_for_its_passkey(void)
 	struct btpolicy_advert mouse = new_mouse(2);
 
 	start();
-	btpair_open_to_pick(&pair, 0);
-	wants(&keyboard, 0);
-	btpair_pick(&pair, keyboard.addr, 0);
+	pick(&keyboard, 0);
 	btpair_passkey_awaited(&pair, DEVICE_KIND_KEYBOARD, 123456, false, "MX Keys", 0);
 	CHECK_EQ(wants(&mouse, 0), BTPOLICY_IGNORE);
 }
 
 static void a_typed_passkey_counts_no_keypresses(void)
 {
+	struct btpolicy_advert keyboard = new_keyboard(1);
 	struct diag_status st;
 
 	start();
-	btpair_open_at_boot(&pair, 0);
+	pick(&keyboard, 0);
 	CHECK(btpair_passkey_awaited(&pair, DEVICE_KIND_KEYBOARD, 123456, false, "MX Keys", 0));
 	CHECK(!btpair_keypress(&pair, DEVICE_KIND_KEYBOARD, BTPOLICY_KEY_ENTERED));
 	st = status(0);
@@ -219,8 +207,10 @@ static void a_passkey_in_a_closed_window_is_not_held(void)
 
 static uint8_t entered_after(const enum btpolicy_keypress *presses, size_t n)
 {
+	struct btpolicy_advert mouse = new_mouse(1);
+
 	start();
-	btpair_open_at_boot(&pair, 0);
+	pick(&mouse, 0);
 	btpair_passkey_awaited(&pair, DEVICE_KIND_MOUSE, 623, true, "", 0);
 	for (size_t i = 0; i < n; i++) {
 		btpair_keypress(&pair, DEVICE_KIND_MOUSE, presses[i]);
@@ -261,9 +251,7 @@ static void a_kept_pairing_closes_the_window(void)
 	struct btpolicy_advert keyboard = new_keyboard(1);
 
 	start();
-	btpair_open_to_pick(&pair, 0);
-	wants(&keyboard, 0);
-	btpair_pick(&pair, keyboard.addr, 0);
+	pick(&keyboard, 0);
 	btpolicy_connecting(&policy, &keyboard);
 	btpair_paired(&pair, &policy, DEVICE_KIND_KEYBOARD);
 	CHECK_EQ(status(0).pairing_window, DIAG_WINDOW_CLOSED);
@@ -271,24 +259,20 @@ static void a_kept_pairing_closes_the_window(void)
 		 BTPOLICY_BOND_LOST);
 }
 
-static void a_refused_device_is_ignored_until_the_window_opens_again(void)
+static void a_refusal_closes_the_window(void)
 {
 	struct btpolicy_advert keyboard = new_keyboard(1);
-	struct btpolicy_advert another = new_keyboard(2);
 
 	start();
-	btpair_open_at_boot(&pair, 0);
+	pick(&keyboard, 0);
 	btpolicy_connecting(&policy, &keyboard);
-	CHECK_EQ(btpair_security_failed(&pair, &policy, DEVICE_KIND_KEYBOARD,
-					BTPOLICY_FAILURE_REFUSAL),
-		 BTPOLICY_PAIRING_REFUSED);
-	CHECK_EQ(btpair_security_failed(&pair, &policy, DEVICE_KIND_KEYBOARD,
-					BTPOLICY_FAILURE_REFUSAL),
-		 BTPOLICY_REFUSED_BEFORE);
+	btpolicy_security_failed(&policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_REFUSAL);
+	CHECK(btpair_attempt_failed(&pair, DEVICE_KIND_KEYBOARD, true, 0));
+	CHECK_EQ(status(0).pairing_window, DIAG_WINDOW_CLOSED);
+	CHECK(!btpair_attempt_failed(&pair, DEVICE_KIND_KEYBOARD, true, 0));
 	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 100, false);
 	CHECK_EQ(wants(&keyboard, 100), BTPOLICY_IGNORE);
-	CHECK_EQ(wants(&another, 100), BTPOLICY_CONNECT);
-	btpair_open_at_boot(&pair, 200);
+	pick(&keyboard, 200);
 	CHECK_EQ(wants(&keyboard, 200), BTPOLICY_CONNECT);
 }
 
@@ -297,33 +281,17 @@ static void a_pairing_cut_short_by_a_lost_link_is_not_a_refusal(void)
 	struct btpolicy_advert keyboard = new_keyboard(1);
 
 	start();
-	btpair_open_at_boot(&pair, 0);
+	pick(&keyboard, 0);
 	btpolicy_connecting(&policy, &keyboard);
-	CHECK_EQ(btpair_security_failed(&pair, &policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_LINK),
-		 BTPOLICY_SECURITY_FAILED);
+	btpolicy_security_failed(&policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_LINK);
+	CHECK(!btpair_attempt_failed(&pair, DEVICE_KIND_KEYBOARD, false, 100));
 	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 100, false);
 	CHECK_EQ(wants(&keyboard, 100), BTPOLICY_CONNECT);
-}
-
-static void more_refusals_than_fit_are_still_reported_once_each(void)
-{
-	start();
-	btpair_open_at_boot(&pair, 0);
-	for (uint8_t i = 0; i < BTPOLICY_STORED_MAX + 2; i++) {
-		struct btpolicy_advert a = new_keyboard(i);
-
-		btpolicy_connecting(&policy, &a);
-		CHECK_EQ(btpair_security_failed(&pair, &policy, DEVICE_KIND_KEYBOARD,
-						BTPOLICY_FAILURE_REFUSAL),
-			 BTPOLICY_PAIRING_REFUSED);
-		btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 0, false);
-	}
 }
 
 int main(void)
 {
 	RUN(a_closed_window_takes_no_new_device);
-	RUN(the_window_opened_at_plug_in_takes_the_first_new_device);
 	RUN(a_window_opened_to_pick_lists_the_new_devices_it_hears);
 	RUN(a_stored_or_unconnectable_device_is_not_listed);
 	RUN(a_pick_names_the_device_and_wants_only_it);
@@ -336,8 +304,7 @@ int main(void)
 	RUN(the_entered_count_follows_the_keypresses);
 	RUN(the_entered_count_stays_within_the_passkey);
 	RUN(a_kept_pairing_closes_the_window);
-	RUN(a_refused_device_is_ignored_until_the_window_opens_again);
+	RUN(a_refusal_closes_the_window);
 	RUN(a_pairing_cut_short_by_a_lost_link_is_not_a_refusal);
-	RUN(more_refusals_than_fit_are_still_reported_once_each);
 	return TEST_EXIT();
 }
