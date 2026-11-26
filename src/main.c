@@ -26,6 +26,7 @@ int main(void)
 	uint32_t reset_cause = 0;
 	uint8_t stored = 0;
 	bool loaded = false;
+	bool save;
 	enum protocol active;
 	struct bootinfo boot;
 	int store_err;
@@ -40,7 +41,14 @@ int main(void)
 	} else {
 		loaded = store_load_protocol(&stored);
 	}
-	active = protocol_from_stored(loaded, stored);
+	active = protocol_from_stored(loaded, stored, &save);
+	if (!store_err && save) {
+		int save_err = store_save_protocol(active);
+
+		if (save_err) {
+			printk("protocol save failed: %d\n", save_err);
+		}
+	}
 	core_start(active, &boot);
 	if (active == PROTOCOL_BLUETOOTH) {
 		bluetooth_run(store_err);

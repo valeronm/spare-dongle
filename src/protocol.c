@@ -1,7 +1,8 @@
 #include "protocol.h"
 
-enum protocol protocol_from_stored(bool loaded, uint8_t value)
+enum protocol protocol_from_stored(bool loaded, uint8_t value, bool *save)
 {
+	*save = !loaded;
 	return loaded && diag_protocol_known(value) ? (enum protocol)value : PROTOCOL_NUPHY;
 }
 
