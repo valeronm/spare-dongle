@@ -87,15 +87,15 @@ static void a_ready_keyboard_is_kept_from_stored_ones_and_replaced_by_a_new_one(
 	struct btpolicy_advert fresh = new_advert(3);
 
 	btpolicy_init(&policy);
-	CHECK_EQ(btpolicy_scan(&policy, 0), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_PASSIVE);
 	CHECK(btpolicy_peer(&policy, DEVICE_KIND_KEYBOARD) == NULL);
 	btpolicy_connecting(&policy, &first);
 	CHECK_MEM(btpolicy_peer(&policy, DEVICE_KIND_KEYBOARD), first.addr, BTPOLICY_ADDR_LEN);
-	CHECK_EQ(btpolicy_scan(&policy, 0), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_OFF);
 	CHECK_EQ(btpolicy_wants(&policy, &second, false, 2, 0), BTPOLICY_IGNORE);
 	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 2, 0), BTPOLICY_IGNORE);
 	btpolicy_connected(&policy, DEVICE_KIND_KEYBOARD);
-	CHECK_EQ(btpolicy_scan(&policy, 0), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_OFF);
 	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 2, 0), BTPOLICY_IGNORE);
 	btpolicy_ready(&policy, DEVICE_KIND_KEYBOARD);
 	CHECK(btpolicy_is_ready(&policy, DEVICE_KIND_KEYBOARD));
@@ -103,7 +103,7 @@ static void a_ready_keyboard_is_kept_from_stored_ones_and_replaced_by_a_new_one(
 	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 2, 0), BTPOLICY_REPLACE);
 	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 500, false);
 	CHECK(!btpolicy_is_ready(&policy, DEVICE_KIND_KEYBOARD));
-	CHECK_EQ(btpolicy_scan(&policy, 0), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_PASSIVE);
 	CHECK_EQ(btpolicy_wants(&policy, &second, false, 2, 500), BTPOLICY_CONNECT);
 }
 
@@ -201,7 +201,7 @@ static void a_keyboard_paired_in_this_connection_waits_after_a_failure(void)
 
 	btpolicy_init(&policy);
 	btpolicy_connecting(&policy, &fresh);
-	CHECK_EQ(btpolicy_paired(&policy, DEVICE_KIND_KEYBOARD, false), BTPOLICY_PAIRING_KEPT);
+	btpolicy_paired(&policy, DEVICE_KIND_KEYBOARD);
 	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 10000, false);
 	CHECK_EQ(btpolicy_wants(&policy, &known, false, 1, 10000), BTPOLICY_IGNORE);
 	CHECK_EQ(btpolicy_wants(&policy, &known, false, 1, 10000 + BTPOLICY_RETRY_MS), BTPOLICY_CONNECT);
@@ -219,81 +219,6 @@ static void the_wait_holds_across_the_clock_wrap(void)
 	CHECK_EQ(btpolicy_wants(&policy, &known, false, 1, before_wrap + BTPOLICY_RETRY_MS), BTPOLICY_CONNECT);
 }
 
-static void a_refused_keyboard_is_ignored_until_the_window_closes(void)
-{
-	struct btpolicy_advert fresh = new_advert(1);
-	struct btpolicy_advert another = new_advert(2);
-
-	btpolicy_init(&policy);
-	btpolicy_window(&policy, true, false);
-	btpolicy_connecting(&policy, &fresh);
-	CHECK_EQ(btpolicy_security_failed(&policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_REFUSAL), BTPOLICY_PAIRING_REFUSED);
-	CHECK_EQ(btpolicy_security_failed(&policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_REFUSAL), BTPOLICY_REFUSED_BEFORE);
-	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 100, false);
-	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0, 100), BTPOLICY_IGNORE);
-	CHECK_EQ(btpolicy_wants(&policy, &another, true, 0, 100), BTPOLICY_CONNECT);
-	btpolicy_window(&policy, true, false);
-	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0, 100), BTPOLICY_IGNORE);
-	btpolicy_window(&policy, false, false);
-	btpolicy_window(&policy, true, false);
-	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0, 100), BTPOLICY_CONNECT);
-}
-
-static void more_refusals_than_fit_are_still_counted_once_each(void)
-{
-	btpolicy_init(&policy);
-	for (uint8_t i = 0; i < BTPOLICY_STORED_MAX + 2; i++) {
-		struct btpolicy_advert a = new_advert(i);
-
-		btpolicy_connecting(&policy, &a);
-		CHECK_EQ(btpolicy_security_failed(&policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_REFUSAL), BTPOLICY_PAIRING_REFUSED);
-		btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 0, false);
-	}
-	CHECK_EQ(policy.refused_count, BTPOLICY_STORED_MAX);
-}
-
-static void a_pairing_cut_short_by_a_lost_link_is_not_a_refusal(void)
-{
-	struct btpolicy_advert fresh = new_advert(1);
-
-	btpolicy_init(&policy);
-	btpolicy_window(&policy, true, false);
-	btpolicy_connecting(&policy, &fresh);
-	CHECK_EQ(btpolicy_security_failed(&policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_LINK), BTPOLICY_SECURITY_FAILED);
-	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 100, false);
-	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0, 100), BTPOLICY_CONNECT);
-}
-
-static void a_pairing_without_the_demanded_passkey_is_forgotten(void)
-{
-	struct btpolicy_advert fresh = new_advert(1);
-
-	btpolicy_init(&policy);
-	btpolicy_window(&policy, true, true);
-	btpolicy_connecting(&policy, &fresh);
-	CHECK_EQ(btpolicy_paired(&policy, DEVICE_KIND_KEYBOARD, false), BTPOLICY_PAIRING_FORGOTTEN);
-	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 100, false);
-	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0, 100), BTPOLICY_IGNORE);
-	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0, 100 + BTPOLICY_RETRY_MS), BTPOLICY_IGNORE);
-	btpolicy_window(&policy, false, false);
-	btpolicy_window(&policy, true, true);
-	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0, 5000), BTPOLICY_CONNECT);
-}
-
-static void a_pairing_with_the_demanded_passkey_is_kept(void)
-{
-	struct btpolicy_advert fresh = new_advert(1);
-	struct btpolicy_advert known = stored_advert(1);
-
-	btpolicy_init(&policy);
-	btpolicy_window(&policy, true, true);
-	btpolicy_connecting(&policy, &fresh);
-	CHECK_EQ(btpolicy_paired(&policy, DEVICE_KIND_KEYBOARD, true), BTPOLICY_PAIRING_KEPT);
-	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 10000, false);
-	btpolicy_window(&policy, false, false);
-	CHECK_EQ(btpolicy_wants(&policy, &known, false, 1, 10000), BTPOLICY_IGNORE);
-}
-
 static void a_stored_keyboard_without_its_key_lost_its_bond(void)
 {
 	struct btpolicy_advert known = stored_advert(1);
@@ -305,7 +230,7 @@ static void a_stored_keyboard_without_its_key_lost_its_bond(void)
 	CHECK_EQ(btpolicy_security_failed(&policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_REFUSAL), BTPOLICY_SECURITY_FAILED);
 	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 0, false);
 	btpolicy_connecting(&policy, &fresh);
-	CHECK_EQ(btpolicy_paired(&policy, DEVICE_KIND_KEYBOARD, false), BTPOLICY_PAIRING_KEPT);
+	btpolicy_paired(&policy, DEVICE_KIND_KEYBOARD);
 	CHECK_EQ(btpolicy_security_failed(&policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_REFUSAL), BTPOLICY_SECURITY_FAILED);
 }
 
@@ -360,25 +285,6 @@ static void a_click_passkey_keeps_the_low_ten_bits(void)
 	CHECK_EQ(btpolicy_click_passkey(1023), 1023);
 }
 
-static void the_entered_count_follows_the_keypresses(void)
-{
-	uint8_t n = btpolicy_entered(7, BTPOLICY_ENTRY_STARTED, 10);
-
-	CHECK_EQ(n, 0);
-	n = btpolicy_entered(n, BTPOLICY_KEY_ENTERED, 10);
-	n = btpolicy_entered(n, BTPOLICY_KEY_ENTERED, 10);
-	CHECK_EQ(n, 2);
-	CHECK_EQ(btpolicy_entered(n, BTPOLICY_KEY_ERASED, 10), 1);
-	CHECK_EQ(btpolicy_entered(n, BTPOLICY_ENTRY_CLEARED, 10), 0);
-	CHECK_EQ(btpolicy_entered(n, BTPOLICY_ENTRY_COMPLETED, 10), 10);
-}
-
-static void the_entered_count_stays_within_the_passkey(void)
-{
-	CHECK_EQ(btpolicy_entered(6, BTPOLICY_KEY_ENTERED, 6), 6);
-	CHECK_EQ(btpolicy_entered(0, BTPOLICY_KEY_ERASED, 6), 0);
-}
-
 static void a_new_device_of_no_kind_is_refused(void)
 {
 	struct btpolicy_advert a = new_advert(1);
@@ -399,7 +305,7 @@ static void a_mouse_connects_beside_a_ready_keyboard(void)
 
 	btpolicy_init(&policy);
 	ready(&keyboard);
-	CHECK_EQ(btpolicy_scan(&policy, 0), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_PASSIVE);
 	CHECK_EQ(btpolicy_wants(&policy, &mouse, true, 1, 0), BTPOLICY_CONNECT);
 	btpolicy_connecting(&policy, &mouse);
 	CHECK_MEM(btpolicy_peer(&policy, DEVICE_KIND_MOUSE), mouse.addr, BTPOLICY_ADDR_LEN);
@@ -415,7 +321,7 @@ static void one_device_is_set_up_at_a_time(void)
 
 	btpolicy_init(&policy);
 	btpolicy_connecting(&policy, &keyboard);
-	CHECK_EQ(btpolicy_scan(&policy, 0), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_OFF);
 	CHECK_EQ(btpolicy_wants(&policy, &mouse, true, 1, 0), BTPOLICY_IGNORE);
 	btpolicy_connected(&policy, DEVICE_KIND_KEYBOARD);
 	CHECK_EQ(btpolicy_wants(&policy, &mouse, true, 1, 0), BTPOLICY_IGNORE);
@@ -551,11 +457,11 @@ static void a_hush_scans_fast_no_longer_than_the_cap(void)
 	ready(&keyboard);
 	drop_hushed(DEVICE_KIND_KEYBOARD, dropped);
 	while (t - dropped < BTPOLICY_FAST_SCAN_MS) {
-		CHECK_EQ(btpolicy_scan(&policy, t), BTPOLICY_SCAN_PASSIVE_FAST);
+		CHECK_EQ(btpolicy_scan(&policy, false, t), BTPOLICY_SCAN_PASSIVE_FAST);
 		t += BTPOLICY_QUIET_MS - 1;
 		CHECK(hushed(&keyboard, t));
 	}
-	CHECK_EQ(btpolicy_scan(&policy, t), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(btpolicy_scan(&policy, false, t), BTPOLICY_SCAN_PASSIVE);
 	CHECK(hushed(&keyboard, t + 10));
 }
 
@@ -566,10 +472,10 @@ static void a_hush_scans_fast_until_the_device_goes_quiet(void)
 	btpolicy_init(&policy);
 	ready(&keyboard);
 	drop_hushed(DEVICE_KIND_KEYBOARD, 0);
-	CHECK_EQ(btpolicy_scan(&policy, 10), BTPOLICY_SCAN_PASSIVE_FAST);
+	CHECK_EQ(btpolicy_scan(&policy, false, 10), BTPOLICY_SCAN_PASSIVE_FAST);
 	CHECK(hushed(&keyboard, BTPOLICY_QUIET_MS - 1));
-	CHECK_EQ(btpolicy_scan(&policy, BTPOLICY_QUIET_MS + 10), BTPOLICY_SCAN_PASSIVE_FAST);
-	CHECK_EQ(btpolicy_scan(&policy, 2 * BTPOLICY_QUIET_MS - 1), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(btpolicy_scan(&policy, false, BTPOLICY_QUIET_MS + 10), BTPOLICY_SCAN_PASSIVE_FAST);
+	CHECK_EQ(btpolicy_scan(&policy, false, 2 * BTPOLICY_QUIET_MS - 1), BTPOLICY_SCAN_PASSIVE);
 }
 
 static void both_slots_ready_scan_only_while_the_window_is_open(void)
@@ -582,19 +488,8 @@ static void both_slots_ready_scan_only_while_the_window_is_open(void)
 	btpolicy_connecting(&policy, &mouse);
 	btpolicy_connected(&policy, DEVICE_KIND_MOUSE);
 	btpolicy_ready(&policy, DEVICE_KIND_MOUSE);
-	CHECK_EQ(btpolicy_scan(&policy, 0), BTPOLICY_SCAN_OFF);
-	btpolicy_window(&policy, true, false);
-	CHECK_EQ(btpolicy_scan(&policy, 0), BTPOLICY_SCAN_ACTIVE);
-}
-
-static void a_mouse_is_kept_in_a_window_that_demands_a_passkey(void)
-{
-	struct btpolicy_advert mouse = new_mouse(1);
-
-	btpolicy_init(&policy);
-	btpolicy_window(&policy, true, true);
-	btpolicy_connecting(&policy, &mouse);
-	CHECK_EQ(btpolicy_paired(&policy, DEVICE_KIND_MOUSE, false), BTPOLICY_PAIRING_KEPT);
+	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(btpolicy_scan(&policy, true, 0), BTPOLICY_SCAN_ACTIVE);
 }
 
 static void a_failed_keyboard_leaves_the_mouse_slot_free_to_connect(void)
@@ -615,13 +510,11 @@ static void a_pairing_window_scans_actively_for_scan_responses(void)
 	struct btpolicy_advert keyboard = stored_advert(1);
 
 	btpolicy_init(&policy);
-	btpolicy_window(&policy, true, false);
-	CHECK_EQ(btpolicy_scan(&policy, 0), BTPOLICY_SCAN_ACTIVE);
+	CHECK_EQ(btpolicy_scan(&policy, true, 0), BTPOLICY_SCAN_ACTIVE);
 	btpolicy_connecting(&policy, &keyboard);
-	CHECK_EQ(btpolicy_scan(&policy, 0), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(btpolicy_scan(&policy, true, 0), BTPOLICY_SCAN_OFF);
 	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 0, false);
-	btpolicy_window(&policy, false, false);
-	CHECK_EQ(btpolicy_scan(&policy, 0), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_PASSIVE);
 }
 
 int main(void)
@@ -640,18 +533,11 @@ int main(void)
 	RUN(a_failed_new_keyboard_sets_no_wait);
 	RUN(a_keyboard_paired_in_this_connection_waits_after_a_failure);
 	RUN(the_wait_holds_across_the_clock_wrap);
-	RUN(a_refused_keyboard_is_ignored_until_the_window_closes);
-	RUN(more_refusals_than_fit_are_still_counted_once_each);
-	RUN(a_pairing_cut_short_by_a_lost_link_is_not_a_refusal);
-	RUN(a_pairing_without_the_demanded_passkey_is_forgotten);
-	RUN(a_pairing_with_the_demanded_passkey_is_kept);
 	RUN(a_stored_keyboard_without_its_key_lost_its_bond);
 	RUN(only_connectable_stored_or_hid_adverts_are_of_interest);
 	RUN(the_appearance_gives_the_kind);
 	RUN(only_a_bolt_mouse_pairs_by_clicks);
 	RUN(a_click_passkey_keeps_the_low_ten_bits);
-	RUN(the_entered_count_follows_the_keypresses);
-	RUN(the_entered_count_stays_within_the_passkey);
 	RUN(a_new_device_of_no_kind_is_refused);
 	RUN(a_mouse_connects_beside_a_ready_keyboard);
 	RUN(one_device_is_set_up_at_a_time);
@@ -667,7 +553,6 @@ int main(void)
 	RUN(a_hush_scans_fast_until_the_device_goes_quiet);
 	RUN(a_hush_scans_fast_no_longer_than_the_cap);
 	RUN(both_slots_ready_scan_only_while_the_window_is_open);
-	RUN(a_mouse_is_kept_in_a_window_that_demands_a_passkey);
 	RUN(a_failed_keyboard_leaves_the_mouse_slot_free_to_connect);
 	RUN(a_pairing_window_scans_actively_for_scan_responses);
 	return TEST_EXIT();

@@ -84,7 +84,7 @@ are on Unifying.
 
 | | Bolt receiver | SpareDongle |  |
 |---|---|---|---|
-| Passkey at pairing | always[^white-paper] | when pairing is opened with one | 🔴 |
+| Passkey at pairing | always[^white-paper] | when paired from the tool, not in the window opened at plug-in | 🔴 |
 | Firmware | Logitech's, with rollback protection[^white-paper] | any image, see [Firmware updates](../README.md#firmware-updates) | 🔴 |
 
 ## On air

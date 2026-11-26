@@ -2,13 +2,13 @@ use anyhow::Result;
 pub use diagwire::{
     BUCKETS as NOISE_BUCKETS, BUSY_DBM, BtLink as BluetoothLink, CHUNK, Command, Detail,
     DeviceKind, Divert, EVENT_ADDR_LEN, ErrorCode, Forgotten, LinkState as NuphyState, Moved,
-    NoiseChannel, NoiseRecord as Noise, Part, Protocol, REPORT_LEN, Reader, Refused, Rssi,
-    STRONG_DBM, Up, Wheel, bucket_floor, channels_arg, parse_part, request,
+    NoiseChannel, NoiseRecord as Noise, Part, Protocol, REPORT_LEN, Reader, Rssi, STRONG_DBM, Up,
+    Wheel, bucket_floor, channels_arg, parse_part, request,
 };
 use diagwire::{
-    Charging, NAME_MAX, NO_BATTERY, NO_RSSI, NO_SLOT, NUPHY_FIXED_CHANNELS, PAIRING_BOLT,
-    PAIRING_KNOWN, PAIRING_PASSKEY, PAIRING_SECURE, SLOTS, UNIFYING_CHANNELS, VERSION,
-    WatchChannel, Window,
+    Charging, HEARD_BOLT, NAME_MAX, NO_BATTERY, NO_RSSI, NO_SLOT, NUPHY_FIXED_CHANNELS,
+    PAIRING_BOLT, PAIRING_KNOWN, PAIRING_PASSKEY, PAIRING_SECURE, SLOTS, UNIFYING_CHANNELS,
+    VERSION, WatchChannel, Window,
 };
 
 /// A status reply in a diagnostic protocol other than [`VERSION`].
@@ -380,6 +380,12 @@ pub struct Status {
 pub enum PairingWindow {
     Closed,
     Open,
+    /// Opened from the tool and waiting for the user to pick a device it heard.
+    Picking,
+    /// Waiting for the picked device to pair or ask for a passkey.
+    Picked {
+        name: Option<String>,
+    },
     PasskeyAwaited(AwaitedPasskey),
 }
 
@@ -404,7 +410,7 @@ impl AwaitedPasskey {
 
 impl PairingWindow {
     fn from_wire(window: u8, passkey: u32, name: Option<String>, entered: u8) -> Result<Self> {
-        let awaited = |clicked| {
+        let awaited = |clicked, name| {
             Self::PasskeyAwaited(AwaitedPasskey {
                 passkey,
                 name,
@@ -419,8 +425,10 @@ impl PairingWindow {
         match Window::from_code(window) {
             Some(Window::Closed) => Ok(Self::Closed),
             Some(Window::Open) => Ok(Self::Open),
-            Some(Window::PasskeyAwaited) => Ok(awaited(false)),
-            Some(Window::PasskeyClicked) => Ok(awaited(true)),
+            Some(Window::PasskeyAwaited) => Ok(awaited(false, name)),
+            Some(Window::PasskeyClicked) => Ok(awaited(true, name)),
+            Some(Window::Picking) => Ok(Self::Picking),
+            Some(Window::Picked) => Ok(Self::Picked { name }),
             None => Err(unknown("pairing window")),
         }
     }
@@ -539,7 +547,7 @@ pub fn read_status(payload: &[u8]) -> Result<Result<Status, VersionMismatch>> {
         pairing_window: PairingWindow::from_wire(
             w.pairing_window,
             w.passkey,
-            read_name(&w.passkey_name),
+            read_name(&w.pairing_name),
             w.passkey_entered,
         )?,
         link: read_link(&w, protocol)?,
@@ -619,6 +627,34 @@ pub struct StoredDevice {
     pub slot: Option<u8>,
     /// `None` under NuPhy and Unifying.
     pub pairing: Option<Pairing>,
+}
+
+/// A new device heard while pairing is open, for the user to pick.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeardDevice {
+    /// The address type, then the address bytes, least significant first.
+    pub addr: [u8; 7],
+    pub kind: DeviceKind,
+    /// Lists Logitech's service, as a Logi Bolt device does.
+    pub bolt: bool,
+    pub signal: i8,
+    pub name: Option<String>,
+}
+
+/// The new devices heard, in the order the dongle first heard them.
+pub fn read_heard(payload: &[u8]) -> Result<Vec<HeardDevice>> {
+    diagwire::decode_heard(payload)?
+        .map(|h| {
+            let h = h?;
+            Ok(HeardDevice {
+                addr: h.addr,
+                kind: read_kind(h.kind)?,
+                bolt: h.flags & HEARD_BOLT != 0,
+                signal: h.rssi,
+                name: read_name(&h.name),
+            })
+        })
+        .collect()
 }
 
 /// The stored devices; under Bluetooth the most recently connected first.
@@ -913,6 +949,8 @@ pub(crate) mod tests {
             let (code, passkey, name, entered) = match window {
                 PairingWindow::Closed => (Window::Closed, 0, None, 0),
                 PairingWindow::Open => (Window::Open, 0, None, 0),
+                PairingWindow::Picking => (Window::Picking, 0, None, 0),
+                PairingWindow::Picked { name } => (Window::Picked, 0, name, 0),
                 PairingWindow::PasskeyAwaited(a) => (
                     if a.clicked {
                         Window::PasskeyClicked
@@ -927,9 +965,9 @@ pub(crate) mod tests {
             s.passkey_entered = entered;
             s.pairing_window = code as u8;
             s.passkey = passkey;
-            s.passkey_name = [0; NAME_MAX];
+            s.pairing_name = [0; NAME_MAX];
             if let Some(name) = name {
-                s.passkey_name[..name.len()].copy_from_slice(name.as_bytes());
+                s.pairing_name[..name.len()].copy_from_slice(name.as_bytes());
             }
             s.events_total = events_total;
         })
@@ -979,6 +1017,29 @@ pub(crate) mod tests {
 
     fn decoded(payload: &[u8]) -> Option<Status> {
         read_status(payload).ok()?.ok()
+    }
+
+    #[test]
+    fn heard_devices_match_fixture() {
+        assert_eq!(
+            read_heard(&fixture("heard.hex")).ok(),
+            Some(vec![
+                HeardDevice {
+                    addr: [1, 0x5a, 0x3c, 0x11, 0xe0, 0xf2, 0xc8],
+                    kind: DeviceKind::Mouse,
+                    bolt: true,
+                    signal: -60,
+                    name: Some("MX Master 3S".into()),
+                },
+                HeardDevice {
+                    addr: [1, 0xd9, 0x9a, 0xa6, 0x49, 0xbb, 0xeb],
+                    kind: DeviceKind::Keyboard,
+                    bolt: false,
+                    signal: -80,
+                    name: Some("MX Keys".into()),
+                },
+            ])
+        );
     }
 
     #[test]
@@ -1357,7 +1418,7 @@ pub(crate) mod tests {
 
     #[test]
     fn an_unknown_pairing_window_is_refused() {
-        let payload = edited("status.hex", |s| s.pairing_window = 4);
+        let payload = edited("status.hex", |s| s.pairing_window = 6);
         assert!(read_status(&payload).is_err());
     }
 
@@ -1376,6 +1437,28 @@ pub(crate) mod tests {
             s.passkey_entered = entered;
         });
         read_status(&payload).unwrap().unwrap().pairing_window
+    }
+
+    #[test]
+    fn a_window_waiting_for_a_pick_reads_as_picking() {
+        let payload = status_with_window(Protocol::Bluetooth, PairingWindow::Picking, 0);
+        assert_eq!(
+            read_status(&payload).unwrap().unwrap().pairing_window,
+            PairingWindow::Picking
+        );
+    }
+
+    #[test]
+    fn a_picked_window_carries_the_device_name() {
+        let payload = edit(&fixture("status-slot1.hex"), |s| {
+            s.pairing_window = Window::Picked as u8;
+        });
+        assert_eq!(
+            read_status(&payload).unwrap().unwrap().pairing_window,
+            PairingWindow::Picked {
+                name: Some("MX Keys".into())
+            }
+        );
     }
 
     #[test]

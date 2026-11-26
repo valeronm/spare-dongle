@@ -5,8 +5,8 @@ use crate::board::State;
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
     Action, AwaitedPasskey, BUSY_DBM, Battery, BluetoothLink, ChargeState, Detail, DeviceKind,
-    Divert, EVENT_ADDR_LEN, Event, Forgotten, Latency, Link, Moved, Noise, NuphyState, Pairing,
-    Protocol, Refused, STRONG_DBM, Slot, SoftDevice, Status, StoredDevice, UnifyingState, Up,
+    Divert, EVENT_ADDR_LEN, Event, Forgotten, HeardDevice, Latency, Link, Moved, Noise, NuphyState,
+    Pairing, Protocol, STRONG_DBM, Slot, SoftDevice, Status, StoredDevice, UnifyingState, Up,
     VersionMismatch, Watch, Wheel, bucket_floor,
 };
 
@@ -44,11 +44,16 @@ fn device_address(d: &StoredDevice, protocol: Protocol) -> String {
 }
 
 fn device_name(d: &StoredDevice) -> &str {
-    d.name.as_deref().unwrap_or(UNNAMED)
+    shown_name(d.name.as_deref())
 }
 
-/// The device `device_lines` numbers `place`, counting from 1.
-pub fn device_at(list: &[StoredDevice], place: usize) -> Option<&StoredDevice> {
+/// A device that advertised no name shows as unnamed.
+pub fn shown_name(name: Option<&str>) -> &str {
+    name.unwrap_or(UNNAMED)
+}
+
+/// The item a numbered list numbers `place`, counting from 1.
+pub fn device_at<T>(list: &[T], place: usize) -> Option<&T> {
     list.get(place.checked_sub(1)?)
 }
 
@@ -60,9 +65,9 @@ pub const TITLE_SEPARATOR: &str = " · ";
 pub const UNNAMED: &str = "unnamed";
 
 /// The name with its Bolt mark, split where the mark starts.
-pub fn name_parts(name: &str, pairing: Option<Pairing>) -> Vec<(String, Tone)> {
+pub fn name_parts(name: &str, bolt: bool) -> Vec<(String, Tone)> {
     let mut parts = vec![(name.to_string(), Tone::Plain)];
-    if pairing.is_some_and(|p| p.bolt) {
+    if bolt {
         parts.extend([
             (TITLE_SEPARATOR.into(), Tone::Plain),
             (BOLT.into(), Tone::Bolt),
@@ -115,6 +120,35 @@ impl std::fmt::Display for DeviceLine {
     }
 }
 
+/// Numbered lines of a kind, a name with its Bolt mark and a last column, the names padded so the
+/// last columns line up.
+fn numbered_lines<'a>(
+    rows: impl Iterator<Item = (DeviceKind, &'a str, bool, String)>,
+) -> Vec<Vec<(String, Tone)>> {
+    let width = |text: &str| text.chars().count();
+    let rows: Vec<_> = rows
+        .map(|(kind, name, bolt, last)| {
+            let name = name_parts(name, bolt);
+            let w = name.iter().map(|(text, _)| width(text)).sum::<usize>();
+            (kind, name, w, last)
+        })
+        .collect();
+    let kinds = rows.iter().map(|r| width(r.0.name())).max().unwrap_or(0);
+    let widest = rows.iter().map(|r| r.2).max().unwrap_or(0);
+    rows.into_iter()
+        .enumerate()
+        .map(|(i, (kind, name, w, last))| {
+            let mut line = vec![(format!("{}  {:kinds$}  ", i + 1, kind.name()), Tone::Plain)];
+            line.extend(name);
+            line.push((
+                format!("{:pad$}  {last}", "", pad = widest - w),
+                Tone::Plain,
+            ));
+            line
+        })
+        .collect()
+}
+
 /// One numbered line per stored device, in the order `forget` counts them.
 pub fn device_lines(list: &[StoredDevice], protocol: Protocol) -> Vec<DeviceLine> {
     if list.is_empty() {
@@ -124,42 +158,36 @@ pub fn device_lines(list: &[StoredDevice], protocol: Protocol) -> Vec<DeviceLine
             pairing: None,
         }];
     }
-    let width = |text: &str| text.chars().count();
-    let names: Vec<_> = list
-        .iter()
-        .map(|d| {
-            let name = name_parts(device_name(d), d.pairing);
-            let w = name.iter().map(|(text, _)| width(text)).sum::<usize>();
-            (name, w)
-        })
-        .collect();
-    let kinds = list.iter().map(|d| width(d.kind.name())).max().unwrap_or(0);
-    let widest = names.iter().map(|(_, w)| *w).max().unwrap_or(0);
-    list.iter()
-        .zip(names)
-        .enumerate()
-        .map(|(i, (d, (name, w)))| {
-            let mut columns = vec![(
-                format!("{}  {:kinds$}  ", i + 1, d.kind.name()),
-                Tone::Plain,
-            )];
-            columns.extend(name);
-            columns.push((
-                format!(
-                    "{:pad$}  {}",
-                    "",
-                    device_address(d, protocol),
-                    pad = widest - w
-                ),
-                Tone::Plain,
-            ));
-            DeviceLine {
-                columns,
-                slot: d.slot,
-                pairing: d.pairing,
-            }
+    let rows = list.iter().map(|d| {
+        let bolt = d.pairing.is_some_and(|p| p.bolt);
+        (d.kind, device_name(d), bolt, device_address(d, protocol))
+    });
+    numbered_lines(rows)
+        .into_iter()
+        .zip(list)
+        .map(|(columns, d)| DeviceLine {
+            columns,
+            slot: d.slot,
+            pairing: d.pairing,
         })
         .collect()
+}
+
+/// What the dongle does once a device is picked.
+pub fn pairing_picked(name: Option<&str>) -> String {
+    format!("pairing {}", shown_name(name))
+}
+
+/// One numbered line per device heard in pairing mode, in the order a number picks them.
+pub fn heard_lines(heard: &[HeardDevice]) -> Vec<Vec<(String, Tone)>> {
+    numbered_lines(heard.iter().map(|h| {
+        (
+            h.kind,
+            shown_name(h.name.as_deref()),
+            h.bolt,
+            format!("{} dBm", h.signal),
+        )
+    }))
 }
 
 pub fn forget_question(d: &StoredDevice, protocol: Protocol) -> String {
@@ -178,7 +206,18 @@ pub fn switch_question(to: Protocol) -> String {
 }
 
 pub fn pairing_open(protocol: Protocol) -> String {
-    format!("within 30 s, {}", pairing_how(protocol))
+    match protocol {
+        Protocol::Bluetooth => format!(
+            "within {} s, {}",
+            diagwire::PICK_WINDOW_MS / 1000,
+            picking_how()
+        ),
+        Protocol::Nuphy | Protocol::Unifying => format!(
+            "within {} s, {}",
+            diagwire::PAIR_WINDOW_MS / 1000,
+            pairing_how(protocol)
+        ),
+    }
 }
 
 pub fn pairing_how(protocol: Protocol) -> &'static str {
@@ -189,6 +228,11 @@ pub fn pairing_how(protocol: Protocol) -> &'static str {
         }
         Protocol::Bluetooth => "put the keyboard or mouse in Bluetooth pairing mode",
     }
+}
+
+/// Under Bluetooth, for a window opened from the tool.
+pub fn picking_how() -> &'static str {
+    "put the keyboard or mouse in Bluetooth pairing mode, then pick it"
 }
 
 pub fn sentence(text: &str) -> String {
@@ -917,11 +961,6 @@ pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String 
             device(&addr),
             if passkey { "with" } else { "without" }
         ),
-        Ok(Detail::BtRefused { refused })
-            if Refused::from_code(refused) == Some(Refused::NoPasskey) =>
-        {
-            "pairing refused: the passkey was not typed".into()
-        }
         Ok(Detail::BtRefused { .. }) => format!("pairing refused by the {kind}"),
         Ok(Detail::BtPasskeyAwaited { addr }) => {
             waits_for_passkey(&format!("{kind} {}", device(&addr)))
@@ -1164,15 +1203,11 @@ mod tests {
     }
 
     #[test]
-    fn describes_a_refused_bluetooth_pairing_by_who_refused() {
+    fn describes_a_bluetooth_pairing_the_device_refused() {
         let bt = status_of(Protocol::Bluetooth);
         assert_eq!(
             describe_event(&event(EventType::BtRefused, 0, 0, 0, 0), &bt, &[]),
             "pairing refused by the keyboard"
-        );
-        assert_eq!(
-            describe_event(&event(EventType::BtRefused, 1, 0, 0, 0), &bt, &[]),
-            "pairing refused: the passkey was not typed"
         );
     }
 
@@ -1258,6 +1293,19 @@ mod tests {
             describe_event(&noisy, &nuphy(), &[]),
             "gap of 340 ms on channel 38, signal -82 dBm before, -79 dBm after, \
              noise -50 dBm, 25.00% at -85, 3.00% at -60"
+        );
+    }
+
+    #[test]
+    fn heard_devices_are_numbered_with_their_kinds_and_signal() {
+        let heard = crate::protocol::read_heard(&fixture("heard.hex")).unwrap();
+        let lines: Vec<String> = heard_lines(&heard).iter().map(|l| joined(l)).collect();
+        assert_eq!(
+            lines,
+            [
+                "1  mouse     MX Master 3S · Bolt  -60 dBm",
+                "2  keyboard  MX Keys              -80 dBm",
+            ]
         );
     }
 
@@ -1447,10 +1495,10 @@ mod tests {
     }
 
     #[test]
-    fn a_bluetooth_pairing_opens_without_showing_a_passkey() {
+    fn a_bluetooth_pairing_opens_for_a_pick() {
         assert_eq!(
             pairing_open(Protocol::Bluetooth),
-            "within 30 s, put the keyboard or mouse in Bluetooth pairing mode"
+            "within 60 s, put the keyboard or mouse in Bluetooth pairing mode, then pick it"
         );
         assert_eq!(
             pairing_open(Protocol::Nuphy),

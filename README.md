@@ -112,8 +112,9 @@ Unifying link key or Bluetooth bond keys.
 
 ## Pairing
 
-`spare-dongle pair`, or `a` in the live view, opens pairing for 30 seconds. A dongle with nothing
-paired keeps pairing open from the moment it is plugged in until a device pairs.
+`spare-dongle pair`, or `a` in the live view, opens pairing for 30 seconds, or 60 in Bluetooth
+mode. A dongle with nothing paired keeps pairing open from the moment it is plugged in until a
+device pairs.
 
 In NuPhy and Unifying mode, plugging the dongle in also opens pairing while a keyboard is paired,
 until that keyboard connects or 30 seconds pass; in Unifying mode it stays closed while six
@@ -128,15 +129,16 @@ low power while pairing. If the link gets worse after the Wi-Fi around you chang
 **Unifying:** switch the keyboard off and on. On a keyboard with Easy-Switch keys, such as the MX
 Keys, first hold an Easy-Switch key until it blinks fast.
 
-**Bluetooth:** the dongle connects one keyboard and one mouse at a time, or either alone.
-Run `spare-dongle pair` and put the keyboard or mouse in Bluetooth pairing mode. Once it connects,
-the tool prints a six-digit passkey: type it on the keyboard and press Enter. A Logi Bolt mouse takes
-its passkey as ten clicks, which the tool prints instead. A failed attempt closes
-pairing, and running `pair` again gives a new passkey. A keyboard with no passkey step, such as the Air75 V2, pairs with
-`spare-dongle pair --no-passkey`. Any other mouse pairs in either window without a passkey: put
-it in pairing mode while pairing is open. Opening pairing keeps the connected devices, and a device that
-pairs takes the place of the connected one of its kind. Once a device is stored, plugging the
-dongle in opens nothing. [docs/tool.md](docs/tool.md#bluetooth-mode) covers the stored devices.
+**Bluetooth:** the dongle connects one keyboard and one mouse at a time, or either alone. Run
+`spare-dongle pair` and put the keyboard or mouse in Bluetooth pairing mode. The tool lists the
+devices it hears in pairing mode, each keeping its number; type the number of yours. If the device
+asks for a passkey, the tool prints six digits to type on the keyboard and press Enter, or for a
+Logi Bolt mouse ten clicks. A keyboard with no passkey step, such as the Air75 V2, and most mice
+pair without one. A failed attempt closes pairing, and running `pair` again gives a new passkey.
+Opening pairing keeps the connected devices, and a device that pairs takes the place of the
+connected one of its kind. With nothing stored, the window opened at plug-in pairs the first device
+without a list or a passkey; once a device is stored, plugging the dongle in opens nothing.
+[docs/tool.md](docs/tool.md#bluetooth-mode) covers the stored devices.
 
 ## LED
 

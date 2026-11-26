@@ -10,10 +10,10 @@ use diagwire::{CHANNEL_FIRST, CHANNEL_LAST, NUPHY_PAIRING_CHANNEL};
 use crate::board::{self, State};
 use crate::device::{self, Device, Refused, Transport};
 use crate::format::{
-    NOISE_QUESTION, UNNAMED, action_question, battery, bootloader_and_softdevice,
-    channel_description, describe_event, flash_question, flashed, hex, joined, last_packet,
-    latency, name_parts, noise_level, paired, pairing, pairing_offer, protocol_security, reset_by,
-    state_name, status_label, unifying_kind, uptime, usb_state, version, wall_clock,
+    NOISE_QUESTION, action_question, battery, bootloader_and_softdevice, channel_description,
+    describe_event, flash_question, flashed, hex, joined, last_packet, latency, name_parts,
+    noise_level, paired, pairing, pairing_offer, protocol_security, reset_by, state_name,
+    status_label, unifying_kind, uptime, usb_state, version, wall_clock,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -120,7 +120,10 @@ fn slot_rows(s: &Status, slot: &Slot, d: &SlotStatus) -> Vec<(&'static str, Stri
         } else {
             "not connected"
         };
-        let name = joined(&name_parts(d.name.as_deref().unwrap_or(UNNAMED), d.pairing));
+        let name = joined(&name_parts(
+            format::shown_name(d.name.as_deref()),
+            d.pairing.is_some_and(|p| p.bolt),
+        ));
         format!("{name}{details}, {state}")
     } else {
         "not paired".into()
@@ -181,6 +184,10 @@ fn window_state(window: &PairingWindow) -> String {
     match window {
         PairingWindow::Closed => "closed".into(),
         PairingWindow::Open => "open".into(),
+        PairingWindow::Picking => "open, waiting for a device to be picked".into(),
+        PairingWindow::Picked { name } => {
+            format!("open, {}", format::pairing_picked(name.as_deref()))
+        }
         PairingWindow::PasskeyAwaited(a) => format!(
             "open, {}: {}",
             format::waits_for_passkey(format::waiting_device(a)),
@@ -189,23 +196,54 @@ fn window_state(window: &PairingWindow) -> String {
     }
 }
 
+/// Often enough to follow each click of a passkey and the devices heard while pairing.
 pub const PAIRING_POLL: Duration = Duration::from_millis(250);
 
-/// Opens pairing and returns the line that says what to do at the keyboard, and whether a
-/// keyboard is asked for a passkey.
-pub fn pair<T: Transport>(
+/// The lines typed on standard input, read by a thread of their own so the pairing poll goes on.
+pub fn typed_lines() -> std::sync::mpsc::Receiver<String> {
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lines().map_while(Result::ok) {
+            if send.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    receive
+}
+
+/// Lists the devices heard whenever they change and pairs the one a typed number names.
+fn pick_heard<T: Transport>(
     dev: &mut Device<T>,
-    protocol: Protocol,
-    no_passkey: bool,
-) -> Result<(String, bool)> {
-    if no_passkey && protocol != Protocol::Bluetooth {
-        bail!(
-            "--no-passkey applies only while the dongle runs Bluetooth; it runs {}",
-            protocol.name()
-        );
+    picks: &std::sync::mpsc::Receiver<String>,
+    listed: &mut Vec<[u8; 7]>,
+    out: &mut impl Write,
+) -> Result<()> {
+    let heard = dev.heard()?;
+    let addrs: Vec<[u8; 7]> = heard.iter().map(|h| h.addr).collect();
+    if !heard.is_empty() && addrs != *listed {
+        writeln!(out, "devices in pairing mode, type a number to pick one:")?;
+        for line in format::heard_lines(&heard) {
+            writeln!(out, "{}", format::joined(&line))?;
+        }
+        *listed = addrs;
     }
-    let passkey_asked = dev.pair(no_passkey)?;
-    Ok((format::pairing_open(protocol), passkey_asked))
+    while let Ok(line) = picks.try_recv() {
+        let device = line
+            .trim()
+            .parse()
+            .ok()
+            .and_then(|place| format::device_at(&heard, place));
+        match device {
+            Some(d) => {
+                dev.pair_with(d)?;
+                writeln!(out, "{}", format::pairing_picked(d.name.as_deref()))?;
+                return Ok(());
+            }
+            None => writeln!(out, "type a number from the list")?,
+        }
+    }
+    Ok(())
 }
 
 /// Follows the pairing window until it closes, writing the passkey once a keyboard waits for it,
@@ -216,13 +254,18 @@ pub fn follow_pairing<T: Transport>(
     poll: Duration,
     out: &mut impl Write,
     terminal: bool,
+    picks: &std::sync::mpsc::Receiver<String>,
 ) -> Result<()> {
     use ratatui::crossterm::style::Stylize;
     let mut shown = None;
     // Rewritten in place, so it is ended before anything else is written.
     let mut progress: Option<String> = None;
+    let mut listed: Vec<[u8; 7]> = Vec::new();
     let s = loop {
         let s = dev.status()?;
+        if s.pairing_window == PairingWindow::Picking {
+            pick_heard(dev, picks, &mut listed, out)?;
+        }
         let closed = match &s.pairing_window {
             PairingWindow::PasskeyAwaited(a) => {
                 if shown != Some(a.passkey) {
@@ -708,6 +751,16 @@ mod tests {
     };
     use crate::protocol::{BluetoothLink, Command, Link, Pairing, Protocol};
 
+    #[test]
+    fn the_pairing_row_names_the_picked_device() {
+        assert_eq!(
+            window_state(&PairingWindow::Picked {
+                name: Some("MX Keys".into())
+            }),
+            "open, pairing MX Keys"
+        );
+    }
+
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|v| v.to_string()).collect()
     }
@@ -990,30 +1043,6 @@ mod tests {
     }
 
     #[test]
-    fn pairing_without_a_passkey_is_refused_outside_bluetooth() {
-        let mut dev = Device::new(Fake::new(|_| panic!("nothing should be sent")), 0);
-        let err = pair(&mut dev, Protocol::Unifying, true)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            err.contains("only while the dongle runs Bluetooth"),
-            "{err}"
-        );
-    }
-
-    #[test]
-    fn opening_bluetooth_pairing_says_whether_a_passkey_follows() {
-        let reply = |req: &[u8; 64]| parts(req[0], req[1], &[1]);
-        let mut dev = Device::new(Fake::new(reply), 0);
-        let (line, asked) = pair(&mut dev, Protocol::Bluetooth, false).unwrap();
-        assert!(asked);
-        assert_eq!(
-            line,
-            "within 30 s, put the keyboard or mouse in Bluetooth pairing mode"
-        );
-    }
-
-    #[test]
     fn a_status_shows_the_passkey_a_keyboard_waits_for() {
         let mut s = status_of(Protocol::Bluetooth);
         s.pairing_window = awaited(42, Some("MX Keys"));
@@ -1042,6 +1071,10 @@ mod tests {
         }
     }
 
+    fn no_picks() -> std::sync::mpsc::Receiver<String> {
+        std::sync::mpsc::channel().1
+    }
+
     /// A Bluetooth dongle answering status with each window in turn, keeping the last, and
     /// holding `events` from index 600 on.
     fn pairing_dongle(
@@ -1063,6 +1096,7 @@ mod tests {
                     c if c == Command::Events as u8 => {
                         crate::protocol::tests::events_page(600, &events)
                     }
+                    c if c == Command::Heard as u8 => crate::protocol::tests::fixture("heard.hex"),
                     _ => vec![0],
                 };
                 parts(req[0], req[1], &payload)
@@ -1086,7 +1120,7 @@ mod tests {
             ],
         );
         let mut out = Vec::new();
-        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, false).unwrap();
+        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, false, &no_picks()).unwrap();
         let out = String::from_utf8(out).unwrap();
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines.len(), 2, "{out}");
@@ -1096,13 +1130,42 @@ mod tests {
     }
 
     #[test]
+    fn a_typed_number_picks_a_device_from_the_list() {
+        let mut dev = pairing_dongle(
+            vec![
+                (PairingWindow::Picking, 600),
+                (PairingWindow::Picking, 600),
+                (PairingWindow::Closed, 600),
+            ],
+            Vec::new(),
+        );
+        let (typed, picks) = std::sync::mpsc::channel();
+        typed.send("1".to_string()).unwrap();
+        let mut out = Vec::new();
+        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, false, &picks).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(
+            lines[..4],
+            [
+                "devices in pairing mode, type a number to pick one:",
+                "1  mouse     MX Master 3S · Bolt  -60 dBm",
+                "2  keyboard  MX Keys              -80 dBm",
+                "pairing MX Master 3S",
+            ],
+            "{out}"
+        );
+        assert_eq!(out.matches("1  mouse").count(), 1, "{out}");
+    }
+
+    #[test]
     fn following_pairing_says_when_it_closes_with_nothing_paired() {
         let mut dev = pairing_dongle(
             vec![(PairingWindow::Open, 600), (PairingWindow::Closed, 600)],
             Vec::new(),
         );
         let mut out = Vec::new();
-        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, false).unwrap();
+        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, false, &no_picks()).unwrap();
         assert_eq!(
             String::from_utf8(out).unwrap(),
             "pairing closed with no device paired\n"
@@ -1117,7 +1180,7 @@ mod tests {
             Vec::new(),
         );
         let mut out = Vec::new();
-        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, true).unwrap();
+        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, true, &no_picks()).unwrap();
         let out = String::from_utf8(out).unwrap();
         assert_eq!(out.matches("\r3 of 10 clicks").count(), 1, "{out:?}");
         assert!(
@@ -1137,7 +1200,7 @@ mod tests {
             Vec::new(),
         );
         let mut out = Vec::new();
-        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, false).unwrap();
+        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, false, &no_picks()).unwrap();
         assert!(!String::from_utf8(out).unwrap().contains("clicks"));
     }
 
@@ -1148,7 +1211,7 @@ mod tests {
             Vec::new(),
         );
         let mut out = Vec::new();
-        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, true).unwrap();
+        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, true, &no_picks()).unwrap();
         let first = String::from_utf8(out)
             .unwrap()
             .lines()

@@ -3,10 +3,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 
 use crate::protocol::{
-    Action, CHUNK, Command, ErrorCode, Event, Minute, NoiseChannel, Part, Protocol, REPORT_LEN,
-    Reader, SlotStatus, Status, StoredDevice, VersionMismatch, Watch, channels_arg, decode_events,
-    decode_minutes, decode_noise, decode_watch, is_reply_to, parse_part, read_devices,
-    read_protocol, read_status, request, shown_slots,
+    Action, CHUNK, Command, ErrorCode, Event, HeardDevice, Minute, NoiseChannel, Part, Protocol,
+    REPORT_LEN, Reader, SlotStatus, Status, StoredDevice, VersionMismatch, Watch, channels_arg,
+    decode_events, decode_minutes, decode_noise, decode_watch, is_reply_to, parse_part,
+    read_devices, read_heard, read_protocol, read_status, request, shown_slots,
 };
 use crate::protocol::{ErrorText as _, ProtocolInfo as _};
 
@@ -211,16 +211,19 @@ impl<T: Transport> Device<T> {
         Ok(Reader::new(&reply).u8()?)
     }
 
-    /// Returns whether a keyboard pairing is asked for a passkey, which only Bluetooth does; the
-    /// status carries the passkey once a keyboard waits for it.
-    pub fn pair(&mut self, no_passkey: bool) -> Result<bool> {
-        let arg = if no_passkey {
-            diagwire::PAIR_NO_PASSKEY
-        } else {
-            0
-        };
-        let reply = self.call(Command::Pair, arg, TIMEOUT)?;
-        Ok(Reader::new(&reply).u8()? != 0)
+    /// Under Bluetooth the status then waits for a device to be picked from `heard`, and carries
+    /// the passkey once the picked device waits for it.
+    pub fn pair(&mut self) -> Result<()> {
+        self.call(Command::Pair, 0, TIMEOUT).map(drop)
+    }
+
+    pub fn heard(&mut self) -> Result<Vec<HeardDevice>> {
+        read_heard(&self.call(Command::Heard, 0, TIMEOUT)?)
+    }
+
+    pub fn pair_with(&mut self, device: &HeardDevice) -> Result<()> {
+        self.call_with(Command::PairWith, 0, &device.addr, TIMEOUT)
+            .map(drop)
     }
 
     /// Returns the protocol running when the dongle answered, and whether it now reboots.
@@ -623,30 +626,23 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn pair_returns_whether_a_bluetooth_dongle_asks_for_a_passkey() {
-        let mut dev = Device::new(Fake::new(|req| parts(req[0], req[1], &[1])), 0);
-        assert!(dev.pair(false).unwrap());
-        let mut dev = Device::new(Fake::new(|req| parts(req[0], req[1], &[0])), 0);
-        assert!(!dev.pair(false).unwrap());
-        let mut dev = Device::new(Fake::new(|req| parts(req[0], req[1], &[])), 0);
-        assert!(!dev.pair(false).unwrap());
-    }
-
-    #[test]
-    fn pairing_without_a_passkey_is_asked_for_in_the_request() {
-        let asked = std::rc::Rc::new(std::cell::Cell::new(None));
-        let seen = asked.clone();
+    fn a_pick_sends_the_heard_devices_address() {
+        let sent = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = sent.clone();
         let mut dev = Device::new(
             Fake::new(move |req| {
-                seen.set(Some(req[2]));
+                seen.borrow_mut().push((req[0], req[6..13].to_vec()));
                 parts(req[0], req[1], &[])
             }),
             0,
         );
-        dev.pair(true).unwrap();
-        assert_eq!(asked.get(), Some(1));
-        dev.pair(false).unwrap();
-        assert_eq!(asked.get(), Some(0));
+        let heard =
+            crate::protocol::read_heard(&crate::protocol::tests::fixture("heard.hex")).unwrap();
+        dev.pair_with(&heard[0]).unwrap();
+        assert_eq!(
+            sent.borrow()[0],
+            (Command::PairWith as u8, heard[0].addr.to_vec())
+        );
     }
 
     #[test]
@@ -659,7 +655,7 @@ pub(crate) mod tests {
             }),
             0,
         );
-        let err = dev.pair(false).unwrap_err().to_string();
+        let err = dev.pair().unwrap_err().to_string();
         assert!(
             err.contains("not available while the dongle runs Unifying"),
             "{err}"

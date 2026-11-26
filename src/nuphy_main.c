@@ -325,7 +325,7 @@ static void serve_diag(const struct diag_request *req)
 		break;
 	case DIAG_COMMAND_PAIR:
 		link_open_pairing(&link, PAIRWIN_REQUEST, k_uptime_get_32());
-		printk("pairing open for %u s\n", PAIRWIN_MS / 1000);
+		printk("pairing open for %u s\n", DIAG_PAIR_WINDOW_MS / 1000);
 		core_log_pairing_opened(&link.window);
 		diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
 		break;

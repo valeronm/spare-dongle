@@ -21,22 +21,20 @@ use crate::device::{self, Device, Lost, Transport};
 use crate::format::{
     ChannelRole, LinkHealth, NOISE_QUESTION, TITLE_SEPARATOR, Tone, action_question, battery,
     bootloader_and_softdevice, bucket_label, channel_role, counted_share, describe_event,
-    device_at, device_lines, forget_question, last_packet, latency, link_health, name_parts,
-    noise_level, noise_ruler, paired, pairing, pairing_how, passkey_prompt, protocol_security,
-    reset_by, sentence, share, slot_health, slot_state, state_name, status_label, switch_question,
-    uptime, usb_state, version, waiting_device, waits_for_passkey, wall_clock, watch_role,
-    watch_summary,
+    device_at, device_lines, forget_question, heard_lines, last_packet, latency, link_health,
+    name_parts, noise_level, noise_ruler, paired, pairing, pairing_how, pairing_picked,
+    passkey_prompt, picking_how, protocol_security, reset_by, sentence, share, slot_health,
+    slot_state, state_name, status_label, switch_question, uptime, usb_state, version,
+    waiting_device, waits_for_passkey, wall_clock, watch_role, watch_summary,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
-    Action, BUSY_DBM, Counter, Event, Link, Minute, NOISE_BUCKETS, NoiseChannel, NuphyLink,
-    Pairing, PairingWindow, Protocol, SlotStatus, Status, Step, StoredDevice, Watch, shown_slots,
-    step_channel,
+    Action, BUSY_DBM, Counter, Event, HeardDevice, Link, Minute, NOISE_BUCKETS, NoiseChannel,
+    NuphyLink, Pairing, PairingWindow, Protocol, SlotStatus, Status, Step, StoredDevice, Watch,
+    shown_slots, step_channel,
 };
 
 const POLL_EVERY: Duration = Duration::from_secs(1);
-/// Often enough to follow each click of a passkey.
-const PASSKEY_POLL_EVERY: Duration = Duration::from_millis(250);
 const EVENTS_KEPT: usize = 200;
 const EVENT_ROWS: usize = 8;
 const CHART_MIN_ROWS: u16 = 5;
@@ -506,47 +504,21 @@ fn chosen(running: Protocol, key: KeyCode) -> Option<Protocol> {
     other_protocols(running).find(|p| protocol_key(*p) == c)
 }
 
-fn chosen_no_passkey(key: KeyCode) -> Option<bool> {
-    match key {
-        KeyCode::Char('p') => Some(false),
-        KeyCode::Char('n') => Some(true),
-        _ => None,
-    }
-}
-
-#[derive(Clone, Copy)]
-enum Choice {
-    Protocol,
-    Passkey,
-}
-
-impl Choice {
-    fn modal(self, running: Protocol) -> Modal {
-        match self {
-            Choice::Protocol => Modal::question(
-                "Switch protocol",
-                "Switch to which protocol?",
-                other_protocols(running)
-                    .map(|p| (protocol_key(p).to_string(), p.name().to_string()))
-                    .collect(),
-            ),
-            Choice::Passkey => Modal::question(
-                "Pair",
-                "Pair how?",
-                vec![
-                    ("p".into(), "with a passkey".into()),
-                    ("n".into(), "no passkey".into()),
-                ],
-            ),
-        }
-    }
+fn protocol_choice(running: Protocol) -> Modal {
+    Modal::question(
+        "Switch protocol",
+        "Switch to which protocol?",
+        other_protocols(running)
+            .map(|p| (protocol_key(p).to_string(), p.name().to_string()))
+            .collect(),
+    )
 }
 
 #[derive(Clone)]
 struct Modal {
     title: &'static str,
-    /// Paragraphs, each flowed onto lines of its own.
-    body: Vec<Vec<Span<'static>>>,
+    /// Paragraphs of pieces; a line breaks only between pieces.
+    body: Vec<Vec<Line<'static>>>,
     /// Each key with what it does.
     keys: Vec<(String, String)>,
     note: Option<&'static str>,
@@ -557,7 +529,7 @@ impl Modal {
     fn trouble(title: &'static str, text: &str, note: Option<&'static str>) -> Self {
         Modal {
             title,
-            body: vec![words(text)],
+            body: vec![paragraph(text)],
             keys: Vec::new(),
             note,
             color: Color::Red,
@@ -567,7 +539,7 @@ impl Modal {
     fn question(title: &'static str, body: &str, keys: Vec<(String, String)>) -> Self {
         Modal {
             title,
-            body: vec![words(body)],
+            body: vec![paragraph(body)],
             keys,
             note: Some("any other key cancels"),
             color: HINT_COLOR,
@@ -601,12 +573,8 @@ fn draw_modal(f: &mut Frame, m: Modal) {
         pieces.iter().map(Line::width).sum::<usize>()
             + separator.chars().count() * pieces.len().saturating_sub(1)
     };
-    let body: Vec<Vec<Line<'static>>> = m
+    let content = m
         .body
-        .into_iter()
-        .map(|paragraph| paragraph.into_iter().map(Line::from).collect())
-        .collect();
-    let content = body
         .iter()
         .map(|paragraph| unwrapped(paragraph, " "))
         .chain([unwrapped(&keys, "  ")])
@@ -616,7 +584,8 @@ fn draw_modal(f: &mut Frame, m: Modal) {
         .min(MODAL_WIDTH)
         .min(usize::from(f.area().width));
     let inner = width.saturating_sub(FRAME).max(1);
-    let mut lines: Vec<Line<'static>> = body
+    let mut lines: Vec<Line<'static>> = m
+        .body
         .into_iter()
         .flat_map(|paragraph| flow(paragraph, " ", inner))
         .collect();
@@ -644,7 +613,7 @@ fn draw_modal(f: &mut Frame, m: Modal) {
 #[derive(Clone)]
 enum Key {
     Ask(Prompt),
-    Choose(Choice),
+    ChooseProtocol,
     Pair,
     Moves,
     Devices,
@@ -664,18 +633,14 @@ fn action_keys(protocol: Protocol) -> Vec<(char, &'static str, Key)> {
     const DEVICES: (char, &str, Key) = ('d', "devices", Key::Devices);
     const INFO: (char, &str, Key) = ('i', "info", Key::Info);
     let channels = protocol.has_esb();
-    let pair = if protocol == Protocol::Bluetooth {
-        ('a', "pair", Key::Choose(Choice::Passkey))
-    } else {
-        ('a', "pair", Key::Pair)
-    };
-    let switch = ('p', "protocol", Key::Choose(Choice::Protocol));
+    const PAIR: (char, &str, Key) = ('a', "pair", Key::Pair);
+    const SWITCH: (char, &str, Key) = ('p', "protocol", Key::ChooseProtocol);
     [
         channels.then_some(NOISE),
         channels.then_some(MOVES),
-        Some(pair),
+        Some(PAIR),
         Some(DEVICES),
-        Some(switch),
+        Some(SWITCH),
         Some(REBOOT),
         Some(BOOTLOADER),
         Some(CLEAR),
@@ -711,6 +676,11 @@ fn flow(
     lines
 }
 
+/// A modal paragraph of plain text, wrapped at its words.
+fn paragraph(text: &str) -> Vec<Line<'static>> {
+    words(text).into_iter().map(Line::from).collect()
+}
+
 fn words(text: &str) -> Vec<Span<'static>> {
     text.split(' ').map(|w| Span::raw(w.to_string())).collect()
 }
@@ -732,6 +702,8 @@ struct Session<T: Transport> {
     message: String,
     /// Set by esc while the pairing box shows, until the window closes.
     pairing_hidden: bool,
+    /// The new devices heard while a Bluetooth pairing window is open, for a number to pick.
+    heard: Vec<HeardDevice>,
 }
 
 enum Shown {
@@ -742,7 +714,7 @@ enum Shown {
 
 /// A box that takes the next key.
 enum Overlay {
-    Choosing(Choice),
+    ChoosingProtocol,
     Confirming(Prompt),
     /// Closed by any key.
     Notice(Modal),
@@ -879,6 +851,7 @@ impl<T: Transport> Session<T> {
             overlay: None,
             message: String::new(),
             pairing_hidden: false,
+            heard: Vec::new(),
         }
     }
 
@@ -889,13 +862,10 @@ impl<T: Transport> Session<T> {
     fn handle(&mut self, key: KeyCode, drawn: Drawn) -> Option<Outcome> {
         self.message.clear();
         match self.overlay.take() {
-            Some(Overlay::Choosing(Choice::Protocol)) => {
+            Some(Overlay::ChoosingProtocol) => {
                 self.overlay =
                     chosen(self.protocol(), key).map(|to| Overlay::Confirming(Prompt::Switch(to)));
                 return None;
-            }
-            Some(Overlay::Choosing(Choice::Passkey)) => {
-                return chosen_no_passkey(key).and_then(|no_passkey| self.pair(no_passkey));
             }
             Some(Overlay::Confirming(prompt)) => {
                 return (key == KeyCode::Char('y')).then(|| {
@@ -909,6 +879,13 @@ impl<T: Transport> Session<T> {
         if key == KeyCode::Esc && matches!(self.shown(), Some(Shown::Pairing)) {
             self.pairing_hidden = true;
             return None;
+        }
+        if matches!(self.shown(), Some(Shown::Pairing))
+            && let KeyCode::Char(c) = key
+            && let Some(place) = c.to_digit(10)
+            && let Some(device) = device_at(&self.heard, place as usize).cloned()
+        {
+            return self.pick(device);
         }
         let rows = drawn.event_rows;
         let history = &mut self.history;
@@ -928,8 +905,8 @@ impl<T: Transport> Session<T> {
             }
             KeyCode::Char(c) => match self.key(c) {
                 Some(Key::Ask(prompt)) => self.overlay = Some(Overlay::Confirming(prompt)),
-                Some(Key::Choose(choice)) => self.overlay = Some(Overlay::Choosing(choice)),
-                Some(Key::Pair) => return self.pair(false),
+                Some(Key::ChooseProtocol) => self.overlay = Some(Overlay::ChoosingProtocol),
+                Some(Key::Pair) => return self.pair(),
                 Some(Key::Moves) => self.show_moves(),
                 Some(Key::Devices) => self.show_devices(),
                 Some(Key::Info) => {
@@ -972,10 +949,9 @@ impl<T: Transport> Session<T> {
         }
     }
 
-    fn pair(&mut self, no_passkey: bool) -> Option<Outcome> {
-        let protocol = self.protocol();
-        match crate::cli::pair(&mut self.device, protocol, no_passkey) {
-            Ok(_) => {
+    fn pair(&mut self) -> Option<Outcome> {
+        match self.device.pair() {
+            Ok(()) => {
                 self.pairing_hidden = false;
                 Some(Outcome::Poll)
             }
@@ -1013,7 +989,8 @@ impl<T: Transport> Session<T> {
     fn refresh(&mut self, status: Result<Status>) -> Result<()> {
         let refreshed = status
             .and_then(|s| self.history.refresh(&mut self.device, s))
-            .and_then(|()| self.reread_pane());
+            .and_then(|()| self.reread_pane())
+            .and_then(|()| self.reread_heard());
         match refreshed {
             Ok(()) => self.refresh_error = None,
             Err(e) if e.is::<Lost>() => return Err(e),
@@ -1023,6 +1000,28 @@ impl<T: Transport> Session<T> {
             self.pairing_hidden = false;
         }
         Ok(())
+    }
+
+    fn reread_heard(&mut self) -> Result<()> {
+        self.heard = if self.history.status.pairing_window == PairingWindow::Picking {
+            self.device.heard()?
+        } else {
+            Vec::new()
+        };
+        Ok(())
+    }
+
+    fn pick(&mut self, device: HeardDevice) -> Option<Outcome> {
+        match self.device.pair_with(&device) {
+            Ok(()) => {
+                self.heard.clear();
+                Some(Outcome::Poll)
+            }
+            Err(e) => {
+                self.fail(&e);
+                None
+            }
+        }
     }
 
     fn reread_pane(&mut self) -> Result<()> {
@@ -1084,11 +1083,26 @@ impl<T: Transport> Session<T> {
     }
 
     fn pairing_modal(&self) -> Option<Modal> {
+        let mut keys = Vec::new();
         let (title, body) = match &self.history.status.pairing_window {
             PairingWindow::Closed => return None,
             PairingWindow::Open => (
                 "Pairing open",
-                words(&sentence(pairing_how(self.protocol()))),
+                vec![paragraph(&sentence(pairing_how(self.protocol())))],
+            ),
+            PairingWindow::Picking => {
+                let how = paragraph(&sentence(picking_how()));
+                let lines = heard_lines(&self.heard)
+                    .into_iter()
+                    .map(|line| vec![toned_line(line)]);
+                if !self.heard.is_empty() {
+                    keys.push((format!("1-{}", self.heard.len()), "pick".to_string()));
+                }
+                ("Pairing open", std::iter::once(how).chain(lines).collect())
+            }
+            PairingWindow::Picked { name } => (
+                "Pairing open",
+                vec![paragraph(&sentence(&pairing_picked(name.as_deref())))],
             ),
             PairingWindow::PasskeyAwaited(a) => {
                 let prompt = passkey_prompt(a);
@@ -1121,14 +1135,15 @@ impl<T: Transport> Session<T> {
                     )
                     .chain(words(&prompt.after))
                     .chain(close)
+                    .map(Line::from)
                     .collect();
-                ("Passkey", body)
+                ("Passkey", vec![body])
             }
         };
         Some(Modal {
             title,
-            body: vec![body],
-            keys: Vec::new(),
+            body,
+            keys,
             note: Some("esc hides"),
             color: Color::Yellow,
         })
@@ -1136,7 +1151,7 @@ impl<T: Transport> Session<T> {
 
     fn overlay_modal(&self) -> Option<Modal> {
         Some(match self.overlay.as_ref()? {
-            Overlay::Choosing(choice) => choice.modal(self.protocol()),
+            Overlay::ChoosingProtocol => protocol_choice(self.protocol()),
             Overlay::Confirming(p) => Modal::question(
                 "Confirm",
                 &p.question(self.protocol()),
@@ -1186,16 +1201,14 @@ impl<T: Transport> App<T> {
     }
 
     fn poll_every(&self) -> Duration {
-        match &self.connection {
-            Connection::Connected(session)
-                if matches!(
-                    session.history.status.pairing_window,
-                    PairingWindow::PasskeyAwaited(_)
-                ) =>
-            {
-                PASSKEY_POLL_EVERY
-            }
-            _ => POLL_EVERY,
+        let Connection::Connected(session) = &self.connection else {
+            return POLL_EVERY;
+        };
+        match session.history.status.pairing_window {
+            PairingWindow::PasskeyAwaited(_)
+            | PairingWindow::Picking
+            | PairingWindow::Picked { .. } => crate::cli::PAIRING_POLL,
+            PairingWindow::Closed | PairingWindow::Open => POLL_EVERY,
         }
     }
 
@@ -1324,7 +1337,7 @@ fn info_modal(s: &Status) -> Modal {
     ];
     Modal {
         title: "Info",
-        body: rows.iter().map(|row| words(row)).collect(),
+        body: rows.iter().map(|row| paragraph(row)).collect(),
         keys: Vec::new(),
         note: Some("any key closes"),
         color: HINT_COLOR,
@@ -1343,6 +1356,10 @@ fn dongle_title(status: Option<&Status>) -> Line<'static> {
     title
 }
 
+fn toned_line(parts: Vec<(String, Tone)>) -> Line<'static> {
+    Line::from_iter(parts.into_iter().map(|(text, tone)| toned(text, tone)))
+}
+
 fn toned(text: String, tone: Tone) -> Span<'static> {
     match tone {
         Tone::Plain => Span::raw(text),
@@ -1355,12 +1372,12 @@ fn device_title(s: &Status, d: &SlotStatus) -> Line<'static> {
     let mut parts = vec![(s.kind_name(d.slot).to_string(), Tone::Plain)];
     if let Some(name) = &d.name {
         parts.push((TITLE_SEPARATOR.into(), Tone::Plain));
-        parts.extend(name_parts(name, d.pairing));
+        parts.extend(name_parts(name, d.pairing.is_some_and(|p| p.bolt)));
     }
     if let Some(b) = d.battery {
         parts.push((format!("{TITLE_SEPARATOR}{}", battery(b)), Tone::Plain));
     }
-    Line::from_iter(parts.into_iter().map(|(text, tone)| toned(text, tone)))
+    toned_line(parts)
 }
 
 impl<T: Transport> Connection<T> {
@@ -1396,7 +1413,8 @@ fn dongle_lines(status: Option<&Status>) -> Vec<Line<'static>> {
     ))];
     let pairing = match &s.pairing_window {
         PairingWindow::Closed => None,
-        PairingWindow::Open => Some("pairing open".to_string()),
+        PairingWindow::Open | PairingWindow::Picking => Some("pairing open".to_string()),
+        PairingWindow::Picked { name } => Some(pairing_picked(name.as_deref())),
         PairingWindow::PasskeyAwaited(a) => Some(waits_for_passkey(waiting_device(a))),
     };
     if let Some(label) = pairing {
@@ -1688,7 +1706,7 @@ fn draw_devices(f: &mut Frame, area: Rect, devices: &[StoredDevice], protocol: P
     let block = Block::bordered().title(padded("stored devices; a device's number forgets it"));
     let lines: Vec<Line> = device_lines(devices, protocol)
         .into_iter()
-        .map(|l| Line::from_iter(l.parts().into_iter().map(|(text, tone)| toned(text, tone))))
+        .map(|l| toned_line(l.parts()))
         .collect();
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
@@ -2646,7 +2664,7 @@ mod tests {
     fn the_protocol_key_asks_which_of_the_other_two() {
         let mut app = app_with(status_of(Protocol::Unifying));
         let s = session(&mut app);
-        assert!(matches!(s.key('p'), Some(Key::Choose(Choice::Protocol))));
+        assert!(matches!(s.key('p'), Some(Key::ChooseProtocol)));
         s.handle(KeyCode::Char('p'), Drawn::default());
         assert_eq!(
             boxed(&mut app),
@@ -2772,47 +2790,6 @@ mod tests {
                 "esc hides"
             ]
         );
-    }
-
-    #[test]
-    fn the_bluetooth_pair_key_asks_whether_the_keyboard_types_a_passkey() {
-        let sent = std::rc::Rc::new(std::cell::Cell::new(None));
-        let seen = sent.clone();
-        let mut app = app_on(
-            Device::new(
-                Fake::new(move |req| {
-                    seen.set(Some((req[0], req[2])));
-                    parts(req[0], req[1], &[0])
-                }),
-                0,
-            ),
-            status_of(Protocol::Bluetooth),
-        );
-        press(&mut app, 'a');
-        assert_eq!(sent.get(), None);
-        assert_eq!(
-            boxed(&mut app),
-            [
-                "Pair",
-                "Pair how?",
-                "",
-                "p with a passkey  n no passkey  any other key cancels"
-            ]
-        );
-        press(&mut app, 'n');
-        assert_eq!(sent.get(), Some((Command::Pair as u8, 1)));
-        assert_eq!(
-            boxed(&mut app)[1],
-            "Put the keyboard or mouse in Bluetooth pairing mode"
-        );
-        press(&mut app, 'a');
-        press(&mut app, 'x');
-        assert_eq!(boxed(&mut app)[0], "Pairing open");
-        assert!(footer(&mut app).starts_with("a pair"));
-        assert_eq!(sent.get(), Some((Command::Pair as u8, 1)));
-        press(&mut app, 'a');
-        press(&mut app, 'p');
-        assert_eq!(sent.get(), Some((Command::Pair as u8, 0)));
     }
 
     fn app_moving_from(status: Status) -> (App<Fake>, std::rc::Rc<std::cell::Cell<Option<u32>>>) {
@@ -3020,7 +2997,7 @@ mod tests {
         assert_eq!(app.poll_every(), POLL_EVERY);
         s.pairing_window = clicked(623, None);
         app = app_with(s);
-        assert_eq!(app.poll_every(), PASSKEY_POLL_EVERY);
+        assert_eq!(app.poll_every(), crate::cli::PAIRING_POLL);
     }
 
     #[test]
@@ -3089,6 +3066,95 @@ mod tests {
         s.minute_next = s.minute_oldest;
         s.events_total = s.events_oldest;
         app.refresh(Ok(s));
+    }
+
+    #[test]
+    fn the_bluetooth_pairing_box_lists_the_devices_heard_and_a_number_picks_one() {
+        let sent = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = sent.clone();
+        let mut app = app_on(
+            Device::new(
+                Fake::new(move |req| {
+                    seen.borrow_mut().push((req[0], req[6..13].to_vec()));
+                    let payload = if req[0] == Command::Heard as u8 {
+                        crate::protocol::tests::fixture("heard.hex")
+                    } else {
+                        vec![0]
+                    };
+                    parts(req[0], req[1], &payload)
+                }),
+                0,
+            ),
+            closed(status_of(Protocol::Bluetooth)),
+        );
+        let mut s = status_of(Protocol::Bluetooth);
+        s.pairing_window = PairingWindow::Picking;
+        s.minute_next = s.minute_oldest;
+        s.events_total = s.events_oldest;
+        app.refresh(Ok(s));
+        assert_eq!(
+            boxed(&mut app),
+            [
+                "Pairing open",
+                "Put the keyboard or mouse in Bluetooth pairing mode, then",
+                "pick it",
+                "1  mouse     MX Master 3S · Bolt  -60 dBm",
+                "2  keyboard  MX Keys              -80 dBm",
+                "",
+                "1-2 pick  esc hides"
+            ]
+        );
+        press(&mut app, '1');
+        let mouse = [1, 0x5a, 0x3c, 0x11, 0xe0, 0xf2, 0xc8].to_vec();
+        assert!(
+            sent.borrow().contains(&(Command::PairWith as u8, mouse)),
+            "{:?}",
+            sent.borrow()
+        );
+        assert!(
+            !footer(&mut app).contains("MX Master"),
+            "{}",
+            footer(&mut app)
+        );
+    }
+
+    #[test]
+    fn the_bluetooth_pairing_box_names_the_picked_device() {
+        let mut s = status_of(Protocol::Bluetooth);
+        s.pairing_window = PairingWindow::Picked {
+            name: Some("MX Master 3S".into()),
+        };
+        let mut app = app_with(s);
+        assert_eq!(
+            boxed(&mut app),
+            ["Pairing open", "Pairing MX Master 3S", "", "esc hides"]
+        );
+    }
+
+    #[test]
+    fn the_status_is_polled_faster_while_a_device_is_picked() {
+        let mut s = status_of(Protocol::Bluetooth);
+        s.pairing_window = PairingWindow::Picking;
+        assert_eq!(app_with(s.clone()).poll_every(), crate::cli::PAIRING_POLL);
+        s.pairing_window = PairingWindow::Picked { name: None };
+        assert_eq!(app_with(s.clone()).poll_every(), crate::cli::PAIRING_POLL);
+        s.pairing_window = PairingWindow::Open;
+        assert_eq!(app_with(s).poll_every(), POLL_EVERY);
+    }
+
+    #[test]
+    fn a_bluetooth_window_opened_at_plug_in_asks_for_no_pick() {
+        let mut app = app_with(closed(status_of(Protocol::Bluetooth)));
+        refreshed_with_pairing(&mut app, Protocol::Bluetooth, true);
+        assert_eq!(
+            boxed(&mut app),
+            [
+                "Pairing open",
+                "Put the keyboard or mouse in Bluetooth pairing mode",
+                "",
+                "esc hides"
+            ]
+        );
     }
 
     fn refreshed_with_events(app: &mut App<Fake>, protocol: Protocol, new: u32) {

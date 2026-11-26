@@ -80,12 +80,8 @@ enum Cmd {
         #[arg(value_enum)]
         name: Option<ProtocolName>,
     },
-    /// Open pairing for 30 s
-    Pair {
-        /// Under Bluetooth, pair a keyboard that cannot be typed a passkey
-        #[arg(long)]
-        no_passkey: bool,
-    },
+    /// Open pairing; under Bluetooth, list the devices in pairing mode to pick one
+    Pair,
     /// List the devices the dongle stores; under Bluetooth the most recently connected first
     Devices,
     /// Remove a stored device, by its number in `devices`
@@ -149,19 +145,21 @@ fn main() -> Result<()> {
             cli::channels(&mut cli::open_nuphy(serial, "forced channels")?.0, forced)
         }
         Cmd::Protocol { name } => cli::protocol(serial, name.map(Into::into)),
-        Cmd::Pair { no_passkey } => {
+        Cmd::Pair => {
             let (mut dev, s) = device::open(serial)?;
-            let (line, passkey_asked) = cli::pair(&mut dev, s.protocol(), no_passkey)?;
-            println!("{line}");
-            if passkey_asked {
+            dev.pair()?;
+            println!("{}", format::pairing_open(s.protocol()));
+            if s.protocol() == Protocol::Bluetooth {
                 let stdout = std::io::stdout();
                 let highlight = std::io::IsTerminal::is_terminal(&stdout);
+                let picks = cli::typed_lines();
                 cli::follow_pairing(
                     &mut dev,
                     s.events_total,
                     cli::PAIRING_POLL,
                     &mut stdout.lock(),
                     highlight,
+                    &picks,
                 )?;
             }
             Ok(())

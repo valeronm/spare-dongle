@@ -6,7 +6,7 @@
 use core::slice;
 
 use diagwire::{
-    Command, Device, Event, Minute, Protocol, Request, Status, WatchChannel, WatchHead,
+    Command, Device, Event, Heard, Minute, Protocol, Request, Status, WatchChannel, WatchHead,
 };
 
 /// # Safety
@@ -212,6 +212,18 @@ pub unsafe extern "C" fn diag_encode_devices(
     n: usize,
 ) -> usize {
     unsafe { diagwire::encode_devices(out(buf, cap), items(devices, n)) }
+}
+
+/// # Safety
+/// `buf` is valid for writes of `cap` bytes and `heard` for `n` reads.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn diag_encode_heard(
+    buf: *mut u8,
+    cap: usize,
+    heard: *const Heard,
+    n: usize,
+) -> usize {
+    unsafe { diagwire::encode_heard(out(buf, cap), items(heard, n)) }
 }
 
 #[unsafe(no_mangle)]

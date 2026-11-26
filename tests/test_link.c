@@ -680,13 +680,13 @@ static void test_a_requested_move_takes_any_of_the_keyboards_channels(void)
 static void test_a_requested_move_works_on_a_silent_paired_link(void)
 {
 	init(home);
-	tick(PAIRWIN_MS);
+	tick(DIAG_PAIR_WINDOW_MS);
 	CHECK_EQ(l.channel, home[0]);
 	CHECK_EQ(move(44), CHANMOVE_DONE);
 	CHECK_EQ(l.channel, 44);
-	tick(PAIRWIN_MS + 400);
+	tick(DIAG_PAIR_WINDOW_MS + 400);
 	CHECK(!out.set_channel);
-	message(NUPHY_KEEPALIVE, 1, PAIRWIN_MS + 410);
+	message(NUPHY_KEEPALIVE, 1, DIAG_PAIR_WINDOW_MS + 410);
 	CHECK(out.up);
 	CHECK_EQ(l.channel, 44);
 }
@@ -706,7 +706,7 @@ static void test_a_move_needs_a_paired_keyboard_and_pairing_closed(void)
 	CHECK_EQ(move(44), CHANMOVE_NOT_MOVABLE);
 	CHECK_EQ(movable(), CHANMOVE_NO_HOME);
 	init(NULL);
-	tick(PAIRWIN_MS);
+	tick(DIAG_PAIR_WINDOW_MS);
 	CHECK_EQ(move(44), CHANMOVE_NOT_MOVABLE);
 	CHECK_EQ(movable(), CHANMOVE_NO_HOME);
 	CHECK_EQ(link_home(&l), CHANMOVE_NO_HOME);
@@ -769,14 +769,14 @@ static void test_a_never_paired_dongle_lists_the_fixed_channels(void)
 static void test_a_paired_dongle_waits_on_home_while_pairing_is_closed(void)
 {
 	init(home);
-	tick(PAIRWIN_MS - 100);
+	tick(DIAG_PAIR_WINDOW_MS - 100);
 	CHECK_EQ(l.channel, 2);
-	tick(PAIRWIN_MS);
+	tick(DIAG_PAIR_WINDOW_MS);
 	CHECK(out.set_channel);
 	CHECK_EQ(out.channel, home[0]);
-	tick(PAIRWIN_MS + 400);
+	tick(DIAG_PAIR_WINDOW_MS + 400);
 	CHECK(!out.set_channel);
-	tick(PAIRWIN_MS + 800);
+	tick(DIAG_PAIR_WINDOW_MS + 800);
 	CHECK(!out.set_channel);
 	CHECK_EQ(l.channel, home[0]);
 }

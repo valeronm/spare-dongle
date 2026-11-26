@@ -642,7 +642,6 @@ static void on_advert(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 	struct btpolicy_advert *a = &ev.advert;
 	bool response = type == BT_GAP_ADV_TYPE_SCAN_RSP;
 
-	ARG_UNUSED(rssi);
 	if (response) {
 		if (!pending_set || memcmp(pending.addr, addr, sizeof(pending.addr)) != 0) {
 			return;
@@ -656,6 +655,7 @@ static void on_advert(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 		a->kind = DEVICE_NO_KIND;
 		memcpy(a->addr, addr, sizeof(a->addr));
 	}
+	a->rssi = rssi;
 	if (!a->directed) {
 		bt_data_parse(data, parse_field, a);
 	}

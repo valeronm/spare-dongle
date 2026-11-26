@@ -115,7 +115,7 @@ bool unifying_pairing_open(struct unifying_pairing *p, enum pairwin_cause cause,
 	if (first_place(p, false) == UNIFYING_NO_PLACE) {
 		return false;
 	}
-	pairwin_open(&p->window, cause, unifying_has_device(p), (uint32_t)now_ms);
+	pairwin_open(&p->window, cause, unifying_has_device(p), DIAG_PAIR_WINDOW_MS, (uint32_t)now_ms);
 	return true;
 }
 

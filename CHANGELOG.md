@@ -8,6 +8,11 @@
   a Logi Bolt receiver, and `devices`, `status` and the live view mark it Bolt after its name.
 - While a Logi Bolt mouse enters its passkey, `pair` counts the clicks made and the live view
   highlights the next click.
+- In Bluetooth mode `spare-dongle pair` and the live view's `a` list the devices heard in pairing
+  mode and pair only the one picked by its number, and pairing stays open for 60 seconds.
+- `spare-dongle pair --no-passkey` and the live view's choice between a passkey and none are gone:
+  every device paired from the tool is offered a passkey, and a keyboard that cannot take one pairs
+  without it.
 - The live view ignores pasted text, which it used to take as key presses.
 - A button already held when a Bluetooth mouse connects, such as both buttons closing a Logi Bolt
   passkey, does nothing until it is released.

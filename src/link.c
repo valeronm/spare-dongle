@@ -330,7 +330,7 @@ void link_set_host_suspended(struct link *l, bool suspended)
 
 void link_open_pairing(struct link *l, enum pairwin_cause cause, uint32_t now_ms)
 {
-	pairwin_open(&l->window, cause, l->own_known, now_ms);
+	pairwin_open(&l->window, cause, l->own_known, DIAG_PAIR_WINDOW_MS, now_ms);
 }
 
 bool link_pairing_open(const struct link *l, uint32_t now_ms)

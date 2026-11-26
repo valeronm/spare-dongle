@@ -808,6 +808,11 @@ void core_reply_devices(const struct diag_request *req, const struct diag_device
 		   DIAG_AFTER_NONE);
 }
 
+void core_reply_heard(const struct diag_request *req, const struct diag_heard *h, size_t n)
+{
+	diag_reply(req, payload, diag_encode_heard(payload, sizeof(payload), h, n), DIAG_AFTER_NONE);
+}
+
 bool core_take_request(struct diag_request *out)
 {
 	while (diag_take_request(out)) {

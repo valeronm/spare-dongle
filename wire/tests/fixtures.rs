@@ -128,6 +128,7 @@ fn a_protocol_answers_only_its_commands() {
         let want = match c {
             Command::ForceChannels => [true, false, false],
             Command::Noise | Command::Move | Command::Watch => [true, true, false],
+            Command::Heard | Command::PairWith => [false, false, true],
             _ => [true, true, true],
         };
         assert_eq!(answered, want, "{c:?}");
@@ -275,6 +276,13 @@ fn watch_and_devices_survive_a_round_trip() {
                 .unwrap();
             encode_devices(out, &devices)
         }),
+        ("heard.hex", |payload, out| {
+            let heard: Vec<Heard> = decode_heard(payload)
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            encode_heard(out, &heard)
+        }),
         ("status.hex", |payload, out| {
             Status::decode(payload).unwrap().encode(out)
         }),
@@ -393,7 +401,7 @@ fn every_detail() -> Vec<Detail> {
             passkey: true,
         },
         Detail::BtRefused {
-            refused: Refused::NoPasskey as u8,
+            refused: Refused::ByKeyboard as u8,
         },
         Detail::BtBondLost { addr },
         Detail::BtForgotten {
@@ -466,4 +474,18 @@ fn time_since_input_is_whole_seconds_up_to_the_most_a_u16_holds() {
     assert_eq!(since_input_s(65_535_000), u16::MAX);
     assert_eq!(since_input_s(100_000_000), u16::MAX);
     assert_eq!(since_input_s(-1), u16::MAX);
+}
+
+#[test]
+fn a_heard_device_carries_its_kind_bolt_flag_and_signal() {
+    let heard: Vec<Heard> = decode_heard(&fixture("heard.hex"))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(heard.len(), 2);
+    assert_eq!(
+        (heard[0].kind, heard[0].flags, heard[0].rssi),
+        (1, HEARD_BOLT, -60)
+    );
+    assert_eq!((heard[1].kind, heard[1].flags, heard[1].rssi), (0, 0, -80));
 }

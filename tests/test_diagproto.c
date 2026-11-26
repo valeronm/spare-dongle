@@ -2,6 +2,7 @@
 #include "fixture.h"
 #include "test.h"
 #include "btlist.h"
+#include "btseen.h"
 #include "chanpick.h"
 #include "chanwatch.h"
 #include "diagwire.h"
@@ -85,7 +86,7 @@ static void test_a_mouse_slot_status_matches_fixture(void)
 		.protocol = PROTOCOL_BLUETOOTH,
 		.pairing_window = DIAG_WINDOW_PASSKEY_AWAITED,
 		.passkey = 123456,
-		.passkey_name = "MX Keys",
+		.pairing_name = "MX Keys",
 		.slot_count = 2,
 		.slots = {{.kind = DEVICE_KIND_KEYBOARD, .stored = true},
 			  {.kind = DEVICE_KIND_MOUSE, .stored = true, .ready = true}},
@@ -195,6 +196,37 @@ static size_t encode_devices(uint8_t *out, const struct btlist *l,
 	return diag_encode_devices(out, DIAG_DEVICES_MAX, devices, n);
 }
 
+static void test_heard_devices_match_fixture(void)
+{
+	struct btseen seen = {0};
+	struct diag_heard heard[BTSEEN_MAX];
+	uint8_t got[DIAG_HEARDS_MAX];
+	uint8_t want[DIAG_HEARDS_MAX];
+	size_t want_len = load_fixture("heard.hex", want, sizeof(want));
+	struct btpolicy_advert keyboard = {
+		.addr = {1, 0xd9, 0x9a, 0xa6, 0x49, 0xbb, 0xeb},
+		.connectable = true,
+		.kind = DEVICE_KIND_KEYBOARD,
+		.name = "MX Keys",
+		.rssi = -80,
+	};
+	struct btpolicy_advert mouse = {
+		.addr = {1, 0x5a, 0x3c, 0x11, 0xe0, 0xf2, 0xc8},
+		.connectable = true,
+		.bolt = true,
+		.kind = DEVICE_KIND_MOUSE,
+		.name = "MX Master 3S",
+		.rssi = -60,
+	};
+	size_t n;
+
+	btseen_heard(&seen, &mouse, 0);
+	btseen_heard(&seen, &keyboard, 0);
+	n = btseen_fresh(&seen, 0, heard);
+	CHECK_EQ(diag_encode_heard(got, sizeof(got), heard, n), want_len);
+	CHECK_MEM(got, want, want_len);
+}
+
 static void test_devices_match_fixture(void)
 {
 	struct btlist list = {.count = 2};
@@ -252,6 +284,7 @@ int main(void)
 	RUN(test_a_watch_without_a_threshold_counts_nothing);
 	RUN(test_a_full_watch_fits_the_payload_buffer);
 	RUN(test_devices_match_fixture);
+	RUN(test_heard_devices_match_fixture);
 	RUN(test_a_device_ready_in_no_slot_is_sent_with_none);
 	RUN(test_a_command_or_protocol_it_does_not_know_is_answered);
 	return TEST_EXIT();

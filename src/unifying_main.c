@@ -393,7 +393,7 @@ static void serve_diag(const struct diag_request *req, uint64_t now)
 			diag_reply_error(req, DIAG_ERROR_LIST_FULL, 0);
 			break;
 		}
-		printk("pairing open for %u s\n", PAIRWIN_MS / 1000);
+		printk("pairing open for %u s\n", DIAG_PAIR_WINDOW_MS / 1000);
 		core_log_pairing_opened(&session.pairing.window);
 		diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
 		break;

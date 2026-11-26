@@ -31,6 +31,8 @@ struct btpolicy_advert {
 	enum device_kind kind;
 	/* Empty unless the advert or its scan response named the device. */
 	char name[BTPOLICY_NAME_MAX + 1];
+	/* The signal of the advert, or of its scan response once that arrived. */
+	int8_t rssi;
 };
 
 enum btpolicy_state {
@@ -65,11 +67,6 @@ enum btpolicy_failure {
 	BTPOLICY_FAILURE_LINK,
 };
 
-enum btpolicy_pairing {
-	BTPOLICY_PAIRING_KEPT,
-	BTPOLICY_PAIRING_FORGOTTEN,
-};
-
 enum btpolicy_security {
 	BTPOLICY_PAIRING_REFUSED,
 	/* The same device refused earlier in this window. */
@@ -99,11 +96,6 @@ struct btpolicy {
 	struct btpolicy_slot slots[DEVICE_KINDS];
 	/* Kept by address, past the slot's own connection. */
 	struct btpolicy_hush hushes[DEVICE_KINDS];
-	bool window_open;
-	bool passkey_demanded;
-	/* Devices that refused to pair in the open window. */
-	uint8_t refused[BTPOLICY_STORED_MAX][BTPOLICY_ADDR_LEN];
-	uint8_t refused_count;
 };
 
 enum device_kind btpolicy_kind_of(uint16_t appearance);
@@ -119,10 +111,7 @@ void btpolicy_dropping(struct btpolicy *p, enum device_kind kind);
 void btpolicy_connected(struct btpolicy *p, enum device_kind kind);
 /* The device being connected to or connected in the slot, or NULL. */
 const uint8_t *btpolicy_peer(const struct btpolicy *p, enum device_kind kind);
-/* A keyboard that paired without the passkey its window demands is to be forgotten; it is not
- * wanted again until the window closes. A mouse is always kept. */
-enum btpolicy_pairing btpolicy_paired(struct btpolicy *p, enum device_kind kind,
-				      bool passkey_used);
+void btpolicy_paired(struct btpolicy *p, enum device_kind kind);
 void btpolicy_ready(struct btpolicy *p, enum device_kind kind);
 bool btpolicy_is_ready(const struct btpolicy *p, enum device_kind kind);
 /* A stored device whose connection ended before it was ready leaves its slot alone for
@@ -130,11 +119,8 @@ bool btpolicy_is_ready(const struct btpolicy *p, enum device_kind kind);
  * connection. */
 void btpolicy_disconnected(struct btpolicy *p, enum device_kind kind, uint32_t now_ms,
 			   bool never_joined);
-/* A device that refuses to pair is not wanted again until the window closes. */
 enum btpolicy_security btpolicy_security_failed(struct btpolicy *p, enum device_kind kind,
 						enum btpolicy_failure why);
-/* Told the pairing window's state every tick; the refusals are forgotten when it closes. */
-void btpolicy_window(struct btpolicy *p, bool open, bool passkey_demanded);
 /* The slot's device is to be dropped and not wanted until it has gone BTPOLICY_QUIET_MS without
  * advertising, since a device that lost its link keeps advertising until it sleeps; an idle slot
  * is left alone. */
@@ -144,7 +130,7 @@ void btpolicy_unhush(struct btpolicy *p);
  * scan response; fast while a hushed device may still be advertising, up to BTPOLICY_FAST_SCAN_MS
  * after its drop, since the slow scan can miss a device's adverts for longer than
  * BTPOLICY_QUIET_MS. */
-enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, uint32_t now_ms);
+enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, bool window_open, uint32_t now_ms);
 /* A Bolt mouse demands a passkey once told it pairs with a Bolt receiver, and enters it by
  * clicks; a Bolt keyboard has not been seen to take that. */
 bool btpolicy_pairs_by_clicks(enum device_kind kind, bool bolt);
@@ -159,9 +145,5 @@ enum btpolicy_keypress {
 	BTPOLICY_ENTRY_CLEARED,
 	BTPOLICY_ENTRY_COMPLETED,
 };
-
-/* The keys or clicks of the passkey a device has entered after a keypress notification; a device
- * may send them in any order. */
-uint8_t btpolicy_entered(uint8_t entered, enum btpolicy_keypress keypress, uint8_t length);
 
 #endif

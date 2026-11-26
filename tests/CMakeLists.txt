@@ -23,7 +23,7 @@ suite(noise ../src/noise.c)
 suite(chanwatch ../src/chanwatch.c ../src/noise.c)
 suite(link ../src/link.c ../src/nuphy.c ../src/pairwin.c ../src/reports.c ../src/blink.c)
 suite(diagproto ../src/link.c ../src/nuphy.c ../src/pairwin.c
-  ../src/unifying.c ../src/hidpp.c ../src/reports.c ../src/chanwatch.c ../src/noise.c ../src/btlist.c ../src/protocol.c)
+  ../src/unifying.c ../src/hidpp.c ../src/reports.c ../src/chanwatch.c ../src/noise.c ../src/btlist.c ../src/btseen.c ../src/protocol.c)
 target_compile_definitions(test_diagproto PRIVATE
   FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../tool/fixtures")
 suite(history ../src/history.c ../src/noise.c)
@@ -41,5 +41,7 @@ target_compile_definitions(test_hidkeys PRIVATE
   FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 suite(btpolicy ../src/btpolicy.c)
 suite(btlist ../src/btlist.c)
+suite(btseen ../src/btseen.c)
+suite(btpair ../src/btpair.c ../src/btpolicy.c ../src/btseen.c ../src/pairwin.c)
 suite(bootinfo ../src/bootinfo.c)
 suite(blink ../src/blink.c)

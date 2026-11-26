@@ -4,13 +4,13 @@
 #include <zephyr/sys/printk.h>
 #include "ble.h"
 #include "btlist.h"
+#include "btpair.h"
 #include "btpolicy.h"
 #include "core.h"
 #include "diag.h"
 #include "hidkeys.h"
 #include "hidmap.h"
 #include "hidpp.h"
-#include "pairwin.h"
 #include "store.h"
 #include "usb.h"
 
@@ -47,7 +47,7 @@ static struct hidmap maps[DEVICE_KINDS];
 static struct hidkeys keys;
 static struct btpolicy policy;
 static struct btlist list;
-static struct pairwin window;
+static struct btpair pair;
 
 /* What the dongle learns of a connected device; it starts over at each connection. */
 struct connected {
@@ -75,10 +75,6 @@ static struct {
 	uint8_t addr[BTPOLICY_ADDR_LEN];
 	struct hidpp hidpp;
 } runs[DEVICE_KINDS];
-static bool passkey_asked;
-static uint32_t awaited_passkey;
-static bool awaited_clicked;
-static uint8_t awaited_entered;
 static uint32_t rssi_tried_ms;
 static bool reported[DEVICE_SLOTS];
 static uint32_t report_ms[DEVICE_SLOTS];
@@ -143,19 +139,7 @@ static void fill_status(struct diag_status *st, uint8_t slot)
 	st->link_state = core_radio_has_failed() ? BT_LINK_START_FAILED
 			 : ready ? BT_LINK_READY
 				 : BT_LINK_NONE_READY;
-	if (pairwin_holder(&window) != DEVICE_NO_KIND) {
-		char name[BLE_NAME_MAX + 1];
-
-		ble_copy_name(pairwin_holder(&window), name);
-		st->pairing_window =
-			awaited_clicked ? DIAG_WINDOW_PASSKEY_CLICKED : DIAG_WINDOW_PASSKEY_AWAITED;
-		st->passkey = awaited_passkey;
-		st->passkey_entered = awaited_entered;
-		strncpy((char *)st->passkey_name, name, sizeof(st->passkey_name));
-	} else {
-		st->pairing_window = pairwin_is_open(&window, k_uptime_get_32()) ? DIAG_WINDOW_OPEN
-										 : DIAG_WINDOW_CLOSED;
-	}
+	btpair_status(&pair, k_uptime_get_32(), st);
 	st->pairing = pairing_of(kind);
 	st->battery = battery_of(c);
 	if (c->rssi_read) {
@@ -212,7 +196,7 @@ static void host_suspended(bool suspended)
 
 static bool pairing(void)
 {
-	return pairwin_is_open(&window, k_uptime_get_32());
+	return btpair_is_open(&pair, k_uptime_get_32());
 }
 
 static const struct core_loop loop = {
@@ -309,7 +293,7 @@ static void on_advert(const struct btpolicy_advert *heard)
 	if (a.stored) {
 		a.kind = btlist_kind(&list, a.addr);
 	}
-	switch (btpolicy_wants(&policy, &a, pairwin_is_open(&window, now), ble_stored_count(), now)) {
+	switch (btpair_wants(&pair, &policy, &a, ble_stored_count(), now)) {
 	case BTPOLICY_IGNORE:
 		return;
 	case BTPOLICY_REPLACE:
@@ -330,7 +314,7 @@ static void on_advert(const struct btpolicy_advert *heard)
 
 static void end_passkey_attempt(enum device_kind kind)
 {
-	if (pairwin_end_attempt(&window, kind)) {
+	if (pairwin_end_attempt(&pair.window, kind)) {
 		core_log_pairing_closed();
 	}
 }
@@ -341,7 +325,7 @@ static void on_failed(const struct ble_event *ev)
 	if (ev->failed.stage != BLE_STAGE_SECURITY) {
 		return;
 	}
-	switch (btpolicy_security_failed(&policy, ev->kind, ev->failed.why)) {
+	switch (btpair_security_failed(&pair, &policy, ev->kind, ev->failed.why)) {
 	case BTPOLICY_PAIRING_REFUSED:
 		printk("bluetooth pairing refused\n");
 		core_log(slot_of(ev->kind),
@@ -534,39 +518,26 @@ static void on_event(const struct ble_event *ev)
 		on_failed(ev);
 		break;
 	case BLE_PAIRED:
-		if (btpolicy_paired(&policy, ev->kind, ev->paired.passkey_used) ==
-		    BTPOLICY_PAIRING_FORGOTTEN) {
-			printk("bluetooth pairing refused: no passkey typed\n");
-			core_log(slot_of(ev->kind),
-				 (struct diag_detail){.tag = DIAG_DETAIL_BT_REFUSED,
-						       .BT_REFUSED = {.refused = HISTORY_REFUSED_NO_PASSKEY}});
-			forget(btpolicy_peer(&policy, ev->kind));
-			ble_disconnect(ev->kind);
-			break;
-		}
+		btpair_paired(&pair, &policy, ev->kind);
 		printk("bluetooth paired\n");
 		log_device((struct diag_detail){.tag = DIAG_DETAIL_BT_PAIRED, .BT_PAIRED = {.passkey = ev->paired.passkey_used}},
 			   ev->kind);
 		ble_copy_name(ev->kind, name);
 		save_list(btlist_paired(&list, btpolicy_peer(&policy, ev->kind), ev->kind,
 					ev->paired.passkey_used, ev->paired.bolt_mode, name));
-		pairwin_close(&window);
 		break;
 	case BLE_PASSKEY_AWAITED:
-		if (pairwin_hold(&window, ev->kind, k_uptime_get_32())) {
-			awaited_passkey = ev->passkey.value;
-			awaited_clicked = ev->passkey.clicked;
-			awaited_entered = 0;
-			ble_copy_name(ev->kind, name);
+		ble_copy_name(ev->kind, name);
+		if (btpair_passkey_awaited(&pair, ev->kind, ev->passkey.value, ev->passkey.clicked,
+					   name, k_uptime_get_32())) {
 			printk("bluetooth passkey awaited by \"%s\"\n", name);
 			log_device((struct diag_detail){.tag = DIAG_DETAIL_BT_PASSKEY_AWAITED}, ev->kind);
 		}
 		break;
 	case BLE_KEYPRESS:
-		if (pairwin_holder(&window) == ev->kind && awaited_clicked) {
-			awaited_entered = btpolicy_entered(awaited_entered, ev->keypress,
-							   DIAG_CLICK_PASSKEY_BITS);
-			printk("bluetooth keypress %d, %u entered\n", ev->keypress, awaited_entered);
+		if (btpair_keypress(&pair, ev->kind, ev->keypress)) {
+			printk("bluetooth keypress %d, %u entered\n", ev->keypress,
+			       pair.passkey.entered);
 		}
 		break;
 	case BLE_MAP_READ:
@@ -586,9 +557,7 @@ static void on_event(const struct ble_event *ev)
 
 static void open_pairing(const struct diag_request *req)
 {
-	bool with_passkey = (req->arg & DIAG_PAIR_NO_PASSKEY) == 0;
-	uint8_t reply[DIAG_PAIR_REPLY_LEN] = {with_passkey};
-	uint32_t passkey = 0;
+	uint32_t passkey;
 	int err;
 
 	if (core_radio_has_failed()) {
@@ -599,21 +568,18 @@ static void open_pairing(const struct diag_request *req)
 		diag_reply_error(req, DIAG_ERROR_LIST_FULL, 0);
 		return;
 	}
-	if (with_passkey) {
-		sys_csrand_get(&passkey, sizeof(passkey));
-		passkey %= PASSKEY_LIMIT;
-	}
-	err = ble_offer_passkey(with_passkey, passkey);
+	sys_csrand_get(&passkey, sizeof(passkey));
+	passkey %= PASSKEY_LIMIT;
+	err = ble_offer_passkey(true, passkey);
 	if (err) {
 		printk("bluetooth passkey not offered: %d\n", err);
 		diag_reply_error(req, DIAG_ERROR_RADIO, 0);
 		return;
 	}
-	passkey_asked = with_passkey;
-	pairwin_open(&window, PAIRWIN_REQUEST, true, k_uptime_get_32());
-	core_log_pairing_opened(&window);
-	printk("pairing open for %u s\n", PAIRWIN_MS / 1000);
-	diag_reply(req, reply, sizeof(reply), DIAG_AFTER_NONE);
+	btpair_open_to_pick(&pair, k_uptime_get_32());
+	core_log_pairing_opened(&pair.window);
+	printk("pairing open for %u s\n", DIAG_PICK_WINDOW_MS / 1000);
+	diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
 }
 
 static void send_devices(const struct diag_request *req)
@@ -652,6 +618,23 @@ static void forget_listed(const struct diag_request *req)
 	diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
 }
 
+static void send_heard(const struct diag_request *req)
+{
+	struct diag_heard heard[BTSEEN_MAX];
+
+	core_reply_heard(req, heard, btpair_heard(&pair, k_uptime_get_32(), heard));
+}
+
+static void pair_with(const struct diag_request *req)
+{
+	if (!btpair_pick(&pair, req->data, k_uptime_get_32())) {
+		diag_reply_error(req, DIAG_ERROR_NO_SUCH_DEVICE, 0);
+		return;
+	}
+	printk("bluetooth pairing picked a device\n");
+	diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
+}
+
 static void on_request(const struct diag_request *req)
 {
 	switch (req->command) {
@@ -663,6 +646,12 @@ static void on_request(const struct diag_request *req)
 		break;
 	case DIAG_COMMAND_FORGET:
 		forget_listed(req);
+		break;
+	case DIAG_COMMAND_HEARD:
+		send_heard(req);
+		break;
+	case DIAG_COMMAND_PAIR_WITH:
+		pair_with(req);
 		break;
 	default:
 		diag_reply_error(req, DIAG_ERROR_UNKNOWN_COMMAND, 0);
@@ -718,6 +707,7 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 	ARG_UNUSED(store_err);
 	core_start_history(&loop);
 	btpolicy_init(&policy);
+	btpair_init(&pair);
 	for (int k = 0; k < DEVICE_KINDS; k++) {
 		connection_over(k);
 	}
@@ -731,8 +721,8 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 		load_list();
 		printk("bluetooth started, %u stored\n", stored);
 		if (stored == 0) {
-			pairwin_open(&window, PAIRWIN_BOOT, false, k_uptime_get_32());
-			core_log_pairing_opened(&window);
+			btpair_open_at_boot(&pair, k_uptime_get_32());
+			core_log_pairing_opened(&pair.window);
 		}
 	}
 
@@ -751,20 +741,18 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 			on_request(&req);
 		}
 		now = k_uptime_get_32();
-		if (pairwin_ran_out(&window, now)) {
+		if (pairwin_ran_out(&pair.window, now)) {
 			core_log_pairing_closed();
 		}
-		if (!pairwin_is_open(&window, now)) {
-			passkey_asked = false;
+		if (!btpair_is_open(&pair, now)) {
 			ble_offer_passkey(false, 0);
 		}
 		read_rssi(now);
 		for (int k = 0; k < DEVICE_KINDS; k++) {
 			run_hidpp(k, now);
 		}
-		btpolicy_window(&policy, pairwin_is_open(&window, now), passkey_asked);
 		if (!core_radio_has_failed()) {
-			int err = ble_scan(btpolicy_scan(&policy, now));
+			int err = ble_scan(btpolicy_scan(&policy, btpair_is_open(&pair, now), now));
 
 			if (err) {
 				printk("bluetooth scan not switched: %d\n", err);

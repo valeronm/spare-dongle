@@ -89,12 +89,13 @@ connected. The events record each device's connects, disconnects with their reas
 refused pairings, each device forgotten, on request or for a report map it cannot use, and a device
 that lost its pairing, which has to be forgotten and paired again.
 
-- `pair` waits for the device to connect, prints the passkey to type on it, and once pairing
-  closes says whether the device paired; `pair --no-passkey` opens pairing without one. A Logi
-  Bolt mouse takes its passkey as ten left and right clicks, which `pair` prints in their place,
-  then counts the clicks made. In the live view `a` asks which of the two, the footer shows the
-  passkey once the device waits for it, and for a Bolt mouse the pairing box dims the clicks made
-  and highlights the next.
+- `pair` opens pairing for 60 seconds and lists the new devices in pairing mode, in the order it
+  hears them, each with its kind, a Bolt mark and its signal; typing a device's number pairs that
+  device only. It then prints the passkey if the device asks for one, and once pairing closes says
+  whether the device paired. A Logi Bolt mouse takes its passkey as ten left and right clicks, which
+  `pair` prints in their place, then counts the clicks made. In the live view `a` opens pairing, the
+  pairing box lists the devices and a number picks one, the footer shows the passkey once the device
+  waits for it, and for a Bolt mouse the pairing box dims the clicks made and highlights the next.
 - `devices` lists the stored keyboards and mice, the most recently connected first. The dongle
   stores up to eight, and a full list refuses a new pairing until one is forgotten. The MX Keys and
   the MX Master 3S pair under a new address each time, so pairing one again leaves its old entry to

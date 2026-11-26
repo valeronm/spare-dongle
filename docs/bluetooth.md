@@ -94,14 +94,17 @@ also opens the traffic recorded before the key was found. Later, an attacker can
 link drop by jamming the radio, whatever the way, and the device reconnects once the jamming stops,
 at the latest when it is next used.
 
-Outside pairing, only a stored device connects. While pairing is open without a passkey, any device
-in range can pair and be stored. With a passkey, only a device the passkey is typed on can pair,
-and the dongle offers each passkey to one attempt only, since a failed attempt can reveal it. Each
-pairing shows in the events and in `spare-dongle devices`.
+Outside pairing, only a stored device connects. Pairing from the tool pairs only the device picked
+from the list of those heard, so a device nearby cannot slip in; a device that spoofs the picked
+one's name and address can. The dongle offers every picked device a passkey, which a device that
+asks for one has to type, and offers each passkey to one attempt only, since a failed attempt can
+reveal it. A keyboard that cannot take a passkey pairs without one. The window opened at plug-in
+while nothing is stored pairs the first device it hears, with no passkey. Each pairing shows in the
+events and in `spare-dongle devices`.
 
 The MX Master 3S, a Logi Bolt mouse, pairs with LE Secure Connections and a passkey of ten clicks,
-one of only 1024 ([Logi Bolt](bolt.md#security)), and with no passkey when pairing is opened without
-one. The Air75 V2 pairs legacy with no passkey step, and the MX Keys
+one of only 1024 ([Logi Bolt](bolt.md#security)), and with no passkey in the window opened at
+plug-in. The Air75 V2 pairs legacy with no passkey step, and the MX Keys
 legacy with the passkey typed. Pairing again does not change a device's way.
 
 | | PC's Bluetooth | SpareDongle |  |

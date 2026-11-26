@@ -19,16 +19,6 @@ void btpolicy_init(struct btpolicy *p)
 	*p = (struct btpolicy){0};
 }
 
-static bool refused(const struct btpolicy *p, const uint8_t *addr)
-{
-	for (uint8_t i = 0; i < p->refused_count; i++) {
-		if (memcmp(p->refused[i], addr, BTPOLICY_ADDR_LEN) == 0) {
-			return true;
-		}
-	}
-	return false;
-}
-
 static bool setting_up(const struct btpolicy *p)
 {
 	for (int k = 0; k < DEVICE_KINDS; k++) {
@@ -87,8 +77,7 @@ enum btpolicy_want btpolicy_wants(struct btpolicy *p, const struct btpolicy_adve
 		return s->state == BTPOLICY_IDLE && !window_open && waited ? BTPOLICY_CONNECT
 									    : BTPOLICY_IGNORE;
 	}
-	if (!window_open || a->directed || stored_count >= BTPOLICY_STORED_MAX ||
-	    refused(p, a->addr)) {
+	if (!window_open || a->directed || stored_count >= BTPOLICY_STORED_MAX) {
 		return BTPOLICY_IGNORE;
 	}
 	return s->state == BTPOLICY_IDLE ? BTPOLICY_CONNECT : BTPOLICY_REPLACE;
@@ -118,24 +107,9 @@ const uint8_t *btpolicy_peer(const struct btpolicy *p, enum device_kind kind)
 	return p->slots[kind].state == BTPOLICY_IDLE ? NULL : p->slots[kind].peer;
 }
 
-static void refuse_peer(struct btpolicy *p, const uint8_t *peer)
+void btpolicy_paired(struct btpolicy *p, enum device_kind kind)
 {
-	if (!refused(p, peer) && p->refused_count < BTPOLICY_STORED_MAX) {
-		memcpy(p->refused[p->refused_count++], peer, BTPOLICY_ADDR_LEN);
-	}
-}
-
-enum btpolicy_pairing btpolicy_paired(struct btpolicy *p, enum device_kind kind,
-				      bool passkey_used)
-{
-	struct btpolicy_slot *s = &p->slots[kind];
-
-	if (kind == DEVICE_KIND_KEYBOARD && p->window_open && p->passkey_demanded && !passkey_used) {
-		refuse_peer(p, s->peer);
-		return BTPOLICY_PAIRING_FORGOTTEN;
-	}
-	s->peer_stored = true;
-	return BTPOLICY_PAIRING_KEPT;
+	p->slots[kind].peer_stored = true;
 }
 
 void btpolicy_ready(struct btpolicy *p, enum device_kind kind)
@@ -171,26 +145,10 @@ enum btpolicy_security btpolicy_security_failed(struct btpolicy *p, enum device_
 		return why == BTPOLICY_FAILURE_KEY_MISSING ? BTPOLICY_BOND_LOST
 							   : BTPOLICY_SECURITY_FAILED;
 	}
-	if (why != BTPOLICY_FAILURE_REFUSAL) {
-		return BTPOLICY_SECURITY_FAILED;
-	}
-	if (refused(p, s->peer)) {
-		return BTPOLICY_REFUSED_BEFORE;
-	}
-	refuse_peer(p, s->peer);
-	return BTPOLICY_PAIRING_REFUSED;
+	return why == BTPOLICY_FAILURE_REFUSAL ? BTPOLICY_PAIRING_REFUSED : BTPOLICY_SECURITY_FAILED;
 }
 
-void btpolicy_window(struct btpolicy *p, bool open, bool passkey_demanded)
-{
-	if (p->window_open && !open) {
-		p->refused_count = 0;
-	}
-	p->window_open = open;
-	p->passkey_demanded = open && passkey_demanded;
-}
-
-enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, uint32_t now_ms)
+enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, bool window_open, uint32_t now_ms)
 {
 	bool slot_free = false;
 	bool fast = false;
@@ -198,7 +156,7 @@ enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, uint32_t now_ms)
 	if (setting_up(p)) {
 		return BTPOLICY_SCAN_OFF;
 	}
-	if (p->window_open) {
+	if (window_open) {
 		return BTPOLICY_SCAN_ACTIVE;
 	}
 	for (int k = 0; k < DEVICE_KINDS; k++) {
@@ -244,20 +202,3 @@ uint32_t btpolicy_click_passkey(uint32_t passkey)
 {
 	return passkey % (1u << DIAG_CLICK_PASSKEY_BITS);
 }
-
-uint8_t btpolicy_entered(uint8_t entered, enum btpolicy_keypress keypress, uint8_t length)
-{
-	switch (keypress) {
-	case BTPOLICY_KEY_ENTERED:
-		return entered < length ? entered + 1 : length;
-	case BTPOLICY_KEY_ERASED:
-		return entered > 0 ? entered - 1 : 0;
-	case BTPOLICY_ENTRY_COMPLETED:
-		return length;
-	case BTPOLICY_ENTRY_STARTED:
-	case BTPOLICY_ENTRY_CLEARED:
-	default:
-		return 0;
-	}
-}
-

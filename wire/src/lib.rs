@@ -33,10 +33,11 @@ pub const PAIRING_SECURE: u8 = 0x02;
 pub const PAIRING_PASSKEY: u8 = 0x04;
 /// The device paired after the dongle put it in Logi Bolt mode.
 pub const PAIRING_BOLT: u8 = 0x08;
-/// In a pair request's arg under Bluetooth: pair without asking the keyboard for a passkey.
-pub const PAIR_NO_PASSKEY: u32 = 1;
-/// The pair reply under Bluetooth: 1 if a passkey is to be typed.
-pub const PAIR_REPLY_LEN: usize = 1;
+/// A pairing window stays open this long, unless it waits for a first pairing or a device holds it.
+pub const PAIR_WINDOW_MS: u32 = 30_000;
+/// A Bluetooth pairing window opened from the tool stays open this long, to read the devices heard
+/// and pick one.
+pub const PICK_WINDOW_MS: u32 = 60_000;
 /// A passkey under `Window::PasskeyClicked` has this many bits, one click each.
 pub const CLICK_PASSKEY_BITS: u32 = 10;
 pub const ADDR_LEN: usize = 7;
@@ -44,6 +45,12 @@ pub const ADDR_LEN: usize = 7;
 pub const STORED_MAX: usize = 8;
 pub const DEVICE_LEN: usize = ADDR_LEN + 3 + NAME_MAX;
 pub const DEVICES_MAX: usize = 1 + STORED_MAX * DEVICE_LEN;
+/// The most devices a heard list carries.
+pub const HEARD_MAX: usize = 8;
+pub const HEARD_LEN: usize = ADDR_LEN + 3 + NAME_MAX;
+pub const HEARDS_MAX: usize = 1 + HEARD_MAX * HEARD_LEN;
+/// A heard device lists Logitech's service, which a Logi Bolt device advertises.
+pub const HEARD_BOLT: u8 = 0x01;
 /// Readings below it count as quiet.
 pub const BUSY_DBM: i8 = -85;
 pub const STRONG_DBM: i8 = -60;
@@ -125,6 +132,10 @@ pub enum Command {
     Devices,
     /// data is the device's address as `Devices` gives it.
     Forget,
+    /// The new devices heard while pairing is open, in the order the dongle first heard them.
+    Heard,
+    /// data is the device's address as `Heard` gives it; pairs that device only.
+    PairWith,
 }
 
 codes!(Command {
@@ -142,6 +153,8 @@ codes!(Command {
     Watch,
     Devices,
     Forget,
+    Heard,
+    PairWith,
 });
 
 impl Command {
@@ -150,6 +163,7 @@ impl Command {
         match self {
             Self::ForceChannels => protocol == Protocol::Nuphy,
             Self::Noise | Self::Move | Self::Watch => protocol.has_esb(),
+            Self::Heard | Self::PairWith => protocol == Protocol::Bluetooth,
             _ => true,
         }
     }
@@ -281,13 +295,19 @@ pub enum Window {
     PasskeyAwaited,
     /// The passkey is entered by clicks.
     PasskeyClicked,
+    /// Open from the tool, waiting for the user to pick a device from `Heard`.
+    Picking,
+    /// A device was picked, and the window waits for it to pair or ask for a passkey.
+    Picked,
 }
 
 codes!(Window {
     Closed,
     Open,
     PasskeyAwaited,
-    PasskeyClicked
+    PasskeyClicked,
+    Picking,
+    Picked
 });
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -413,13 +433,9 @@ codes!(Wheel {
 #[repr(u8)]
 pub enum Refused {
     ByKeyboard,
-    NoPasskey,
 }
 
-codes!(Refused {
-    ByKeyboard,
-    NoPasskey
-});
+codes!(Refused { ByKeyboard });
 
 /// Byte c of `EventType::BtForgotten`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -533,10 +549,11 @@ pub struct Status {
     pub protocol: u8,
     /// A `Window`.
     pub pairing_window: u8,
-    /// The passkey a device waits for and its name, padded with zeros; zero outside
-    /// `Window::PasskeyAwaited` and `Window::PasskeyClicked`.
+    /// The passkey a device waits for; zero outside `Window::PasskeyAwaited` and
+    /// `Window::PasskeyClicked`.
     pub passkey: u32,
-    pub passkey_name: [u8; NAME_MAX],
+    /// The name of the device that waits for the passkey or was picked, padded with zeros.
+    pub pairing_name: [u8; NAME_MAX],
     /// The clicks the device reports made of a passkey under `Window::PasskeyClicked`; zero
     /// otherwise.
     pub passkey_entered: u8,
@@ -1029,6 +1046,19 @@ pub struct Device {
     pub name: [u8; NAME_MAX],
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(C)]
+pub struct Heard {
+    pub addr: [u8; ADDR_LEN],
+    /// An enum device_kind.
+    pub kind: u8,
+    /// `HEARD_*` bits.
+    pub flags: u8,
+    pub rssi: i8,
+    /// Padded with zeros.
+    pub name: [u8; NAME_MAX],
+}
+
 /// A reply payload ended before its layout did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Short;
@@ -1288,7 +1318,7 @@ impl Status {
         w.u8(self.protocol);
         w.u8(self.pairing_window);
         w.u32(self.passkey);
-        w.bytes(&self.passkey_name);
+        w.bytes(&self.pairing_name);
         w.u8(self.passkey_entered);
         w.bytes(&self.keyboard_serial);
         w.u8(self.keyboard_type);
@@ -1331,7 +1361,7 @@ impl Status {
         let [minute_next, minute_oldest, events_total, events_oldest] =
             [r.u32()?, r.u32()?, r.u32()?, r.u32()?];
         let (protocol, pairing_window, passkey) = (r.u8()?, r.u8()?, r.u32()?);
-        let passkey_name = r.bytes()?;
+        let pairing_name = r.bytes()?;
         let passkey_entered = r.u8()?;
         let keyboard_serial = r.bytes()?;
         let (keyboard_type, slot_count) = (r.u8()?, r.u8()?);
@@ -1384,7 +1414,7 @@ impl Status {
             protocol,
             pairing_window,
             passkey,
-            passkey_name,
+            pairing_name,
             passkey_entered,
             keyboard_serial,
             keyboard_type,
@@ -1575,6 +1605,29 @@ pub fn encode_devices(out: &mut [u8], devices: &[Device]) -> usize {
         w.bytes(&d.name);
     }
     w.at
+}
+
+pub fn encode_heard(out: &mut [u8], heard: &[Heard]) -> usize {
+    let mut w = Writer { buf: out, at: 0 };
+    w.u8(heard.len() as u8);
+    for h in heard {
+        w.bytes(&h.addr);
+        w.bytes(&[h.kind, h.flags, h.rssi as u8]);
+        w.bytes(&h.name);
+    }
+    w.at
+}
+
+pub fn decode_heard(payload: &[u8]) -> Result<Items<'_, Heard>, Short> {
+    Items::new(Reader::new(payload), |r| {
+        Ok(Heard {
+            addr: r.bytes()?,
+            kind: r.u8()?,
+            flags: r.u8()?,
+            rssi: r.i8()?,
+            name: r.bytes()?,
+        })
+    })
 }
 
 pub fn decode_devices(payload: &[u8]) -> Result<Items<'_, Device>, Short> {

@@ -132,6 +132,7 @@ void core_fill_status(struct diag_status *st, uint8_t slot);
  * true with the next request the loop must answer. */
 bool core_take_request(struct diag_request *out);
 void core_reply_devices(const struct diag_request *req, const struct diag_device *d, size_t n);
+void core_reply_heard(const struct diag_request *req, const struct diag_heard *h, size_t n);
 
 FUNC_NORETURN void nuphy_run(int store_err);
 FUNC_NORETURN void unifying_run(int store_err);
