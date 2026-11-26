@@ -3,6 +3,7 @@ mod cli;
 mod device;
 mod dfu;
 mod format;
+mod platform;
 mod protocol;
 mod uf2;
 mod view;
@@ -115,10 +116,7 @@ enum Cmd {
 }
 
 fn main() -> Result<()> {
-    // Rust starts with SIGPIPE ignored, which turns a closed output pipe into a println! panic.
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-    }
+    platform::restore_sigpipe();
     let args = Args::parse();
     let Some(command) = args.command else {
         return view::run(args.serial);

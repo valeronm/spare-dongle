@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The tool runs on Windows, and each release has a Windows build.
+
 ## [0.6.0] - 2026-11-25
 
 - In Bluetooth mode the dongle disconnects its devices when the PC sleeps, so they sleep too, and a

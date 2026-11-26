@@ -25,3 +25,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: mise run lint
       - run: mise run test
+
+  tool-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      # mise.toml's other tools build and test the firmware, which only the Linux job does.
+      - run: |
+          rust=$(tools/rust-version.sh)
+          rustup toolchain install "$rust" --profile minimal --component clippy
+          rustup default "$rust"
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p spare-dongle --all-targets -- -D warnings
+      - run: cargo test -p spare-dongle

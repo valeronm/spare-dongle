@@ -26,7 +26,7 @@ jobs:
           version=$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' tool/Cargo.toml | head -n1)
           ncs=$(sed -n 's/^NCS_VERSION = "\(.*\)"$/\1/p' mise.toml)
           board=$(sed -n 's/^BOARD = "\(.*\)"$/\1/p' mise.toml)
-          rust=$(sed -n 's/^rust = { version = "\([^"]*\)".*/\1/p' mise.toml)
+          rust=$(tools/rust-version.sh)
           if [ -z "$version" ] || [ -z "$ncs" ] || [ -z "$board" ] || [ -z "$rust" ]; then
             echo "::error::read version '$version' from tool/Cargo.toml, NCS_VERSION '$ncs', BOARD '$board' and rust '$rust' from mise.toml"
             exit 1
@@ -120,8 +120,33 @@ jobs:
           name: tool-macos
           path: spare-dongle-*.tar.gz
 
+  tool-windows:
+    needs: check
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      DIR: spare-dongle-${{ needs.check.outputs.version }}-x86_64-windows
+      # Links the C runtime in, so the tool runs without the Visual C++ redistributable.
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          rustup toolchain install "${{ needs.check.outputs.rust }}" --profile minimal
+          rustup default "${{ needs.check.outputs.rust }}"
+      - run: cargo build --release --locked --manifest-path tool/Cargo.toml
+      - run: |
+          mkdir "$DIR"
+          cp target/release/spare-dongle.exe LICENSE "$DIR"/
+          7z a "$DIR.zip" "$DIR"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tool-windows
+          path: spare-dongle-*.zip
+
   publish:
-    needs: [ci, check, firmware, tool-linux, tool-macos]
+    needs: [ci, check, firmware, tool-linux, tool-macos, tool-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write

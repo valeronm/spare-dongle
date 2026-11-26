@@ -62,9 +62,9 @@ and macOS, and Windows is untested.
 
 ## Installing the tool
 
-`spare-dongle` flashes the dongle and reads its [diagnostics](#diagnostics). It runs on x86_64 Linux
-and Apple Silicon macOS; Windows is untested. To install the latest release into `~/.local/bin`,
-or into `PREFIX` when it is set:
+`spare-dongle` flashes the dongle and reads its [diagnostics](#diagnostics). It runs on x86_64 Linux,
+Apple Silicon macOS and x86_64 Windows. To install the latest release into `~/.local/bin`, or into
+`PREFIX` when it is set:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/valeronm/spare-dongle/main/tools/get.sh | sh
@@ -72,6 +72,10 @@ curl -fsSL https://raw.githubusercontent.com/valeronm/spare-dongle/main/tools/ge
 
 The installer also saves the release's firmware in `~/.local/share/spare-dongle` and offers to
 [flash](#flashing-the-firmware) it onto a plugged-in dongle or board.
+
+On Windows, download `spare-dongle-<version>-x86_64-windows.zip` from the
+[latest release](https://github.com/valeronm/spare-dongle/releases/latest), unzip it and run
+`spare-dongle.exe` from a terminal.
 
 On Linux, a udev rule lets the tool reach the board without root in every state
 [`spare-dongle flash`](#flashing-the-firmware) handles. The installer offers to install it with

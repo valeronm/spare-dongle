@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 
 use crate::device::{self, dongles};
+use crate::platform::{usable_port, wait_for_access};
 use crate::protocol::Action;
 
 const ADAFRUIT: u16 = 0x239a;
@@ -13,8 +14,6 @@ const BOOTLOADER_WAIT: Duration = Duration::from_secs(10);
 /// The bootloader stops answering if its drive is read during an upload, and the host scans
 /// the drive 1-2 s after the bootloader starts.
 const BOOTLOADER_SETTLE: Duration = Duration::from_secs(3);
-const ACCESS_RETRY: Duration = Duration::from_millis(100);
-const ACCESS_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
@@ -60,11 +59,6 @@ fn port_state(vid: u16, pid: u16) -> Option<State> {
         (ADAFRUIT, FACTORY_PROGRAM) => Some(State::Factory),
         _ => None,
     }
-}
-
-/// macOS lists each USB port twice; the `tty.` side blocks on open until carrier detect.
-fn usable_port(name: &str) -> bool {
-    !name.starts_with("/dev/tty.")
 }
 
 /// Every board this tool acts on: the running dongle through its diagnostic interface, boards
@@ -208,39 +202,12 @@ fn bootloader_port(serial: &str, failure: &'static str) -> Result<String> {
     }
 }
 
-/// Fails with the udev rule's instructions when `board` can't be opened, without restarting it.
+/// Fails when `board` can't be opened, without restarting it.
 pub fn check_access(board: &Board) -> Result<()> {
     match &board.kind {
         Kind::Dongle => device::open_unchecked(Some(&board.serial)).map(drop),
         Kind::Bootloader(port) | Kind::Factory(port) => wait_for_access(port),
     }
-}
-
-/// Waits until the device node at `path` can be opened for reading and writing, since udev grants
-/// access a moment after the node appears. Other failures are left for the open to report.
-pub fn wait_for_access(path: &str) -> Result<()> {
-    wait_for_access_within(path, ACCESS_WAIT)
-}
-
-fn wait_for_access_within(path: &str, wait: Duration) -> Result<()> {
-    let c_path = std::ffi::CString::new(path).with_context(|| format!("device path {path:?}"))?;
-    let deadline = Instant::now() + wait;
-    // Checked with access(2) because opening a serial port can restart the board.
-    while unsafe { libc::access(c_path.as_ptr(), libc::R_OK | libc::W_OK) } != 0
-        && std::io::Error::last_os_error().kind() == std::io::ErrorKind::PermissionDenied
-    {
-        if Instant::now() >= deadline {
-            bail!(
-                "no access to {path}: install 70-{tool}.rules from ~/.local/share/{tool} \
-                 (tools/udev in a source checkout) into /etc/udev/rules.d, then run \
-                 sudo udevadm control --reload and \
-                 sudo udevadm trigger --subsystem-match=hidraw --subsystem-match=tty",
-                tool = crate::TOOL
-            );
-        }
-        std::thread::sleep(ACCESS_RETRY);
-    }
-    Ok(())
 }
 
 pub fn open_port(path: &str, baud: u32) -> Result<Box<dyn serialport::SerialPort>> {
@@ -268,13 +235,6 @@ mod tests {
         assert_eq!(port_state(0x239a, 0x8029), Some(State::Factory));
         assert_eq!(port_state(0x239a, 0x0029), None);
         assert_eq!(port_state(0x2fe3, 0x4e44), None);
-    }
-
-    #[test]
-    fn mac_dial_in_ports_are_skipped() {
-        assert!(usable_port("/dev/ttyACM0"));
-        assert!(usable_port("/dev/cu.usbmodem1101"));
-        assert!(!usable_port("/dev/tty.usbmodem1101"));
     }
 
     #[test]
@@ -332,22 +292,5 @@ mod tests {
             "{err}"
         );
         assert_eq!(pick(list, Some("BB")).unwrap().kind.state(), State::Factory);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_node_without_access_names_the_udev_rule() {
-        use std::os::unix::fs::PermissionsExt;
-        let path =
-            std::env::temp_dir().join(format!("spare-dongle-no-access-{}", std::process::id()));
-        std::fs::write(&path, b"").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
-        let path = path.to_str().unwrap();
-        let err = wait_for_access_within(path, Duration::ZERO);
-        std::fs::remove_file(path).unwrap();
-        let err = err.unwrap_err().to_string();
-        assert!(err.contains(path), "{err}");
-        assert!(err.contains("70-spare-dongle.rules"), "{err}");
-        assert!(err.contains("udevadm trigger"), "{err}");
     }
 }
