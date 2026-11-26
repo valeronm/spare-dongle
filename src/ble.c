@@ -505,14 +505,11 @@ static void on_params_updated(struct bt_conn *conn, uint16_t interval, uint16_t 
 	}
 }
 
+/* A controller left to choose from a requested range takes the longest interval. */
 static bool on_param_request(struct bt_conn *conn, struct bt_le_conn_param *param)
 {
-	struct link *l = link_of_conn(conn);
-
-	if (l) {
-		param->interval_max =
-			btpolicy_interval_max(kind_of(l), param->interval_min, param->interval_max);
-	}
+	ARG_UNUSED(conn);
+	param->interval_max = param->interval_min;
 	return true;
 }
 

@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- A Bluetooth mouse sends its movement more often, as often as it does on a Logi Bolt receiver.
+- Bluetooth keyboards and mice send their input more often, a mouse as often as it does on a Logi
+  Bolt receiver.
 
 ## [0.6.1] - 2026-11-26
 
