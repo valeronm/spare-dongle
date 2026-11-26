@@ -8,6 +8,9 @@
   a Logi Bolt receiver, and `devices`, `status` and the live view mark it Bolt after its name.
 - While a Logi Bolt mouse enters its passkey, `pair` counts the clicks made and the live view
   highlights the next click.
+- The live view ignores pasted text, which it used to take as key presses.
+- A button already held when a Bluetooth mouse connects, such as both buttons closing a Logi Bolt
+  passkey, does nothing until it is released.
 - The diagnostic protocol is now 6, so the 0.6.1 tool can only `flash` new firmware.
 
 ## [0.6.1] - 2026-11-26

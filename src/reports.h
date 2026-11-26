@@ -165,4 +165,7 @@ enum report_iface reports_iface(enum report_usb_kind kind);
 size_t reports_encode(const struct report_usb *r, bool mouse_boot,
 		      uint8_t out[REPORT_USB_MAX_LEN]);
 
+/* While *muted, clears a mouse report's buttons; a report with no button down ends it. */
+void reports_mute_buttons(bool *muted, struct report *r);
+
 #endif

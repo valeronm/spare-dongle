@@ -62,6 +62,9 @@ struct connected {
 	int wheel_carry;
 	bool rssi_read;
 	int8_t rssi;
+	/* A button already down when the connection starts was pressed for something before it, such
+	 * as closing a clicked passkey. */
+	bool buttons_muted;
 };
 
 static struct connected devices[DEVICE_KINDS];
@@ -85,6 +88,7 @@ static void connection_over(enum device_kind kind)
 	devices[kind] = (struct connected){
 		.level = DEVICE_NO_BATTERY,
 		.battery = DEVICE_BATTERY_UNKNOWN,
+		.buttons_muted = true,
 	};
 }
 
@@ -442,6 +446,7 @@ static void on_mouse_report(const struct ble_event *ev)
 						usb_mouse_wheel_steps());
 
 		out.mouse.wheel = (int8_t)reports_clamp(wheel, -INT8_MAX, INT8_MAX);
+		reports_mute_buttons(&devices[DEVICE_KIND_MOUSE].buttons_muted, &out);
 		core_submit(slot_of(DEVICE_KIND_MOUSE), &out, &ev->report.received_us);
 	}
 }

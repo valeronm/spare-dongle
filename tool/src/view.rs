@@ -791,9 +791,15 @@ struct Drawn {
 }
 
 pub fn run(serial: Option<String>) -> Result<()> {
+    use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
     let mut terminal = ratatui::init();
+    // A paste arrives as one paste event, which the loop skips, so pasted text presses no keys.
+    let pasting = ratatui::crossterm::execute!(std::io::stdout(), EnableBracketedPaste);
     let mut app: App = App::new(serial);
-    let result = app.run(&mut terminal);
+    let result = pasting
+        .map_err(anyhow::Error::from)
+        .and_then(|()| app.run(&mut terminal));
+    let _ = ratatui::crossterm::execute!(std::io::stdout(), DisableBracketedPaste);
     ratatui::restore();
     result
 }

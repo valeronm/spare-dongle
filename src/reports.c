@@ -394,3 +394,14 @@ int reports_scale_wheel(int *carry, int value, int from_steps, int to_steps)
 	*carry = total - out * from_steps;
 	return out;
 }
+
+void reports_mute_buttons(bool *muted, struct report *r)
+{
+	if (r->kind != REPORT_MOUSE || !*muted) {
+		return;
+	}
+	if (r->mouse.buttons == 0) {
+		*muted = false;
+	}
+	r->mouse.buttons = 0;
+}

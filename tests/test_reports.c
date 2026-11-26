@@ -710,8 +710,26 @@ static void test_boot_slots_become_held_keys(void)
 	CHECK(!reports_key_held(&k, 0x00));
 }
 
+static void test_buttons_held_when_a_mouse_connects_are_muted_until_released(void)
+{
+	bool muted = true;
+	struct report r = {.kind = REPORT_MOUSE, .mouse = {.buttons = 0x03, .x = 5}};
+
+	reports_mute_buttons(&muted, &r);
+	CHECK_EQ(r.mouse.buttons, 0);
+	CHECK_EQ(r.mouse.x, 5);
+	CHECK(muted);
+	r.mouse.buttons = 0;
+	reports_mute_buttons(&muted, &r);
+	CHECK(!muted);
+	r.mouse.buttons = 0x02;
+	reports_mute_buttons(&muted, &r);
+	CHECK_EQ(r.mouse.buttons, 0x02);
+}
+
 int main(void)
 {
+	RUN(test_buttons_held_when_a_mouse_connects_are_muted_until_released);
 	RUN(test_a_seventh_key_goes_to_the_nkro_report);
 	RUN(test_a_freed_slot_waits_for_a_new_key);
 	RUN(test_keys_pressed_together_fill_slots_in_usage_order);
