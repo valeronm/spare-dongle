@@ -151,4 +151,17 @@ bool btpolicy_pairs_by_clicks(enum device_kind kind, bool bolt);
 /* The passkey cut to the DIAG_CLICK_PASSKEY_BITS a device enters by clicks. */
 uint32_t btpolicy_click_passkey(uint32_t passkey);
 
+/* The keypress notification types of the Bluetooth Security Manager, in its numbering. */
+enum btpolicy_keypress {
+	BTPOLICY_ENTRY_STARTED,
+	BTPOLICY_KEY_ENTERED,
+	BTPOLICY_KEY_ERASED,
+	BTPOLICY_ENTRY_CLEARED,
+	BTPOLICY_ENTRY_COMPLETED,
+};
+
+/* The keys or clicks of the passkey a device has entered after a keypress notification; a device
+ * may send them in any order. */
+uint8_t btpolicy_entered(uint8_t entered, enum btpolicy_keypress keypress, uint8_t length);
+
 #endif

@@ -391,15 +391,29 @@ pub struct AwaitedPasskey {
     pub name: Option<String>,
     /// Entered by clicks, one per bit.
     pub clicked: bool,
+    /// The clicks the device reports made, at most `CLICK_PASSKEY_BITS`; 0 for a typed passkey.
+    pub entered: u8,
+}
+
+impl AwaitedPasskey {
+    /// Every click is in, and the device waits for both buttons.
+    pub fn clicks_done(&self) -> bool {
+        self.clicked && u32::from(self.entered) == diagwire::CLICK_PASSKEY_BITS
+    }
 }
 
 impl PairingWindow {
-    fn from_wire(window: u8, passkey: u32, name: Option<String>) -> Result<Self> {
+    fn from_wire(window: u8, passkey: u32, name: Option<String>, entered: u8) -> Result<Self> {
         let awaited = |clicked| {
             Self::PasskeyAwaited(AwaitedPasskey {
                 passkey,
                 name,
                 clicked,
+                entered: if clicked {
+                    entered.min(diagwire::CLICK_PASSKEY_BITS as u8)
+                } else {
+                    0
+                },
             })
         };
         match Window::from_code(window) {
@@ -526,6 +540,7 @@ pub fn read_status(payload: &[u8]) -> Result<Result<Status, VersionMismatch>> {
             w.pairing_window,
             w.passkey,
             read_name(&w.passkey_name),
+            w.passkey_entered,
         )?,
         link: read_link(&w, protocol)?,
         slots,
@@ -806,20 +821,30 @@ pub(crate) mod tests {
         parse_hex(&fixture_text(name))
     }
 
-    fn passkey_window(passkey: u32, name: Option<&str>, clicked: bool) -> PairingWindow {
+    fn passkey_window(
+        passkey: u32,
+        name: Option<&str>,
+        clicked: bool,
+        entered: u8,
+    ) -> PairingWindow {
         PairingWindow::PasskeyAwaited(AwaitedPasskey {
             passkey,
             name: name.map(str::to_string),
             clicked,
+            entered,
         })
     }
 
     pub(crate) fn awaited(passkey: u32, name: Option<&str>) -> PairingWindow {
-        passkey_window(passkey, name, false)
+        passkey_window(passkey, name, false, 0)
     }
 
     pub(crate) fn clicked(passkey: u32, name: Option<&str>) -> PairingWindow {
-        passkey_window(passkey, name, true)
+        clicked_entered(passkey, name, 0)
+    }
+
+    pub(crate) fn clicked_entered(passkey: u32, name: Option<&str>, entered: u8) -> PairingWindow {
+        passkey_window(passkey, name, true, entered)
     }
 
     /// `payload`, a status reply, with `edit` applied to its fields.
@@ -885,9 +910,9 @@ pub(crate) mod tests {
     ) -> Vec<u8> {
         edited("status.hex", |s| {
             run(s, protocol as u8);
-            let (code, passkey, name) = match window {
-                PairingWindow::Closed => (Window::Closed, 0, None),
-                PairingWindow::Open => (Window::Open, 0, None),
+            let (code, passkey, name, entered) = match window {
+                PairingWindow::Closed => (Window::Closed, 0, None, 0),
+                PairingWindow::Open => (Window::Open, 0, None, 0),
                 PairingWindow::PasskeyAwaited(a) => (
                     if a.clicked {
                         Window::PasskeyClicked
@@ -896,8 +921,10 @@ pub(crate) mod tests {
                     },
                     a.passkey,
                     a.name,
+                    a.entered,
                 ),
             };
+            s.passkey_entered = entered;
             s.pairing_window = code as u8;
             s.passkey = passkey;
             s.passkey_name = [0; NAME_MAX];
@@ -1340,6 +1367,40 @@ pub(crate) mod tests {
         assert_eq!(
             read_status(&payload).unwrap().unwrap().pairing_window,
             clicked(623, Some("MX Master"))
+        );
+    }
+
+    fn window_with_entered(window: Window, entered: u8) -> PairingWindow {
+        let payload = edit(&fixture("status-slot1.hex"), |s| {
+            s.pairing_window = window as u8;
+            s.passkey_entered = entered;
+        });
+        read_status(&payload).unwrap().unwrap().pairing_window
+    }
+
+    #[test]
+    fn a_clicked_passkey_window_carries_the_clicks_made() {
+        assert_eq!(
+            window_with_entered(Window::PasskeyClicked, 3),
+            clicked_entered(123_456, Some("MX Keys"), 3)
+        );
+    }
+
+    #[test]
+    fn a_click_count_past_the_passkey_reads_as_every_click() {
+        let PairingWindow::PasskeyAwaited(a) = window_with_entered(Window::PasskeyClicked, 12)
+        else {
+            panic!("no passkey awaited");
+        };
+        assert_eq!(a.entered, 10);
+        assert!(a.clicks_done());
+    }
+
+    #[test]
+    fn a_typed_passkey_window_carries_no_count() {
+        assert_eq!(
+            window_with_entered(Window::PasskeyAwaited, 3),
+            awaited(123_456, Some("MX Keys"))
         );
     }
 

@@ -35,6 +35,8 @@ use crate::protocol::{
 };
 
 const POLL_EVERY: Duration = Duration::from_secs(1);
+/// Often enough to follow each click of a passkey.
+const PASSKEY_POLL_EVERY: Duration = Duration::from_millis(250);
 const EVENTS_KEPT: usize = 200;
 const EVENT_ROWS: usize = 8;
 const CHART_MIN_ROWS: u16 = 5;
@@ -800,7 +802,7 @@ impl App {
     fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         let mut last_poll: Option<Instant> = None;
         loop {
-            if last_poll.is_none_or(|t| t.elapsed() >= POLL_EVERY) {
+            if last_poll.is_none_or(|t| t.elapsed() >= self.poll_every()) {
                 self.poll();
                 last_poll = Some(Instant::now());
             }
@@ -1083,11 +1085,36 @@ impl<T: Transport> Session<T> {
                 words(&sentence(pairing_how(self.protocol()))),
             ),
             PairingWindow::PasskeyAwaited(a) => {
-                let [before, passkey, after] = passkey_prompt(a);
-                let body = words(&sentence(&before))
+                let prompt = passkey_prompt(a);
+                let entered = usize::from(a.entered);
+                let next = BOLD.add_modifier(Modifier::REVERSED);
+                let style = |i: usize| {
+                    if !a.clicked || i > entered {
+                        BOLD
+                    } else if i < entered {
+                        Style::new().add_modifier(Modifier::DIM)
+                    } else {
+                        next
+                    }
+                };
+                let close = prompt.close.map(|c| {
+                    if a.clicks_done() {
+                        Span::styled(c, next)
+                    } else {
+                        Span::raw(c)
+                    }
+                });
+                let body = words(&sentence(prompt.verb))
                     .into_iter()
-                    .chain(words(&passkey).into_iter().map(|w| w.style(BOLD)))
-                    .chain(words(&after))
+                    .chain(
+                        prompt
+                            .entries
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, e)| Span::styled(e, style(i))),
+                    )
+                    .chain(words(&prompt.after))
+                    .chain(close)
                     .collect();
                 ("Passkey", body)
             }
@@ -1149,6 +1176,20 @@ impl<T: Transport> App<T> {
             serial,
             connection: Connection::Disconnected(None),
             drawn: Drawn::default(),
+        }
+    }
+
+    fn poll_every(&self) -> Duration {
+        match &self.connection {
+            Connection::Connected(session)
+                if matches!(
+                    session.history.status.pairing_window,
+                    PairingWindow::PasskeyAwaited(_)
+                ) =>
+            {
+                PASSKEY_POLL_EVERY
+            }
+            _ => POLL_EVERY,
         }
     }
 
@@ -1690,7 +1731,7 @@ mod tests {
     use crate::format::pairing_open;
     use crate::protocol::REPORT_LEN;
     use crate::protocol::tests::{
-        awaited, clicked, mouse_status, nuphy, status_of, status_running,
+        awaited, clicked, clicked_entered, mouse_status, nuphy, status_of, status_running,
     };
     use crate::protocol::{
         BluetoothLink, Command, Detail, ErrorCode, Link, Noise, Pairing, Protocol, Rssi, SlotMinute,
@@ -2931,6 +2972,49 @@ mod tests {
                 .modifier
                 .contains(Modifier::BOLD)
         );
+    }
+
+    #[test]
+    fn the_pairing_box_dims_the_clicks_made_and_marks_the_next() {
+        let mut s = status_of(Protocol::Bluetooth);
+        s.pairing_window = clicked_entered(623, Some("MX Master"), 3);
+        let mut app = app_with(s);
+        let terminal = drawn(&mut app);
+        let row = screen(&terminal)
+            .iter()
+            .position(|r| r.contains("Click right,"))
+            .unwrap() as u16;
+        let modifier = |text| cell_at(&terminal, row, text).modifier;
+        assert!(modifier("right, left, left,").contains(Modifier::DIM));
+        assert!(modifier("right, right, left,").contains(Modifier::REVERSED));
+        assert!(!modifier("right, left, right,").contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn the_pairing_box_marks_both_buttons_once_every_click_is_made() {
+        let mut s = status_of(Protocol::Bluetooth);
+        s.pairing_window = clicked_entered(623, Some("MX Master"), 10);
+        let mut app = app_with(s);
+        let terminal = drawn(&mut app);
+        let row = screen(&terminal)
+            .iter()
+            .position(|r| r.contains("both"))
+            .unwrap() as u16;
+        let modifier = |text| cell_at(&terminal, row, text).modifier;
+        assert!(modifier("both").contains(Modifier::REVERSED));
+        assert!(modifier(" buttons").contains(Modifier::REVERSED));
+        assert!(modifier("together").contains(Modifier::REVERSED));
+        assert!(!modifier("then").contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn the_status_is_polled_faster_while_a_passkey_is_entered() {
+        let mut s = status_of(Protocol::Bluetooth);
+        let mut app = app_with(closed(s.clone()));
+        assert_eq!(app.poll_every(), POLL_EVERY);
+        s.pairing_window = clicked(623, None);
+        app = app_with(s);
+        assert_eq!(app.poll_every(), PASSKEY_POLL_EVERY);
     }
 
     #[test]

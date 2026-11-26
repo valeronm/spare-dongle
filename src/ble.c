@@ -752,6 +752,22 @@ static uint32_t on_app_passkey(struct bt_conn *conn)
 	return offered;
 }
 
+BUILD_ASSERT((int)BT_CONN_AUTH_KEYPRESS_ENTRY_STARTED == BTPOLICY_ENTRY_STARTED &&
+	     (int)BT_CONN_AUTH_KEYPRESS_DIGIT_ENTERED == BTPOLICY_KEY_ENTERED &&
+	     (int)BT_CONN_AUTH_KEYPRESS_DIGIT_ERASED == BTPOLICY_KEY_ERASED &&
+	     (int)BT_CONN_AUTH_KEYPRESS_CLEARED == BTPOLICY_ENTRY_CLEARED &&
+	     (int)BT_CONN_AUTH_KEYPRESS_ENTRY_COMPLETED == BTPOLICY_ENTRY_COMPLETED);
+
+static void on_keypress(struct bt_conn *conn, enum bt_conn_auth_keypress type)
+{
+	struct link *l = link_of_conn(conn);
+
+	if (l) {
+		emit(l, (struct ble_event){.type = BLE_KEYPRESS,
+					   .keypress = (enum btpolicy_keypress)type});
+	}
+}
+
 static void on_pairing_cancel(struct bt_conn *conn)
 {
 	ARG_UNUSED(conn);
@@ -759,6 +775,7 @@ static void on_pairing_cancel(struct bt_conn *conn)
 
 static const struct bt_conn_auth_cb passkey_callbacks = {
 	.app_passkey = on_app_passkey,
+	.passkey_display_keypress = on_keypress,
 	.cancel = on_pairing_cancel,
 };
 

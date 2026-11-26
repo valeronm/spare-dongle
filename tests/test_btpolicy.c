@@ -360,6 +360,25 @@ static void a_click_passkey_keeps_the_low_ten_bits(void)
 	CHECK_EQ(btpolicy_click_passkey(1023), 1023);
 }
 
+static void the_entered_count_follows_the_keypresses(void)
+{
+	uint8_t n = btpolicy_entered(7, BTPOLICY_ENTRY_STARTED, 10);
+
+	CHECK_EQ(n, 0);
+	n = btpolicy_entered(n, BTPOLICY_KEY_ENTERED, 10);
+	n = btpolicy_entered(n, BTPOLICY_KEY_ENTERED, 10);
+	CHECK_EQ(n, 2);
+	CHECK_EQ(btpolicy_entered(n, BTPOLICY_KEY_ERASED, 10), 1);
+	CHECK_EQ(btpolicy_entered(n, BTPOLICY_ENTRY_CLEARED, 10), 0);
+	CHECK_EQ(btpolicy_entered(n, BTPOLICY_ENTRY_COMPLETED, 10), 10);
+}
+
+static void the_entered_count_stays_within_the_passkey(void)
+{
+	CHECK_EQ(btpolicy_entered(6, BTPOLICY_KEY_ENTERED, 6), 6);
+	CHECK_EQ(btpolicy_entered(0, BTPOLICY_KEY_ERASED, 6), 0);
+}
+
 static void a_new_device_of_no_kind_is_refused(void)
 {
 	struct btpolicy_advert a = new_advert(1);
@@ -631,6 +650,8 @@ int main(void)
 	RUN(the_appearance_gives_the_kind);
 	RUN(only_a_bolt_mouse_pairs_by_clicks);
 	RUN(a_click_passkey_keeps_the_low_ten_bits);
+	RUN(the_entered_count_follows_the_keypresses);
+	RUN(the_entered_count_stays_within_the_passkey);
 	RUN(a_new_device_of_no_kind_is_refused);
 	RUN(a_mouse_connects_beside_a_ready_keyboard);
 	RUN(one_device_is_set_up_at_a_time);

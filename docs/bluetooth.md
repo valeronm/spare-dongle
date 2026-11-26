@@ -162,6 +162,11 @@ What the code does not show:
   its characteristic `fd720003` in the clear before pairing; a Bolt mouse then pairs as a
   keyboard-only device and takes the passkey as ten clicks, the most significant bit first, right
   for 1, closed by both buttons. A Bolt keyboard has not been tried.
+- A Bolt mouse sends a keypress notification for each click and one when both buttons close the
+  entry, which give the tool its progress. Its first, that the entry started, comes straight after
+  its pairing response, before the public keys; Zephyr fails such a pairing unless patched, so the
+  build carries `patches/zephyr/smp-accept-early-keypress.patch`. The MX Keys sends none for typed
+  digits.
 
 ### Reports
 

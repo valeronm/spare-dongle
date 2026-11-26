@@ -24,6 +24,8 @@ enum ble_event_type {
 	BLE_PAIRED,
 	/* The device waits for the offered passkey to be typed on it. */
 	BLE_PASSKEY_AWAITED,
+	/* The device reported a key or click of the passkey. */
+	BLE_KEYPRESS,
 	BLE_MAP_READ,
 	BLE_REPORT,
 	BLE_BATTERY,
@@ -66,6 +68,7 @@ struct ble_event {
 			uint32_t value;
 			bool clicked;
 		} passkey;
+		enum btpolicy_keypress keypress;
 		/* BLE_REPORT: the bytes exclude the report ID. */
 		struct {
 			uint32_t received_us;

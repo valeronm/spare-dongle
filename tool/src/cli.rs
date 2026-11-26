@@ -215,25 +215,48 @@ pub fn follow_pairing<T: Transport>(
     from_event: u32,
     poll: Duration,
     out: &mut impl Write,
-    highlight: bool,
+    terminal: bool,
 ) -> Result<()> {
     use ratatui::crossterm::style::Stylize;
     let mut shown = None;
+    // Rewritten in place, so it is ended before anything else is written.
+    let mut progress: Option<String> = None;
     let s = loop {
         let s = dev.status()?;
-        match &s.pairing_window {
-            PairingWindow::Closed => break s,
-            PairingWindow::PasskeyAwaited(a) if shown != Some(a.passkey) => {
-                let [before, passkey, after] = format::passkey_prompt(a);
-                let passkey = if highlight {
-                    passkey.as_str().bold().to_string()
-                } else {
-                    passkey
-                };
-                writeln!(out, "{before} {passkey} {after}")?;
-                shown = Some(a.passkey);
+        let closed = match &s.pairing_window {
+            PairingWindow::PasskeyAwaited(a) => {
+                if shown != Some(a.passkey) {
+                    if progress.take().is_some() {
+                        writeln!(out)?;
+                    }
+                    let prompt = format::passkey_prompt(a).text(|entries| {
+                        if terminal {
+                            entries.bold().to_string()
+                        } else {
+                            entries.to_string()
+                        }
+                    });
+                    writeln!(out, "{prompt}")?;
+                    shown = Some(a.passkey);
+                }
+                if let Some(line) = format::passkey_progress(a).filter(|_| terminal)
+                    && progress.as_ref() != Some(&line)
+                {
+                    write!(out, "\r{line}\x1b[K")?;
+                    out.flush()?;
+                    progress = Some(line);
+                }
+                false
             }
-            _ => {}
+            window => {
+                if progress.take().is_some() {
+                    writeln!(out)?;
+                }
+                *window == PairingWindow::Closed
+            }
+        };
+        if closed {
+            break s;
         }
         std::thread::sleep(poll);
     };
@@ -680,7 +703,8 @@ mod tests {
     use super::*;
     use crate::device::tests::{Fake, error_part, parts};
     use crate::protocol::tests::{
-        awaited, clicked, mouse_status, nuphy, status_of, status_with_window, unifying,
+        awaited, clicked, clicked_entered, mouse_status, nuphy, status_of, status_with_window,
+        unifying,
     };
     use crate::protocol::{BluetoothLink, Command, Link, Pairing, Protocol};
 
@@ -1083,6 +1107,38 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "pairing closed with no device paired\n"
         );
+    }
+
+    #[test]
+    fn a_highlighted_clicked_passkey_counts_the_clicks_in_place() {
+        let at = |entered| (clicked_entered(623, None, entered), 600);
+        let mut dev = pairing_dongle(
+            vec![at(0), at(3), at(3), at(10), (PairingWindow::Closed, 600)],
+            Vec::new(),
+        );
+        let mut out = Vec::new();
+        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, true).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert_eq!(out.matches("\r3 of 10 clicks").count(), 1, "{out:?}");
+        assert!(
+            out.contains("\r10 of 10 clicks, now both buttons together\x1b[K\n"),
+            "{out:?}"
+        );
+        assert!(
+            out.ends_with("pairing closed with no device paired\n"),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn a_plain_clicked_passkey_leaves_out_the_count() {
+        let mut dev = pairing_dongle(
+            vec![(clicked(623, None), 600), (PairingWindow::Closed, 600)],
+            Vec::new(),
+        );
+        let mut out = Vec::new();
+        follow_pairing(&mut dev, 600, Duration::ZERO, &mut out, false).unwrap();
+        assert!(!String::from_utf8(out).unwrap().contains("clicks"));
     }
 
     #[test]

@@ -537,6 +537,9 @@ pub struct Status {
     /// `Window::PasskeyAwaited` and `Window::PasskeyClicked`.
     pub passkey: u32,
     pub passkey_name: [u8; NAME_MAX],
+    /// The clicks the device reports made of a passkey under `Window::PasskeyClicked`; zero
+    /// otherwise.
+    pub passkey_entered: u8,
     pub keyboard_serial: [u8; 4],
     pub keyboard_type: u8,
     pub slot_count: u8,
@@ -1286,6 +1289,7 @@ impl Status {
         w.u8(self.pairing_window);
         w.u32(self.passkey);
         w.bytes(&self.passkey_name);
+        w.u8(self.passkey_entered);
         w.bytes(&self.keyboard_serial);
         w.u8(self.keyboard_type);
         w.u8(self.slot_count);
@@ -1328,6 +1332,7 @@ impl Status {
             [r.u32()?, r.u32()?, r.u32()?, r.u32()?];
         let (protocol, pairing_window, passkey) = (r.u8()?, r.u8()?, r.u32()?);
         let passkey_name = r.bytes()?;
+        let passkey_entered = r.u8()?;
         let keyboard_serial = r.bytes()?;
         let (keyboard_type, slot_count) = (r.u8()?, r.u8()?);
         let mut slots = [Slot::default(); SLOTS];
@@ -1380,6 +1385,7 @@ impl Status {
             pairing_window,
             passkey,
             passkey_name,
+            passkey_entered,
             keyboard_serial,
             keyboard_type,
             slot_count,

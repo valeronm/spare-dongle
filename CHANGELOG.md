@@ -6,6 +6,8 @@
   Bolt receiver.
 - A Logi Bolt mouse pairs with a passkey, entered as left and right clicks that the tool shows, as on
   a Logi Bolt receiver, and `devices`, `status` and the live view mark it Bolt after its name.
+- While a Logi Bolt mouse enters its passkey, `pair` counts the clicks made and the live view
+  highlights the next click.
 - The diagnostic protocol is now 6, so the 0.6.1 tool can only `flash` new firmware.
 
 ## [0.6.1] - 2026-11-26

@@ -1,0 +1,22 @@
+Accept a keypress notification right after the pairing response
+
+A Logi Bolt mouse reports the passkey entry started straight after its pairing
+response, before the public keys are exchanged; Zephyr otherwise rejects it as an
+unexpected command and fails the pairing.
+
+diff --git a/subsys/bluetooth/host/smp.c b/subsys/bluetooth/host/smp.c
+index a5eb809badb..7cae34ddbb3 100644
+--- a/subsys/bluetooth/host/smp.c
++++ b/subsys/bluetooth/host/smp.c
+@@ -3556,6 +3556,11 @@ static uint8_t smp_pairing_rsp(struct bt_smp *smp, struct net_buf *buf)
+ 		return 0;
+ 	}
+ 
++	/* A peer entering the passkey may report the entry started right after its response. */
++	if (IS_ENABLED(CONFIG_BT_PASSKEY_KEYPRESS) && smp->method == PASSKEY_DISPLAY) {
++		atomic_set_bit(smp->allowed_cmds, BT_SMP_KEYPRESS_NOTIFICATION);
++	}
++
+ 	if (!sc_public_key) {
+ 		atomic_set_bit(smp->flags, SMP_FLAG_PKEY_SEND);
+ 		return 0;

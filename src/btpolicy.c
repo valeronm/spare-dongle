@@ -244,3 +244,20 @@ uint32_t btpolicy_click_passkey(uint32_t passkey)
 {
 	return passkey % (1u << DIAG_CLICK_PASSKEY_BITS);
 }
+
+uint8_t btpolicy_entered(uint8_t entered, enum btpolicy_keypress keypress, uint8_t length)
+{
+	switch (keypress) {
+	case BTPOLICY_KEY_ENTERED:
+		return entered < length ? entered + 1 : length;
+	case BTPOLICY_KEY_ERASED:
+		return entered > 0 ? entered - 1 : 0;
+	case BTPOLICY_ENTRY_COMPLETED:
+		return length;
+	case BTPOLICY_ENTRY_STARTED:
+	case BTPOLICY_ENTRY_CLEARED:
+	default:
+		return 0;
+	}
+}
+

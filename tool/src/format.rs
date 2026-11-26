@@ -200,20 +200,29 @@ pub fn sentence(text: &str) -> String {
 
 /// The passkey as entered: six digits, or one click per bit, the most significant first.
 pub fn passkey_entry(a: &AwaitedPasskey) -> String {
+    passkey_entries(a).join(" ")
+}
+
+/// The six digits as one entry, or one entry per click, each but the last with its comma.
+fn passkey_entries(a: &AwaitedPasskey) -> Vec<String> {
     if !a.clicked {
-        return format!("{:06}", a.passkey);
+        return vec![format!("{:06}", a.passkey)];
     }
     (0..diagwire::CLICK_PASSKEY_BITS)
         .rev()
         .map(|bit| {
-            if a.passkey >> bit & 1 == 1 {
+            let side = if a.passkey >> bit & 1 == 1 {
                 "right"
             } else {
                 "left"
+            };
+            if bit == 0 {
+                side.to_string()
+            } else {
+                format!("{side},")
             }
         })
-        .collect::<Vec<_>>()
-        .join(", ")
+        .collect()
 }
 
 /// The device's advertised name, or a word for it where it gave none.
@@ -223,19 +232,60 @@ pub fn waiting_device(a: &AwaitedPasskey) -> &str {
         .unwrap_or(if a.clicked { "device" } else { "keyboard" })
 }
 
-/// The words asking for the passkey a device waits for: those before the passkey, the passkey,
-/// and those after it.
-pub fn passkey_prompt(a: &AwaitedPasskey) -> [String; 3] {
-    let (verb, then) = if a.clicked {
-        ("click", ", then both buttons together")
+/// The words asking for the passkey a device waits for.
+pub struct PasskeyPrompt {
+    pub verb: &'static str,
+    /// The digits as one entry, or one entry per click.
+    pub entries: Vec<String>,
+    pub after: String,
+    /// The step that ends a passkey entered by clicks.
+    pub close: Option<&'static str>,
+}
+
+impl PasskeyPrompt {
+    /// The prompt as one line, the entries passed through `mark`.
+    pub fn text(&self, mark: impl Fn(&str) -> String) -> String {
+        let close = self.close.map(|c| format!(" {c}")).unwrap_or_default();
+        format!(
+            "{} {} {}{close}",
+            self.verb,
+            mark(&self.entries.join(" ")),
+            self.after
+        )
+    }
+}
+
+const BOTH_BUTTONS: &str = "both buttons together";
+
+pub fn passkey_prompt(a: &AwaitedPasskey) -> PasskeyPrompt {
+    let device = waiting_device(a);
+    let (verb, after, close) = if a.clicked {
+        (
+            "click",
+            format!("on the {device}, then"),
+            Some(BOTH_BUTTONS),
+        )
     } else {
-        ("type", " and press Enter")
+        ("type", format!("on the {device} and press Enter"), None)
     };
-    [
-        verb.into(),
-        passkey_entry(a),
-        format!("on the {}{then}", waiting_device(a)),
-    ]
+    PasskeyPrompt {
+        verb,
+        entries: passkey_entries(a),
+        after,
+        close,
+    }
+}
+
+/// How far the device got through a passkey entered by clicks.
+pub fn passkey_progress(a: &AwaitedPasskey) -> Option<String> {
+    a.clicked.then(|| {
+        let clicks = format!("{} of {} clicks", a.entered, diagwire::CLICK_PASSKEY_BITS);
+        if a.clicks_done() {
+            format!("{clicks}, now {BOTH_BUTTONS}")
+        } else {
+            clicks
+        }
+    })
 }
 
 pub fn waits_for_passkey(who: &str) -> String {
@@ -1414,12 +1464,13 @@ mod tests {
             passkey: 1234,
             name: None,
             clicked: false,
+            entered: 0,
         };
         assert_eq!(
-            passkey_prompt(&a).join(" "),
+            passkey_prompt(&a).text(str::to_string),
             "type 001234 on the keyboard and press Enter"
         );
-        assert_eq!(passkey_prompt(&a)[1], "001234");
+        assert_eq!(passkey_entry(&a), "001234");
     }
 
     #[test]
@@ -1428,9 +1479,10 @@ mod tests {
             passkey: 1234,
             name: Some("MX Keys".into()),
             clicked: false,
+            entered: 0,
         };
         assert_eq!(
-            passkey_prompt(&a).join(" "),
+            passkey_prompt(&a).text(str::to_string),
             "type 001234 on the MX Keys and press Enter"
         );
     }
@@ -1441,16 +1493,41 @@ mod tests {
             passkey: 623,
             name: Some("MX Master".into()),
             clicked: true,
+            entered: 0,
         };
         assert_eq!(
-            passkey_prompt(&a).join(" "),
+            passkey_prompt(&a).text(str::to_string),
             "click right, left, left, right, right, left, right, right, right, right \
              on the MX Master, then both buttons together"
         );
         assert_eq!(
-            passkey_prompt(&a)[1],
+            passkey_entry(&a),
             "right, left, left, right, right, left, right, right, right, right"
         );
+    }
+
+    #[test]
+    fn a_clicked_passkey_counts_the_clicks_made() {
+        let a = AwaitedPasskey {
+            passkey: 623,
+            name: None,
+            clicked: true,
+            entered: 3,
+        };
+        assert_eq!(passkey_progress(&a).as_deref(), Some("3 of 10 clicks"));
+        let clicked = AwaitedPasskey {
+            entered: 10,
+            ..a.clone()
+        };
+        assert_eq!(
+            passkey_progress(&clicked).as_deref(),
+            Some("10 of 10 clicks, now both buttons together")
+        );
+        let typed = AwaitedPasskey {
+            clicked: false,
+            ..a
+        };
+        assert_eq!(passkey_progress(&typed), None);
     }
 
     #[test]
