@@ -53,7 +53,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | HID++ passed to Logitech Options and Solaar | yes | no | 🔴 |
 | **Bluetooth only** | | | |
 | PCs without Bluetooth | no | yes | 🟢 |
-| Logi Bolt mice pair with a passkey | no | yes, entered as clicks | 🟢 |
+| Logi Bolt mice pair with a passkey | no | yes, entered as clicks ([Logi Bolt](bolt.md#security)) | 🟢 |
 
 A report map the dongle cannot parse refuses the device, and so does a keyboard's map with no
 keyboard in it or a mouse's map with no relative pointer, such as a tablet's.
@@ -99,10 +99,9 @@ in range can pair and be stored. With a passkey, only a device the passkey is ty
 and the dongle offers each passkey to one attempt only, since a failed attempt can reveal it. Each
 pairing shows in the events and in `spare-dongle devices`.
 
-The MX Master 3S, a Logi Bolt mouse, pairs with LE Secure Connections and a passkey entered as ten
-clicks, as it does with a Bolt receiver, and with no passkey when pairing is opened without one.
-Ten clicks give 1024 passkeys, so one standing in the middle of the pairing succeeds once in 1024
-tries rather than once in a million. The Air75 V2 pairs legacy with no passkey step, and the MX Keys
+The MX Master 3S, a Logi Bolt mouse, pairs with LE Secure Connections and a passkey of ten clicks,
+one of only 1024 ([Logi Bolt](bolt.md#security)), and with no passkey when pairing is opened without
+one. The Air75 V2 pairs legacy with no passkey step, and the MX Keys
 legacy with the passkey typed. Pairing again does not change a device's way.
 
 | | PC's Bluetooth | SpareDongle |  |
@@ -136,8 +135,7 @@ What the code does not show:
 - About one connect in six to the Air75 V2 is never established: the keyboard sends no first packet
   and the link fails with reason `0x3e`, at a 7.5 ms and a 30 ms connection interval alike.
 - After the dongle connects at 7.5 ms, the MX Keys asks for 20 to 25 ms with peripheral latency 20
-  and the MX Master 3S for 7.5 to 11.25 ms with latency 44. The dongle grants the shortest of each,
-  as a Logi Bolt receiver does with the mouse.
+  and the MX Master 3S for 7.5 to 11.25 ms with latency 44. The dongle grants the shortest of each.
 - A key pressed on the MX Keys while it is disconnected is sent once the dongle has subscribed,
   late by the connection setup.
 - When the PC suspends, the dongle drops every link with reason `0x15`, as Linux does with its own
@@ -158,15 +156,8 @@ What the code does not show:
   stored.
 - Zephyr keeps the pairing method in the bond's keys, so it reads the same after a reboot and for a
   device that is not connected.
-- A Logi Bolt device lists Logitech's service `0xFD72` in its advert. A Bolt receiver writes `02` to
-  its characteristic `fd720003` in the clear before pairing; a Bolt mouse then pairs as a
-  keyboard-only device and takes the passkey as ten clicks, the most significant bit first, right
-  for 1, closed by both buttons. A Bolt keyboard has not been tried.
-- A Bolt mouse sends a keypress notification for each click and one when both buttons close the
-  entry, which give the tool its progress. Its first, that the entry started, comes straight after
-  its pairing response, before the public keys; Zephyr fails such a pairing unless patched, so the
-  build carries `patches/zephyr/smp-accept-early-keypress.patch`. The MX Keys sends none for typed
-  digits.
+- The MX Keys sends no keypress notifications for typed digits, so the tool shows no progress while
+  a passkey is typed.
 
 ### Reports
 

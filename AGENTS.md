@@ -44,6 +44,9 @@
 - The Features table has the same rows in the same order on every page, so the pages compare row
   for row. A feature a protocol lacks keeps its row and says so in the cells, and a feature that
   exists in only one protocol goes in that page's own group at the end of the table.
+- A protocol the dongle carries inside another mode, as Logi Bolt inside Bluetooth, gets a page of
+  its own in the same shape. Its On air holds only what differs from the host mode, and the host
+  page mentions it only where its own comparison needs to, with a link to that page.
 
 ## CHANGELOG.md
 

@@ -28,7 +28,7 @@ each device's signal over time, its latency through the dongle, and the dongle's
 | Logitech Unifying | [🔴 weak at any time](docs/unifying.md#security) | [🟡 partial](docs/unifying.md): up to six keyboards, one at a time |
 | Bluetooth LE | [🔴 to 🟢, by how the device paired](docs/bluetooth.md#security) | [🟡 partial](docs/bluetooth.md): one keyboard and one mouse at a time |
 | NuPhy 2.4G, NuPhyIO keyboards | ❌ no protection | 🔴 none yet |
-| Logitech Bolt | 🟡 to 🟢, by how the device paired | 🔴 none yet |
+| Logi Bolt | [🟡 to 🟢, by how the device paired](docs/bolt.md#security) | [🟡 partial](docs/bolt.md): Bolt mice, in Bluetooth mode |
 | Bluetooth Classic | 🔴 to 🟢, by how the device paired | ❌ not supported: the nRF52840 has no Classic radio |
 
 Support is compared with the original receiver, or for Bluetooth the PC's own. In Security, 🟢 is
@@ -192,8 +192,8 @@ the SDKs. `mise run lint` runs rustfmt, clippy and shellcheck. CI runs both on `
 requests.
 
 Each protocol page's On air section describes the link beyond what the code shows:
-[NuPhy](docs/nuphy.md#on-air), [Unifying](docs/unifying.md#on-air) and
-[Bluetooth](docs/bluetooth.md#on-air).
+[NuPhy](docs/nuphy.md#on-air), [Unifying](docs/unifying.md#on-air),
+[Bluetooth](docs/bluetooth.md#on-air) and [Logi Bolt](docs/bolt.md#on-air).
 
 A release is built when a `v<version>` tag is pushed. Set the version in `tool/Cargo.toml`, which
 the firmware reads too, add its section to `CHANGELOG.md`, commit, and push the tag. The release
