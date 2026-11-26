@@ -527,7 +527,7 @@ static void on_event(const struct ble_event *ev)
 		on_failed(ev);
 		break;
 	case BLE_PAIRED:
-		if (btpolicy_paired(&policy, ev->kind, ev->passkey_used) ==
+		if (btpolicy_paired(&policy, ev->kind, ev->paired.passkey_used) ==
 		    BTPOLICY_PAIRING_FORGOTTEN) {
 			printk("bluetooth pairing refused: no passkey typed\n");
 			core_log(slot_of(ev->kind),
@@ -538,11 +538,11 @@ static void on_event(const struct ble_event *ev)
 			break;
 		}
 		printk("bluetooth paired\n");
-		log_device((struct diag_detail){.tag = DIAG_DETAIL_BT_PAIRED, .BT_PAIRED = {.passkey = ev->passkey_used}},
+		log_device((struct diag_detail){.tag = DIAG_DETAIL_BT_PAIRED, .BT_PAIRED = {.passkey = ev->paired.passkey_used}},
 			   ev->kind);
 		ble_copy_name(ev->kind, name);
 		save_list(btlist_paired(&list, btpolicy_peer(&policy, ev->kind), ev->kind,
-					!ev->passkey_used, name));
+					ev->paired.passkey_used, ev->paired.bolt_mode, name));
 		pairwin_close(&window);
 		break;
 	case BLE_PASSKEY_AWAITED:

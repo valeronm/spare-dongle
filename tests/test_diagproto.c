@@ -207,7 +207,7 @@ static void test_devices_match_fixture(void)
 	memcpy(list.entries[1].addr, (uint8_t[]){1, 0x5a, 0x3c, 0x11, 0xe0, 0xf2, 0xc8}, 7);
 	memcpy(list.entries[1].name, "MX Master 3S", 12);
 	list.entries[1].kind = DEVICE_KIND_MOUSE;
-	list.entries[1].no_passkey = true;
+	list.entries[1].flags = BTLIST_BOLT;
 	secure_addr = list.entries[1].addr;
 	CHECK_EQ(encode_devices(got, &list,
 				(const uint8_t *const[]){list.entries[0].addr, list.entries[1].addr},
@@ -223,8 +223,8 @@ static void test_a_device_ready_in_no_slot_is_sent_with_none(void)
 	const uint8_t mouse[BTPOLICY_ADDR_LEN] = {1, 2};
 	uint8_t got[DIAG_DEVICES_MAX];
 
-	btlist_paired(&list, keyboard, DEVICE_KIND_KEYBOARD, false, "");
-	btlist_paired(&list, mouse, DEVICE_KIND_MOUSE, true, "");
+	btlist_paired(&list, keyboard, DEVICE_KIND_KEYBOARD, true, false, "");
+	btlist_paired(&list, mouse, DEVICE_KIND_MOUSE, false, false, "");
 	secure_addr = mouse;
 	CHECK_EQ(encode_devices(got, &list, (const uint8_t *const[]){keyboard, NULL}, is_secure),
 		 1 + 2 * DIAG_DEVICE_LEN);

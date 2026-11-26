@@ -10,10 +10,10 @@ use diagwire::{CHANNEL_FIRST, CHANNEL_LAST, NUPHY_PAIRING_CHANNEL};
 use crate::board::{self, State};
 use crate::device::{self, Device, Refused, Transport};
 use crate::format::{
-    NOISE_QUESTION, action_question, battery, bootloader_and_softdevice, channel_description,
-    describe_event, flash_question, flashed, hex, last_packet, latency, noise_level, paired,
-    pairing, pairing_offer, protocol_security, reset_by, state_name, status_label, unifying_kind,
-    uptime, usb_state, version, wall_clock,
+    NOISE_QUESTION, UNNAMED, action_question, battery, bootloader_and_softdevice,
+    channel_description, describe_event, flash_question, flashed, hex, joined, last_packet,
+    latency, name_parts, noise_level, paired, pairing, pairing_offer, protocol_security, reset_by,
+    state_name, status_label, unifying_kind, uptime, usb_state, version, wall_clock,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -120,7 +120,7 @@ fn slot_rows(s: &Status, slot: &Slot, d: &SlotStatus) -> Vec<(&'static str, Stri
         } else {
             "not connected"
         };
-        let name = d.name.as_deref().unwrap_or("unnamed");
+        let name = joined(&name_parts(d.name.as_deref().unwrap_or(UNNAMED), d.pairing));
         format!("{name}{details}, {state}")
     } else {
         "not paired".into()
@@ -682,7 +682,7 @@ mod tests {
     use crate::protocol::tests::{
         awaited, clicked, mouse_status, nuphy, status_of, status_with_window, unifying,
     };
-    use crate::protocol::{BluetoothLink, Command, Link, Protocol};
+    use crate::protocol::{BluetoothLink, Command, Link, Pairing, Protocol};
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|v| v.to_string()).collect()
@@ -755,6 +755,21 @@ mod tests {
         );
         assert!(
             !lines.iter().any(|l| l.starts_with("latency")),
+            "{lines:#?}"
+        );
+    }
+
+    #[test]
+    fn a_bolt_device_is_marked_after_its_name() {
+        let mut s = mouse_status();
+        s.device.pairing = Some(Pairing {
+            secure: true,
+            passkey: true,
+            bolt: true,
+        });
+        let lines = status_lines(&s, std::slice::from_ref(&s.device));
+        assert!(
+            lines.contains(&"mouse     MX Master 3S · Bolt, connected".to_string()),
             "{lines:#?}"
         );
     }

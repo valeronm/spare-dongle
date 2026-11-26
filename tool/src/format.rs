@@ -44,7 +44,7 @@ fn device_address(d: &StoredDevice, protocol: Protocol) -> String {
 }
 
 fn device_name(d: &StoredDevice) -> &str {
-    d.name.as_deref().unwrap_or("unnamed")
+    d.name.as_deref().unwrap_or(UNNAMED)
 }
 
 /// The device `device_lines` numbers `place`, counting from 1.
@@ -52,23 +52,56 @@ pub fn device_at(list: &[StoredDevice], place: usize) -> Option<&StoredDevice> {
     list.get(place.checked_sub(1)?)
 }
 
+/// Follows the name of a device that paired in Logi Bolt mode.
+const BOLT: &str = "Bolt";
+/// Between the parts of a device title, and before a name's Bolt mark.
+pub const TITLE_SEPARATOR: &str = " · ";
+/// Stands in for a device that has not sent its name.
+pub const UNNAMED: &str = "unnamed";
+
+/// The name with its Bolt mark, split where the mark starts.
+pub fn name_parts(name: &str, pairing: Option<Pairing>) -> Vec<(String, Tone)> {
+    let mut parts = vec![(name.to_string(), Tone::Plain)];
+    if pairing.is_some_and(|p| p.bolt) {
+        parts.extend([
+            (TITLE_SEPARATOR.into(), Tone::Plain),
+            (BOLT.into(), Tone::Bolt),
+        ]);
+    }
+    parts
+}
+
+pub fn joined(parts: &[(String, Tone)]) -> String {
+    parts.iter().map(|(text, _)| text.as_str()).collect()
+}
+
+/// What a piece of a line shows, for the live view to color.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    Plain,
+    Pairing(Pairing),
+    Bolt,
+}
+
 #[derive(Debug)]
 pub struct DeviceLine {
-    columns: String,
+    columns: Vec<(String, Tone)>,
     slot: Option<u8>,
     pairing: Option<Pairing>,
 }
 
 impl DeviceLine {
-    /// The line's text in pieces, the pairing's words carrying their pairing.
-    pub fn parts(&self) -> Vec<(String, Option<Pairing>)> {
-        let mut parts = vec![(self.columns.clone(), None)];
+    pub fn parts(&self) -> Vec<(String, Tone)> {
+        let mut parts = self.columns.clone();
         if let Some(slot) = self.slot {
-            parts.push((format!("  slot {slot}"), None));
+            parts.push((format!("  slot {slot}"), Tone::Plain));
         }
         if let Some(p) = self.pairing {
             let separator = if self.slot.is_some() { ", " } else { "  " };
-            parts.extend([(separator.into(), None), (pairing(p), Some(p))]);
+            parts.extend([
+                (separator.into(), Tone::Plain),
+                (pairing(p), Tone::Pairing(p)),
+            ]);
         }
         parts
     }
@@ -86,26 +119,45 @@ impl std::fmt::Display for DeviceLine {
 pub fn device_lines(list: &[StoredDevice], protocol: Protocol) -> Vec<DeviceLine> {
     if list.is_empty() {
         return vec![DeviceLine {
-            columns: "no device is stored".into(),
+            columns: vec![("no device is stored".into(), Tone::Plain)],
             slot: None,
             pairing: None,
         }];
     }
-    let widest =
-        |column: fn(&StoredDevice) -> &str| list.iter().map(|d| column(d).len()).max().unwrap_or(0);
-    let (kinds, names) = (widest(|d| d.kind.name()), widest(device_name));
+    let width = |text: &str| text.chars().count();
+    let names: Vec<_> = list
+        .iter()
+        .map(|d| {
+            let name = name_parts(device_name(d), d.pairing);
+            let w = name.iter().map(|(text, _)| width(text)).sum::<usize>();
+            (name, w)
+        })
+        .collect();
+    let kinds = list.iter().map(|d| width(d.kind.name())).max().unwrap_or(0);
+    let widest = names.iter().map(|(_, w)| *w).max().unwrap_or(0);
     list.iter()
+        .zip(names)
         .enumerate()
-        .map(|(i, d)| DeviceLine {
-            columns: format!(
-                "{}  {:kinds$}  {:names$}  {}",
-                i + 1,
-                d.kind.name(),
-                device_name(d),
-                device_address(d, protocol),
-            ),
-            slot: d.slot,
-            pairing: d.pairing,
+        .map(|(i, (d, (name, w)))| {
+            let mut columns = vec![(
+                format!("{}  {:kinds$}  ", i + 1, d.kind.name()),
+                Tone::Plain,
+            )];
+            columns.extend(name);
+            columns.push((
+                format!(
+                    "{:pad$}  {}",
+                    "",
+                    device_address(d, protocol),
+                    pad = widest - w
+                ),
+                Tone::Plain,
+            ));
+            DeviceLine {
+                columns,
+                slot: d.slot,
+                pairing: d.pairing,
+            }
         })
         .collect()
 }
@@ -1165,15 +1217,16 @@ mod tests {
         assert_eq!(
             texts(device_lines(&list, Protocol::Bluetooth)),
             [
-                "1  keyboard  MX Keys       EB:BB:49:A6:9A:D9  slot 0, legacy, passkey",
-                "2  mouse     MX Master 3S  C8:F2:E0:11:3C:5A  slot 1, secure, no passkey",
+                "1  keyboard  MX Keys              EB:BB:49:A6:9A:D9  slot 0, legacy, passkey",
+                "2  mouse     MX Master 3S · Bolt  C8:F2:E0:11:3C:5A  slot 1, secure, passkey",
             ]
         );
         assert_eq!(
             device_lines(&list, Protocol::Bluetooth)[1].pairing,
             Some(Pairing {
                 secure: true,
-                passkey: false
+                passkey: true,
+                bolt: true,
             })
         );
         let stored = StoredDevice {
@@ -1182,7 +1235,7 @@ mod tests {
         };
         assert_eq!(
             texts(device_lines(&[stored], Protocol::Bluetooth)),
-            ["1  mouse  MX Master 3S  C8:F2:E0:11:3C:5A  secure, no passkey"]
+            ["1  mouse  MX Master 3S · Bolt  C8:F2:E0:11:3C:5A  secure, passkey"]
         );
         let unnamed = StoredDevice {
             addr: [1, 0x24, 0xa8, 0x4b, 0x3c, 0x7d, 0xd6],
@@ -1192,6 +1245,7 @@ mod tests {
             pairing: Some(Pairing {
                 secure: false,
                 passkey: true,
+                bolt: false,
             }),
         };
         assert_eq!(
@@ -1210,7 +1264,13 @@ mod tests {
 
     #[test]
     fn a_pairing_reads_as_its_method_and_whether_a_passkey_was_typed() {
-        let words = |secure, passkey| pairing(Pairing { secure, passkey });
+        let words = |secure, passkey| {
+            pairing(Pairing {
+                secure,
+                passkey,
+                bolt: false,
+            })
+        };
         assert_eq!(words(true, true), "secure, passkey");
         assert_eq!(words(true, false), "secure, no passkey");
         assert_eq!(words(false, true), "legacy, passkey");

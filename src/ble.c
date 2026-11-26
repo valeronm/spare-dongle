@@ -48,6 +48,8 @@ struct link {
 	bool clicks;
 	bool failed;
 	bool passkey_used;
+	/* The device took the Bolt mode write on this connection. */
+	bool bolt_mode;
 };
 
 static struct link links[DEVICE_KINDS];
@@ -472,6 +474,7 @@ static void on_bolt_mode_written(struct bt_conn *conn, uint8_t err,
 		printk("bluetooth %s Bolt mode not written: att error %u\n",
 		       device_kind_name(kind_of(l)), err);
 	}
+	l->bolt_mode = !err;
 	request_security(l);
 }
 
@@ -532,6 +535,7 @@ static void on_connected(struct bt_conn *conn, uint8_t err)
 	emit(l, ev);
 	print_params(l);
 	l->passkey_used = false;
+	l->bolt_mode = false;
 	l->failed = false;
 	if (!write_bolt_mode(l)) {
 		request_security(l);
@@ -597,7 +601,9 @@ static void on_pairing_complete(struct bt_conn *conn, bool bonded)
 	struct link *l = link_of_conn(conn);
 
 	if (l && bonded) {
-		emit(l, (struct ble_event){.type = BLE_PAIRED, .passkey_used = l->passkey_used});
+		emit(l, (struct ble_event){.type = BLE_PAIRED,
+					   .paired = {.passkey_used = l->passkey_used,
+						      .bolt_mode = l->bolt_mode}});
 	}
 }
 

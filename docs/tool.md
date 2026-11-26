@@ -101,7 +101,8 @@ that lost its pairing, which has to be forgotten and paired again.
 - `devices` and the live view's list give each stored device's pairing, and `status` and the live
   view's device box the connected one's: secure for LE Secure Connections or legacy, and whether a
   passkey was typed. [Bluetooth security](bluetooth.md#security) says what each way protects
-  against and how the live view colors it.
+  against and how the live view colors it. A Logi Bolt mouse paired with its clicked passkey has
+  Bolt after its name.
 
 Event lines name a stored device and give a forgotten one's address.
 

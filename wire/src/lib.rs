@@ -31,6 +31,8 @@ pub const PAIRING_KNOWN: u8 = 0x01;
 /// LE Secure Connections, not legacy pairing.
 pub const PAIRING_SECURE: u8 = 0x02;
 pub const PAIRING_PASSKEY: u8 = 0x04;
+/// The device paired after the dongle put it in Logi Bolt mode.
+pub const PAIRING_BOLT: u8 = 0x08;
 /// In a pair request's arg under Bluetooth: pair without asking the keyboard for a passkey.
 pub const PAIR_NO_PASSKEY: u32 = 1;
 /// The pair reply under Bluetooth: 1 if a passkey is to be typed.
@@ -1036,10 +1038,11 @@ impl core::fmt::Display for Short {
 
 impl core::error::Error for Short {}
 
-pub fn pairing_flags(secure: bool, passkey: bool) -> u8 {
+pub fn pairing_flags(secure: bool, passkey: bool, bolt: bool) -> u8 {
     PAIRING_KNOWN
         | if secure { PAIRING_SECURE } else { 0 }
         | if passkey { PAIRING_PASSKEY } else { 0 }
+        | if bolt { PAIRING_BOLT } else { 0 }
 }
 
 /// Zero clears the forced channels.

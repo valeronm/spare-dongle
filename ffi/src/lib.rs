@@ -129,8 +129,8 @@ pub extern "C" fn diag_noise_bucket(dbm: i8) -> u8 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn diag_pairing(secure: bool, passkey: bool) -> u8 {
-    diagwire::pairing_flags(secure, passkey)
+pub extern "C" fn diag_pairing(secure: bool, passkey: bool, bolt: bool) -> u8 {
+    diagwire::pairing_flags(secure, passkey, bolt)
 }
 
 /// # Safety

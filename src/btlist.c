@@ -91,17 +91,18 @@ bool btlist_connected(struct btlist *l, const uint8_t *addr, const char *name)
 	return set_name(e, name) || changed;
 }
 
-bool btlist_paired(struct btlist *l, const uint8_t *addr, enum device_kind kind,
-		   bool no_passkey, const char *name)
+bool btlist_paired(struct btlist *l, const uint8_t *addr, enum device_kind kind, bool passkey_used,
+		   bool bolt_mode, const char *name)
 {
+	uint8_t flags = (passkey_used ? 0 : BTLIST_NO_PASSKEY) | (bolt_mode ? BTLIST_BOLT : 0);
 	bool changed = false;
 	struct btlist_entry *e = to_front(l, addr, &changed);
 
 	if (!e) {
 		return false;
 	}
-	if (e->no_passkey != no_passkey || e->kind != kind) {
-		e->no_passkey = no_passkey;
+	if (e->flags != flags || e->kind != kind) {
+		e->flags = flags;
 		e->kind = kind;
 		changed = true;
 	}
@@ -161,7 +162,8 @@ _Static_assert(BTPOLICY_STORED_MAX <= DIAG_STORED_MAX, "a device list carries ev
 
 uint8_t btlist_pairing(const struct btlist_entry *e, bool secure)
 {
-	return diag_pairing(secure, !e->no_passkey);
+	return diag_pairing(secure, !(e->flags & BTLIST_NO_PASSKEY),
+			    e->flags & BTLIST_BOLT);
 }
 
 size_t btlist_devices(const struct btlist *l, const uint8_t *const connected[DEVICE_SLOTS],

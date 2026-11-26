@@ -14,10 +14,18 @@ struct btlist_entry {
 	uint8_t addr[BTPOLICY_ADDR_LEN];
 	/* Padded with zeros; not terminated when it fills the field. */
 	char name[BTLIST_NAME_LEN];
-	bool no_passkey;
+	uint8_t flags;
 	/* An enum device_kind; zero, a keyboard, for an entry added by btlist_reconcile. */
 	uint8_t kind;
 };
+
+/* A bool stored by earlier firmware reads as this bit. */
+#define BTLIST_NO_PASSKEY 0x01
+#define BTLIST_BOLT 0x02
+
+/* The list is loaded from flash only when its size is unchanged. */
+_Static_assert(sizeof(struct btlist_entry) == BTPOLICY_ADDR_LEN + BTLIST_NAME_LEN + 2,
+	       "a stored entry keeps its layout");
 
 /* The stored devices, the most recently connected first. */
 struct btlist {
@@ -31,10 +39,9 @@ struct btlist {
 bool btlist_reconcile(struct btlist *l, const uint8_t addrs[][BTPOLICY_ADDR_LEN], size_t n);
 /* Moves the device to the front and records its name. */
 bool btlist_connected(struct btlist *l, const uint8_t *addr, const char *name);
-/* Moves the device to the front and records its kind, its passkey mark and, unless empty, its
- * name. */
-bool btlist_paired(struct btlist *l, const uint8_t *addr, enum device_kind kind,
-		   bool no_passkey, const char *name);
+/* Moves the device to the front and records its kind, how it paired and, unless empty, its name. */
+bool btlist_paired(struct btlist *l, const uint8_t *addr, enum device_kind kind, bool passkey_used,
+		   bool bolt_mode, const char *name);
 bool btlist_remove(struct btlist *l, const uint8_t *addr);
 
 /* NULL for an address not in the list. */

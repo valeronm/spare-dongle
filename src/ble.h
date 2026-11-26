@@ -56,8 +56,11 @@ struct ble_event {
 			int error;
 			enum btpolicy_failure why;
 		} failed;
-		/* BLE_PAIRED: the device was typed the offered passkey. */
-		bool passkey_used;
+		/* BLE_PAIRED: whether the device was typed the offered passkey and took the Bolt mode write. */
+		struct {
+			bool passkey_used;
+			bool bolt_mode;
+		} paired;
 		/* BLE_PASSKEY_AWAITED: the passkey the device was given. */
 		struct {
 			uint32_t value;

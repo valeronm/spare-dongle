@@ -19,12 +19,13 @@ use ratatui::{
 
 use crate::device::{self, Device, Lost, Transport};
 use crate::format::{
-    ChannelRole, LinkHealth, NOISE_QUESTION, action_question, battery, bootloader_and_softdevice,
-    bucket_label, channel_role, counted_share, describe_event, device_at, device_lines,
-    forget_question, last_packet, latency, link_health, noise_level, noise_ruler, paired, pairing,
-    pairing_how, passkey_prompt, protocol_security, reset_by, sentence, share, slot_health,
-    slot_state, state_name, status_label, switch_question, uptime, usb_state, version,
-    waiting_device, waits_for_passkey, wall_clock, watch_role, watch_summary,
+    ChannelRole, LinkHealth, NOISE_QUESTION, TITLE_SEPARATOR, Tone, action_question, battery,
+    bootloader_and_softdevice, bucket_label, channel_role, counted_share, describe_event,
+    device_at, device_lines, forget_question, last_packet, latency, link_health, name_parts,
+    noise_level, noise_ruler, paired, pairing, pairing_how, passkey_prompt, protocol_security,
+    reset_by, sentence, share, slot_health, slot_state, state_name, status_label, switch_question,
+    uptime, usb_state, version, waiting_device, waits_for_passkey, wall_clock, watch_role,
+    watch_summary,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -1254,6 +1255,9 @@ impl<T: Transport> App<T> {
 
 const BOLD: Style = Style::new().add_modifier(Modifier::BOLD);
 
+/// Logi Bolt's yellowish green.
+const BOLT_COLOR: Color = Color::Indexed(148);
+
 fn protocol_color(protocol: Protocol) -> Color {
     match protocol {
         Protocol::Nuphy => Color::Indexed(43),
@@ -1292,12 +1296,24 @@ fn dongle_title(status: Option<&Status>) -> Line<'static> {
     title
 }
 
-fn device_title(s: &Status, d: &SlotStatus) -> String {
-    std::iter::once(s.kind_name(d.slot).to_string())
-        .chain(d.name.clone())
-        .chain(d.battery.map(battery))
-        .collect::<Vec<_>>()
-        .join(" · ")
+fn toned(text: String, tone: Tone) -> Span<'static> {
+    match tone {
+        Tone::Plain => Span::raw(text),
+        Tone::Pairing(p) => Span::styled(text, Style::new().fg(pairing_color(p))),
+        Tone::Bolt => Span::styled(text, Style::new().fg(BOLT_COLOR)),
+    }
+}
+
+fn device_title(s: &Status, d: &SlotStatus) -> Line<'static> {
+    let mut parts = vec![(s.kind_name(d.slot).to_string(), Tone::Plain)];
+    if let Some(name) = &d.name {
+        parts.push((TITLE_SEPARATOR.into(), Tone::Plain));
+        parts.extend(name_parts(name, d.pairing));
+    }
+    if let Some(b) = d.battery {
+        parts.push((format!("{TITLE_SEPARATOR}{}", battery(b)), Tone::Plain));
+    }
+    Line::from_iter(parts.into_iter().map(|(text, tone)| toned(text, tone)))
 }
 
 impl<T: Transport> Connection<T> {
@@ -1625,12 +1641,7 @@ fn draw_devices(f: &mut Frame, area: Rect, devices: &[StoredDevice], protocol: P
     let block = Block::bordered().title(padded("stored devices; a device's number forgets it"));
     let lines: Vec<Line> = device_lines(devices, protocol)
         .into_iter()
-        .map(|l| {
-            Line::from_iter(l.parts().into_iter().map(|(text, p)| match p {
-                Some(p) => Span::styled(text, Style::new().fg(pairing_color(p))),
-                None => Span::raw(text),
-            }))
-        })
+        .map(|l| Line::from_iter(l.parts().into_iter().map(|(text, tone)| toned(text, tone))))
         .collect();
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
@@ -2226,15 +2237,16 @@ mod tests {
         let terminal = drawn(&mut app);
         let text = screen(&terminal).join("\n");
         assert!(text.contains("1  keyboard  MX Keys"), "{text}");
-        assert!(text.contains("2  mouse     MX Master 3S"), "{text}");
+        assert!(text.contains("2  mouse     MX Master 3S · Bolt"), "{text}");
         let mouse_row = screen(&terminal)
             .iter()
             .position(|r| r.contains("2  mouse"))
             .unwrap() as u16;
         assert_eq!(
-            cell_at(&terminal, mouse_row, "secure, no passkey").fg,
-            Color::Yellow
+            cell_at(&terminal, mouse_row, "secure, passkey").fg,
+            Color::Green
         );
+        assert_eq!(cell_at(&terminal, mouse_row, "Bolt").fg, BOLT_COLOR);
         assert_eq!(cell_at(&terminal, mouse_row, "C8:F2").fg, Color::Reset);
         press(&mut app, '2');
         assert_eq!(
@@ -2269,7 +2281,7 @@ mod tests {
         assert_eq!(reads.get(), 1);
         let text = screen(&drawn(&mut app)).join("\n");
         assert!(
-            text.contains("1  keyboard  MX Keys       ID 01d99aa6"),
+            text.contains("1  keyboard  MX Keys              ID 01d99aa6"),
             "{text}"
         );
         refreshed_with_pairing(&mut app, Protocol::Nuphy, false);
@@ -2348,7 +2360,7 @@ mod tests {
         let boxes = [
             (dongle_title(Some(&h.status)).to_string(), dongle),
             (
-                device_title(&h.status, device),
+                device_title(&h.status, device).to_string(),
                 texts(&slot_lines(Some(&h.status), Some(device))),
             ),
         ];
@@ -2430,8 +2442,13 @@ mod tests {
     fn the_pairing_is_colored_by_how_well_it_protects_the_link() {
         let colored = |secure, passkey| {
             let mut s = mouse_status();
-            s.device.pairing = Some(Pairing { secure, passkey });
-            let words = pairing(Pairing { secure, passkey });
+            let p = Pairing {
+                secure,
+                passkey,
+                bolt: false,
+            };
+            s.device.pairing = Some(p);
+            let words = pairing(p);
             cell_at(&status_box(&s), DEVICE_TITLE_ROW as u16 + 2, &words).fg
         };
         assert_eq!(colored(true, true), Color::Green);
@@ -3630,6 +3647,23 @@ mod tests {
         assert!(
             title.starts_with("┌ keyboard · MX Keys · 85%, charging ─"),
             "{title}"
+        );
+    }
+
+    #[test]
+    fn the_device_title_marks_a_bolt_device_after_its_name() {
+        let mut s = mouse_status();
+        s.device.pairing = Some(Pairing {
+            secure: true,
+            passkey: true,
+            bolt: true,
+        });
+        let terminal = status_box(&s);
+        let title = &screen(&terminal)[DEVICE_TITLE_ROW];
+        assert!(title.contains(" mouse · MX Master 3S · Bolt "), "{title}");
+        assert_eq!(
+            cell_at(&terminal, DEVICE_TITLE_ROW as u16, "Bolt").fg,
+            BOLT_COLOR
         );
     }
 

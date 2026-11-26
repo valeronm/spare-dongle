@@ -6,8 +6,9 @@ pub use diagwire::{
     STRONG_DBM, Up, Wheel, bucket_floor, channels_arg, parse_part, request,
 };
 use diagwire::{
-    Charging, NAME_MAX, NO_BATTERY, NO_RSSI, NO_SLOT, NUPHY_FIXED_CHANNELS, PAIRING_KNOWN,
-    PAIRING_PASSKEY, PAIRING_SECURE, SLOTS, UNIFYING_CHANNELS, VERSION, WatchChannel, Window,
+    Charging, NAME_MAX, NO_BATTERY, NO_RSSI, NO_SLOT, NUPHY_FIXED_CHANNELS, PAIRING_BOLT,
+    PAIRING_KNOWN, PAIRING_PASSKEY, PAIRING_SECURE, SLOTS, UNIFYING_CHANNELS, VERSION,
+    WatchChannel, Window,
 };
 
 /// A status reply in a diagnostic protocol other than [`VERSION`].
@@ -255,6 +256,8 @@ pub struct Pairing {
     /// LE Secure Connections, not legacy pairing.
     pub secure: bool,
     pub passkey: bool,
+    /// Paired after the dongle put it in Logi Bolt mode.
+    pub bolt: bool,
 }
 
 /// The delay from a report's arrival at the dongle to the PC fetching it over USB.
@@ -564,6 +567,7 @@ fn read_pairing(flags: u8) -> Option<Pairing> {
     (flags & PAIRING_KNOWN != 0).then_some(Pairing {
         secure: flags & PAIRING_SECURE != 0,
         passkey: flags & PAIRING_PASSKEY != 0,
+        bolt: flags & PAIRING_BOLT != 0,
     })
 }
 
@@ -963,6 +967,7 @@ pub(crate) mod tests {
                     pairing: Some(Pairing {
                         secure: false,
                         passkey: true,
+                        bolt: false,
                     }),
                 },
                 StoredDevice {
@@ -972,7 +977,8 @@ pub(crate) mod tests {
                     slot: Some(1),
                     pairing: Some(Pairing {
                         secure: true,
-                        passkey: false,
+                        passkey: true,
+                        bolt: true,
                     }),
                 },
             ])
@@ -1226,6 +1232,7 @@ pub(crate) mod tests {
                     pairing: Some(Pairing {
                         secure: true,
                         passkey: false,
+                        bolt: false,
                     }),
                     battery: None,
                 },
