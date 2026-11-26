@@ -363,6 +363,7 @@ pub enum EventType {
     BtPasskeyAwaited,
     KeyboardForgotten,
     UnifyingActive,
+    BtNotForgotten,
 }
 
 codes!(EventType {
@@ -394,6 +395,7 @@ codes!(EventType {
     BtPasskeyAwaited,
     KeyboardForgotten,
     UnifyingActive,
+    BtNotForgotten,
 });
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -758,6 +760,10 @@ pub enum Detail {
     UnifyingActive {
         addr: [u8; EVENT_ADDR_LEN],
     },
+    /// Deleting a Bluetooth device's pairing failed, so it stays stored.
+    BtNotForgotten {
+        addr: [u8; EVENT_ADDR_LEN],
+    },
 }
 
 /// Seconds since the last input as an event records them; a negative `elapsed_ms` means none
@@ -815,6 +821,7 @@ impl Detail {
             D::BtPasskeyAwaited { .. } => T::BtPasskeyAwaited,
             D::KeyboardForgotten { .. } => T::KeyboardForgotten,
             D::UnifyingActive { .. } => T::UnifyingActive,
+            D::BtNotForgotten { .. } => T::BtNotForgotten,
         }
     }
 
@@ -875,7 +882,8 @@ impl Detail {
             | D::BtBondLost { addr }
             | D::BtPasskeyAwaited { addr }
             | D::KeyboardForgotten { addr }
-            | D::UnifyingActive { addr } => {
+            | D::UnifyingActive { addr }
+            | D::BtNotForgotten { addr } => {
                 let (a, b, value) = pack_addr(&addr);
                 (a, b, 0, value)
             }
@@ -1009,6 +1017,9 @@ impl Detail {
                 addr: unpack_addr(e),
             },
             T::UnifyingActive => D::UnifyingActive {
+                addr: unpack_addr(e),
+            },
+            T::BtNotForgotten => D::BtNotForgotten {
                 addr: unpack_addr(e),
             },
         })

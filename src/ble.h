@@ -29,6 +29,7 @@ enum ble_event_type {
 	BLE_MAP_READ,
 	BLE_REPORT,
 	BLE_BATTERY,
+	BLE_FORGOTTEN,
 };
 
 enum ble_stage {
@@ -78,6 +79,12 @@ struct ble_event {
 		} report;
 		/* BLE_BATTERY: the level is unknown once it cannot be read. */
 		struct device_battery battery;
+		/* BLE_FORGOTTEN: the stack's error, and the tag ble_forget was given. */
+		struct {
+			uint8_t addr[BTPOLICY_ADDR_LEN];
+			uint8_t tag;
+			int error;
+		} forgotten;
 	};
 };
 
@@ -97,8 +104,10 @@ int ble_offer_passkey(bool on, uint32_t value);
 uint8_t ble_stored_count(void);
 /* Copies up to cap bonded addresses and returns how many bonds there are. */
 uint8_t ble_stored(uint8_t addrs[][BTPOLICY_ADDR_LEN], uint8_t cap);
-/* Deletes the device's bond, disconnecting it first if it is connected. */
-int ble_forget(const uint8_t addr[BTPOLICY_ADDR_LEN]);
+/* Deletes the device's bond through store_run, disconnecting it first if it is connected, and
+ * reports BLE_FORGOTTEN; the device's adverts are dropped until then. Returns -ENOMEM while too
+ * many deletes wait. */
+int ble_forget(enum device_kind kind, const uint8_t addr[BTPOLICY_ADDR_LEN], uint8_t tag);
 bool ble_take_event(struct ble_event *ev, k_timeout_t wait);
 /* Copies the report map read at the slot's connection and returns its length, 0 before its
  * BLE_MAP_READ. */

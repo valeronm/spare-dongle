@@ -1,5 +1,8 @@
 #include <stdio.h>
+#include <zephyr/kernel.h>
 #include <zephyr/settings/settings.h>
+#include <zephyr/sys/printk.h>
+#include "btlist.h"
 #include "store.h"
 
 #define NUPHY_KEY "dongle/channels"
@@ -15,9 +18,26 @@ static bool load_exact(const char *key, void *out, size_t len)
 	return settings_load_one(key, out, len) == (ssize_t)len;
 }
 
+/* A flash write waits for gaps between radio events, so a page erase can stall for seconds while a
+ * link runs at a short interval. */
+static K_THREAD_STACK_DEFINE(slow_writes_stack, 2048);
+static struct k_work_q slow_writes;
+
 int store_init(void)
 {
+	k_work_queue_start(&slow_writes, slow_writes_stack, K_THREAD_STACK_SIZEOF(slow_writes_stack),
+			   K_LOWEST_APPLICATION_THREAD_PRIO, NULL);
 	return settings_subsys_init();
+}
+
+void store_run(struct k_work *work)
+{
+	k_work_submit_to_queue(&slow_writes, work);
+}
+
+void store_flush(void)
+{
+	k_work_queue_drain(&slow_writes, false);
 }
 
 bool store_load_nuphy(void *out, size_t len)
@@ -90,12 +110,39 @@ int store_save_protocol(uint8_t value)
 	return settings_save_one(PROTOCOL_KEY, &value, 1);
 }
 
-bool store_load_bluetooth(void *out, size_t len)
+bool store_load_bluetooth(struct btlist *out)
 {
-	return load_exact(BLUETOOTH_KEY, out, len);
+	return load_exact(BLUETOOTH_KEY, out, sizeof(*out));
 }
 
-int store_save_bluetooth(const void *in, size_t len)
+static struct btlist list_pending;
+static K_MUTEX_DEFINE(pending_lock);
+
+static void save_list(struct k_work *work)
 {
-	return settings_save_one(BLUETOOTH_KEY, in, len);
+	static struct btlist list;
+	uint32_t started;
+	int err;
+
+	k_mutex_lock(&pending_lock, K_FOREVER);
+	list = list_pending;
+	k_mutex_unlock(&pending_lock);
+	started = k_uptime_get_32();
+	err = settings_save_one(BLUETOOTH_KEY, &list, sizeof(list));
+	if (err) {
+		printk("bluetooth device list not saved: %d\n", err);
+	}
+	if (k_uptime_get_32() - started > 200) {
+		printk("bluetooth device list save took %u ms\n", k_uptime_get_32() - started);
+	}
+}
+
+static K_WORK_DEFINE(list_save, save_list);
+
+void store_save_bluetooth(const struct btlist *list)
+{
+	k_mutex_lock(&pending_lock, K_FOREVER);
+	list_pending = *list;
+	k_mutex_unlock(&pending_lock);
+	store_run(&list_save);
 }

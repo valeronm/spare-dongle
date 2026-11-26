@@ -7,6 +7,7 @@
 #include <zephyr/usb/class/usbd_hid.h>
 #include <zephyr/usb/usbd.h>
 #include <hal/nrf_power.h>
+#include "store.h"
 #include "usb.h"
 
 #define USB_VID 0x2fe3
@@ -342,6 +343,7 @@ static const struct hid_device_ops diag_ops = {
 void usb_reboot_to_bootloader(void)
 {
 	nrf_power_gpregret_set(NRF_POWER, 0, BOOTLOADER_DFU_MAGIC);
+	store_flush();
 	sys_reboot(SYS_REBOOT_COLD);
 }
 

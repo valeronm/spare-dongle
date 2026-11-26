@@ -16,6 +16,9 @@ pub const USAGE_PAGE: u16 = 0xff00;
 /// Longer than the dongle's longest main-loop block, a 1.5 s radio survey.
 pub const TIMEOUT: Duration = Duration::from_millis(2500);
 pub const NOISE_TIMEOUT: Duration = Duration::from_secs(4);
+/// A Bluetooth dongle replies once the bond's delete is in flash, which can wait behind a link's
+/// radio events.
+pub const FORGET_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A reply that carried an error code in place of a payload.
 #[derive(Debug)]
@@ -239,7 +242,7 @@ impl<T: Transport> Device<T> {
     }
 
     pub fn forget(&mut self, device: &StoredDevice) -> Result<()> {
-        self.call_with(Command::Forget, 0, &device.addr, TIMEOUT)
+        self.call_with(Command::Forget, 0, &device.addr, FORGET_TIMEOUT)
             .map(drop)
     }
 

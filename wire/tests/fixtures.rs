@@ -421,6 +421,7 @@ fn every_detail() -> Vec<Detail> {
         Detail::BtPasskeyAwaited { addr },
         Detail::KeyboardForgotten { addr },
         Detail::UnifyingActive { addr },
+        Detail::BtNotForgotten { addr },
     ]
 }
 

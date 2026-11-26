@@ -1,6 +1,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/reboot.h>
 #include "diag.h"
+#include "store.h"
 #include "usb.h"
 
 #define DIAG_PART_SLOTS 16
@@ -66,6 +67,7 @@ static void diag_thread(void *a, void *b, void *c)
 		k_msgq_get(&diag_parts, &p, K_FOREVER);
 		usb_diag_send(p.report);
 		if (p.after == DIAG_AFTER_REBOOT) {
+			store_flush();
 			sys_reboot(SYS_REBOOT_COLD);
 		} else if (p.after == DIAG_AFTER_BOOTLOADER) {
 			usb_reboot_to_bootloader();

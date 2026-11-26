@@ -17,6 +17,7 @@
 #include "ble.h"
 #include "clock.h"
 #include "core.h"
+#include "store.h"
 
 K_MSGQ_DEFINE(ble_events, sizeof(struct ble_event), 16, 4);
 
@@ -635,6 +636,72 @@ static bool parse_field(struct bt_data *data, void *user_data)
 	return true;
 }
 
+#define FORGETS_MAX 4
+
+/* Each holds the event that reports its delete. */
+static struct {
+	bool due;
+	struct ble_event ev;
+} forgets[FORGETS_MAX];
+/* The receive thread reads the deletes due while the store's thread finishes them. */
+static struct k_spinlock forgets_lock;
+
+static void forget_due(struct k_work *work)
+{
+	for (int i = 0; i < FORGETS_MAX; i++) {
+		struct ble_event ev;
+		bt_addr_le_t peer;
+		k_spinlock_key_t key = k_spin_lock(&forgets_lock);
+		bool due = forgets[i].due;
+
+		ev = forgets[i].ev;
+		k_spin_unlock(&forgets_lock, key);
+		if (!due) {
+			continue;
+		}
+		memcpy(&peer, ev.forgotten.addr, sizeof(peer));
+		ev.forgotten.error = bt_unpair(BT_ID_DEFAULT, &peer);
+		key = k_spin_lock(&forgets_lock);
+		forgets[i].due = false;
+		k_spin_unlock(&forgets_lock, key);
+		put_event(&ev);
+	}
+}
+
+static K_WORK_DEFINE(forget_work, forget_due);
+
+int ble_forget(enum device_kind kind, const uint8_t addr[BTPOLICY_ADDR_LEN], uint8_t tag)
+{
+	k_spinlock_key_t key = k_spin_lock(&forgets_lock);
+
+	for (int i = 0; i < FORGETS_MAX; i++) {
+		if (!forgets[i].due) {
+			forgets[i].due = true;
+			forgets[i].ev = (struct ble_event){
+				.type = BLE_FORGOTTEN, .kind = kind, .forgotten = {.tag = tag}};
+			memcpy(forgets[i].ev.forgotten.addr, addr, BTPOLICY_ADDR_LEN);
+			k_spin_unlock(&forgets_lock, key);
+			store_run(&forget_work);
+			return 0;
+		}
+	}
+	k_spin_unlock(&forgets_lock, key);
+	return -ENOMEM;
+}
+
+static bool forgetting(const bt_addr_le_t *addr)
+{
+	k_spinlock_key_t key = k_spin_lock(&forgets_lock);
+	bool found = false;
+
+	for (int i = 0; i < FORGETS_MAX; i++) {
+		found |= forgets[i].due &&
+			 memcmp(forgets[i].ev.forgotten.addr, addr, BTPOLICY_ADDR_LEN) == 0;
+	}
+	k_spin_unlock(&forgets_lock, key);
+	return found;
+}
+
 static void on_advert(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 		      struct net_buf_simple *data)
 {
@@ -642,6 +709,9 @@ static void on_advert(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 	struct btpolicy_advert *a = &ev.advert;
 	bool response = type == BT_GAP_ADV_TYPE_SCAN_RSP;
 
+	if (forgetting(addr)) {
+		return;
+	}
 	if (response) {
 		if (!pending_set || memcmp(pending.addr, addr, sizeof(pending.addr)) != 0) {
 			return;
@@ -821,14 +891,6 @@ uint8_t ble_stored(uint8_t addrs[][BTPOLICY_ADDR_LEN], uint8_t cap)
 uint8_t ble_stored_count(void)
 {
 	return ble_stored(NULL, 0);
-}
-
-int ble_forget(const uint8_t addr[BTPOLICY_ADDR_LEN])
-{
-	bt_addr_le_t peer;
-
-	memcpy(&peer, addr, sizeof(peer));
-	return bt_unpair(BT_ID_DEFAULT, &peer);
 }
 
 /* The advertising channels hold the indexes above these, and nearby devices advertise there all the

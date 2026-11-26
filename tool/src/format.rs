@@ -969,6 +969,10 @@ pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String 
             "{kind} {} lost its pairing; forget it and pair again",
             device(&addr)
         ),
+        Ok(Detail::BtNotForgotten { addr }) => format!(
+            "could not forget {kind} {}: deleting its pairing failed",
+            device(&addr)
+        ),
         Ok(Detail::BtForgotten { addr, cause }) => {
             let slot_kind = e.slot.and_then(|slot| s.slot(slot)).map(|slot| slot.kind);
             let why = match (Forgotten::from_code(cause), slot_kind) {
@@ -1134,6 +1138,10 @@ mod tests {
         assert_eq!(
             describe_event(&at(EventType::BtForgotten, 1), &bt, &[]),
             "forgot keyboard EB:BB:49:A6:9A:D9: its report map has no keys"
+        );
+        assert_eq!(
+            describe_event(&at(EventType::BtNotForgotten, 0), &bt, &[]),
+            "could not forget keyboard EB:BB:49:A6:9A:D9: deleting its pairing failed"
         );
         assert_eq!(
             describe_event(&at(EventType::BtForgotten, 7), &bt, &[]),

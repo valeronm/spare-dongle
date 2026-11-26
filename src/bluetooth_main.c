@@ -233,8 +233,8 @@ static const char *map_fault(enum hidmap_result result)
 
 static void save_list(bool changed)
 {
-	if (changed && store_save_bluetooth(&list, sizeof(list)) != 0) {
-		printk("bluetooth device list not saved\n");
+	if (changed) {
+		store_save_bluetooth(&list);
 	}
 }
 
@@ -245,22 +245,61 @@ static void load_list(void)
 	uint8_t bonded[BTPOLICY_STORED_MAX][BTPOLICY_ADDR_LEN];
 	uint8_t n = ble_stored(bonded, BTPOLICY_STORED_MAX);
 
-	if (!store_load_bluetooth(&list, sizeof(list)) || list.count > BTPOLICY_STORED_MAX) {
+	if (!store_load_bluetooth(&list) || list.count > BTPOLICY_STORED_MAX) {
 		list = (struct btlist){0};
 	}
 	save_list(btlist_reconcile(&list, bonded, MIN(n, BTPOLICY_STORED_MAX)));
 }
 
-static int forget(const uint8_t *addr)
+/* The cause is a HISTORY_FORGOTTEN_* value, logged once the bond is deleted. */
+static int forget(enum device_kind kind, const uint8_t *addr, uint8_t cause)
 {
-	int err = ble_forget(addr);
+	int err = ble_forget(kind, addr, cause);
 
 	if (err) {
-		printk("bluetooth bond not deleted: %d\n", err);
-		return err;
+		printk("bluetooth bond not queued for deletion: %d\n", err);
+	}
+	return err;
+}
+
+static void log_forgotten(enum device_kind kind, const uint8_t *addr, uint8_t cause)
+{
+	core_log_address(slot_of(kind),
+			 (struct diag_detail){.tag = DIAG_DETAIL_BT_FORGOTTEN,
+					      .BT_FORGOTTEN = {.cause = cause}},
+			 addr);
+}
+
+/* The tool's forget is answered once the bond's delete is done. */
+static struct diag_request forget_request;
+static bool forget_answering;
+
+static void answer_forget(const uint8_t *addr, int error)
+{
+	if (!forget_answering || memcmp(forget_request.data, addr, BTPOLICY_ADDR_LEN) != 0) {
+		return;
+	}
+	forget_answering = false;
+	if (error) {
+		diag_reply_error(&forget_request, DIAG_ERROR_STORE, 0);
+	} else {
+		diag_reply(&forget_request, NULL, 0, DIAG_AFTER_NONE);
+	}
+}
+
+static void on_forgotten(const struct ble_event *ev)
+{
+	const uint8_t *addr = ev->forgotten.addr;
+
+	answer_forget(addr, ev->forgotten.error);
+	if (ev->forgotten.error) {
+		printk("bluetooth bond not deleted: %d\n", ev->forgotten.error);
+		core_log_address(slot_of(ev->kind),
+				 (struct diag_detail){.tag = DIAG_DETAIL_BT_NOT_FORGOTTEN}, addr);
+		return;
 	}
 	save_list(btlist_remove(&list, addr));
-	return 0;
+	log_forgotten(ev->kind, addr, ev->forgotten.tag);
 }
 
 BUILD_ASSERT(DIAG_REQUEST_DATA_LEN == BTPOLICY_ADDR_LEN);
@@ -366,11 +405,8 @@ static void on_map_read(enum device_kind kind)
 	if (result != HIDMAP_OK) {
 		printk("bluetooth %s \"%s\" refused: report map %s\n", what, name,
 		       map_fault(result));
-		if ((result == HIDMAP_NO_KEYBOARD || result == HIDMAP_NO_POINTER) &&
-		    forget(btpolicy_peer(&policy, kind)) == 0) {
-			log_device((struct diag_detail){.tag = DIAG_DETAIL_BT_FORGOTTEN,
-							 .BT_FORGOTTEN = {.cause = HISTORY_FORGOTTEN_UNUSABLE_MAP}},
-				   kind);
+		if (result == HIDMAP_NO_KEYBOARD || result == HIDMAP_NO_POINTER) {
+			forget(kind, btpolicy_peer(&policy, kind), HISTORY_FORGOTTEN_UNUSABLE_MAP);
 		}
 		ble_disconnect(kind);
 		return;
@@ -550,6 +586,9 @@ static void on_event(const struct ble_event *ev)
 		devices[ev->kind].level = ev->battery.level;
 		print_battery(ev->kind, battery_of(&devices[ev->kind]));
 		break;
+	case BLE_FORGOTTEN:
+		on_forgotten(ev);
+		break;
 	}
 }
 
@@ -607,15 +646,12 @@ static void forget_listed(const struct diag_request *req)
 		return;
 	}
 	kind = btlist_kind(&list, req->data);
-	if (forget(req->data) != 0) {
+	if (forget_answering || forget(kind, req->data, HISTORY_FORGOTTEN_ON_REQUEST) != 0) {
 		diag_reply_error(req, DIAG_ERROR_STORE, 0);
 		return;
 	}
-	core_log_address(slot_of(kind),
-			 (struct diag_detail){.tag = DIAG_DETAIL_BT_FORGOTTEN,
-					      .BT_FORGOTTEN = {.cause = HISTORY_FORGOTTEN_ON_REQUEST}},
-			 req->data);
-	diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
+	forget_request = *req;
+	forget_answering = true;
 }
 
 static void send_heard(const struct diag_request *req)

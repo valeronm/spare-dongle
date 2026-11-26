@@ -16,6 +16,7 @@
 - The live view ignores pasted text, which it used to take as key presses.
 - A button already held when a Bluetooth mouse connects, such as both buttons closing a Logi Bolt
   passkey, does nothing until it is released.
+- Bluetooth input no longer pauses while the dongle saves its device list or forgets a device.
 - The diagnostic protocol is now 6, so the 0.6.1 tool can only `flash` new firmware.
 
 ## [0.6.1] - 2026-11-26
