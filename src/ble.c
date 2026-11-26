@@ -505,10 +505,22 @@ static void on_params_updated(struct bt_conn *conn, uint16_t interval, uint16_t 
 	}
 }
 
+static bool on_param_request(struct bt_conn *conn, struct bt_le_conn_param *param)
+{
+	struct link *l = link_of_conn(conn);
+
+	if (l) {
+		param->interval_max =
+			btpolicy_interval_max(kind_of(l), param->interval_min, param->interval_max);
+	}
+	return true;
+}
+
 BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.connected = on_connected,
 	.disconnected = on_disconnected,
 	.security_changed = on_security_changed,
+	.le_param_req = on_param_request,
 	.le_param_updated = on_params_updated,
 };
 

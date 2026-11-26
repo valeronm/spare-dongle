@@ -143,5 +143,9 @@ void btpolicy_unhush(struct btpolicy *p);
  * after its drop, since the slow scan can miss a device's adverts for longer than
  * BTPOLICY_QUIET_MS. */
 enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, uint32_t now_ms);
+/* A mouse is held to the shortest interval it requests, since a controller left to choose takes
+ * the longest. */
+uint16_t btpolicy_interval_max(enum device_kind kind, uint16_t interval_min,
+			       uint16_t interval_max);
 
 #endif

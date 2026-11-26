@@ -234,3 +234,9 @@ void btpolicy_unhush(struct btpolicy *p)
 		p->hushes[k].on = false;
 	}
 }
+
+uint16_t btpolicy_interval_max(enum device_kind kind, uint16_t interval_min,
+			       uint16_t interval_max)
+{
+	return kind == DEVICE_KIND_MOUSE ? interval_min : interval_max;
+}

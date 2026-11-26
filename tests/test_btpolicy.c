@@ -347,6 +347,16 @@ static void the_appearance_gives_the_kind(void)
 	CHECK_EQ(btpolicy_kind_of(0x03c4), DEVICE_NO_KIND);
 }
 
+static void a_mouse_gets_the_shortest_interval_it_asks_for(void)
+{
+	CHECK_EQ(btpolicy_interval_max(DEVICE_KIND_MOUSE, 6, 9), 6);
+}
+
+static void a_keyboard_gets_the_interval_range_it_asks_for(void)
+{
+	CHECK_EQ(btpolicy_interval_max(DEVICE_KIND_KEYBOARD, 6, 9), 9);
+}
+
 static void a_new_device_of_no_kind_is_refused(void)
 {
 	struct btpolicy_advert a = new_advert(1);
@@ -616,6 +626,8 @@ int main(void)
 	RUN(a_stored_keyboard_without_its_key_lost_its_bond);
 	RUN(only_connectable_stored_or_hid_adverts_are_of_interest);
 	RUN(the_appearance_gives_the_kind);
+	RUN(a_mouse_gets_the_shortest_interval_it_asks_for);
+	RUN(a_keyboard_gets_the_interval_range_it_asks_for);
 	RUN(a_new_device_of_no_kind_is_refused);
 	RUN(a_mouse_connects_beside_a_ready_keyboard);
 	RUN(one_device_is_set_up_at_a_time);

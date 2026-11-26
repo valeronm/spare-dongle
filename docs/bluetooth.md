@@ -134,7 +134,9 @@ What the code does not show:
 - About one connect in six to the Air75 V2 is never established: the keyboard sends no first packet
   and the link fails with reason `0x3e`, at a 7.5 ms and a 30 ms connection interval alike.
 - After the dongle connects at 7.5 ms, the MX Keys moves to a 25 ms interval with peripheral latency
-  20 and the MX Master 3S to 11.25 ms with latency 44.
+  20. The MX Master 3S asks for 7.5 to 11.25 ms with latency 44, and a controller left to choose
+  takes 11.25 ms; the dongle holds a mouse to the shortest interval it asks for, as a Logi Bolt
+  receiver does.
 - A key pressed on the MX Keys while it is disconnected is sent once the dongle has subscribed,
   late by the connection setup.
 - When the PC suspends, the dongle drops every link with reason `0x15`, as Linux does with its own
