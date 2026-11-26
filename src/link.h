@@ -12,6 +12,15 @@
 #define LINK_OWN_CHANNELS 3
 #define LINK_CHANNELS_MAX (LINK_FIXED_CHANNELS + LINK_OWN_CHANNELS)
 
+enum link_state {
+	LINK_STATE_IDLE,
+	LINK_STATE_SURVEY,
+	LINK_STATE_PAIRING,
+	LINK_STATE_CONFIRMED,
+	LINK_STATE_CONNECTED,
+	LINK_STATE_MOVING_HOME,
+};
+
 /* What the caller must do after a link call; zero it before each call. */
 struct link_out {
 	bool set_channel;

@@ -18,10 +18,20 @@
   leaving it open for the rest of its 30 seconds.
 - `spare-dongle pair --no-passkey` and the live view's choice between a passkey and none are gone:
   every device is offered a passkey, and a keyboard that cannot take one pairs without it.
+- `status` and the live view name the link's state with the same words in every mode: "not
+  connected" for a paired device not heard, where NuPhy said "searching", Unifying "silent" and
+  Bluetooth "nothing connected", and "not paired", with no channel, for a dongle with nothing
+  paired, where the live view's NuPhy channels row also said "never paired".
 - In NuPhy and Unifying mode the pairing row of `status` and the live view says "a keyboard is
-  pairing" until a pairing in progress ends.
+  pairing" until a pairing in progress ends, where NuPhy's link row said "surveying", "pairing" or
+  "pairing confirmed", and a NuPhy keyboard moving to its home channel shows as connected instead of
+  "moving home".
 - The event for a pairing window that closes with nothing paired reads "pairing closed without a
   pairing" instead of "pairing closed, nothing paired".
+- A radio that failed to start reads "the radio failed to start" in `status` and the live view,
+  where Bluetooth mode said "Bluetooth failed to start".
+- The live view shows no signal for a device not connected, and `status` and the live view show
+  none for a dongle with nothing paired, where `status` also leaves out the device's counters.
 - The live view ignores pasted text, which it used to take as key presses.
 - A button already held when a Bluetooth mouse connects, such as both buttons closing a Logi Bolt
   passkey, does nothing until it is released.

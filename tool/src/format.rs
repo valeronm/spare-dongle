@@ -4,10 +4,10 @@ use chrono::{DateTime, Duration, Local};
 use crate::board::State;
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
-    Action, AwaitedPasskey, BUSY_DBM, Battery, BluetoothLink, ChargeState, Detail, DeviceKind,
-    Divert, EVENT_ADDR_LEN, Event, Forgotten, HeardDevice, Latency, Link, Moved, Noise, NuphyState,
-    Pairing, Protocol, STRONG_DBM, Slot, SoftDevice, Status, StoredDevice, UnifyingState, Up,
-    VersionMismatch, Watch, Wheel, bucket_floor,
+    Action, AwaitedPasskey, BUSY_DBM, Battery, ChargeState, Detail, DeviceKind, Divert,
+    EVENT_ADDR_LEN, Event, Forgotten, HeardDevice, Latency, Link, Moved, Noise, Pairing, Protocol,
+    STRONG_DBM, Slot, SoftDevice, Status, StoredDevice, Up, VersionMismatch, Watch, Wheel,
+    bucket_floor,
 };
 
 pub const NOISE_QUESTION: &str =
@@ -465,10 +465,8 @@ pub fn pairing_offer(forced: Option<[u8; 3]>) -> String {
     })
 }
 
-pub fn paired(own: Option<[u8; 3]>) -> String {
-    own.map_or("never paired".into(), |o| {
-        format!("paired {} {} {}", o[0], o[1], o[2])
-    })
+pub fn paired(own: [u8; 3]) -> String {
+    format!("paired {} {} {}", own[0], own[1], own[2])
 }
 
 const STATUS_LABEL_WIDTH: usize = 10;
@@ -482,76 +480,53 @@ pub fn hex(bytes: &[u8]) -> String {
 }
 
 pub fn state_name(s: &Status) -> &'static str {
-    match &s.link {
-        Link::Nuphy(nuphy) => match nuphy.state {
-            NuphyState::Idle => "searching",
-            NuphyState::Survey => "surveying",
-            NuphyState::Pairing => "pairing",
-            NuphyState::Confirmed => "pairing confirmed",
-            NuphyState::Connected => "connected",
-            NuphyState::MovingHome => "moving home",
-        },
-        Link::Unifying(None) => "not paired",
-        Link::Unifying(Some(unifying)) => match unifying.state {
-            UnifyingState::Connected => "connected",
-            UnifyingState::Silent => "silent",
-        },
-        Link::Bluetooth(BluetoothLink::NoneReady) => "nothing connected",
-        Link::Bluetooth(BluetoothLink::Ready) => "connected",
-        Link::Bluetooth(BluetoothLink::StartFailed) => "Bluetooth failed to start",
+    health_name(link_health(s))
+}
+
+pub fn slot_state(s: &Status, slot: &Slot) -> &'static str {
+    health_name(slot_health(s, slot))
+}
+
+/// A radio that failed to start overrides every slot's own state.
+pub fn slot_health(s: &Status, slot: &Slot) -> LinkHealth {
+    if s.radio_failed {
+        LinkHealth::RadioFailed
+    } else if slot.connected {
+        LinkHealth::Connected
+    } else if slot.stored {
+        LinkHealth::Waiting
+    } else {
+        LinkHealth::NotPaired
     }
+}
+
+/// A link is connected while any of its slots is.
+pub fn link_health(s: &Status) -> LinkHealth {
+    s.slots
+        .iter()
+        .map(|slot| slot_health(s, slot))
+        .max()
+        .unwrap_or(LinkHealth::NotPaired)
 }
 
 pub const KEYBOARD_PAIRING: &str = "a keyboard is pairing";
 
-/// The slot's state; under NuPhy and Unifying, whose one slot is the link, the link's.
-pub fn slot_state(s: &Status, slot: &Slot) -> &'static str {
-    match bluetooth_slot_health(s, slot) {
-        Some(LinkHealth::Connected) => "connected",
-        Some(LinkHealth::Waiting) => "not connected",
-        Some(_) => "not paired",
-        None => state_name(s),
+fn health_name(health: LinkHealth) -> &'static str {
+    match health {
+        LinkHealth::RadioFailed => "the radio failed to start",
+        LinkHealth::NotPaired => "not paired",
+        LinkHealth::Waiting => "not connected",
+        LinkHealth::Connected => "connected",
     }
 }
 
-pub fn slot_health(s: &Status, slot: &Slot) -> LinkHealth {
-    bluetooth_slot_health(s, slot).unwrap_or_else(|| link_health(s))
-}
-
-/// `None` where the link's state is the slot's: under NuPhy and Unifying, and while Bluetooth
-/// failed to start.
-fn bluetooth_slot_health(s: &Status, slot: &Slot) -> Option<LinkHealth> {
-    match s.link {
-        Link::Bluetooth(BluetoothLink::StartFailed) | Link::Nuphy(_) | Link::Unifying(_) => None,
-        Link::Bluetooth(_) if slot.connected => Some(LinkHealth::Connected),
-        Link::Bluetooth(_) if slot.stored => Some(LinkHealth::Waiting),
-        Link::Bluetooth(_) => Some(LinkHealth::NotPaired),
-    }
-}
-
-#[derive(Clone, Copy)]
+/// Ordered from worst to best.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LinkHealth {
-    Connected,
-    Pairing,
-    Waiting,
+    RadioFailed,
     NotPaired,
-}
-
-pub fn link_health(s: &Status) -> LinkHealth {
-    match &s.link {
-        Link::Nuphy(nuphy) => match nuphy.state {
-            NuphyState::Connected => LinkHealth::Connected,
-            NuphyState::Survey | NuphyState::Pairing | NuphyState::Confirmed => LinkHealth::Pairing,
-            NuphyState::Idle | NuphyState::MovingHome => LinkHealth::Waiting,
-        },
-        Link::Unifying(None) => LinkHealth::NotPaired,
-        Link::Unifying(Some(unifying)) => match unifying.state {
-            UnifyingState::Connected => LinkHealth::Connected,
-            UnifyingState::Silent => LinkHealth::Waiting,
-        },
-        Link::Bluetooth(BluetoothLink::Ready) => LinkHealth::Connected,
-        Link::Bluetooth(_) => LinkHealth::NotPaired,
-    }
+    Waiting,
+    Connected,
 }
 
 pub fn unifying_kind(kind: u8) -> Option<&'static str> {
@@ -888,7 +863,7 @@ pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String 
             store_err,
         }) => {
             let name = match &s.link {
-                Link::Unifying(Some(u)) if u.wpid == wpid => s.device.name.as_deref(),
+                Link::Unifying(u) if u.wpid == wpid => s.device.name.as_deref(),
                 _ => None,
             };
             let kind = unifying_kind(device_type).unwrap_or("device");
@@ -1005,7 +980,7 @@ mod tests {
     use super::*;
     use crate::protocol::{
         DeviceKind, read_status,
-        tests::{fixture, status_in_protocol, status_of, unifying},
+        tests::{fixture, status_in_protocol, status_of, unpaired},
     };
     use chrono::TimeZone;
     use diagwire::EventType;
@@ -1015,9 +990,7 @@ mod tests {
     }
 
     fn unpaired_unifying() -> Status {
-        let mut s = status_of(Protocol::Unifying);
-        s.link = Link::Unifying(None);
-        s
+        unpaired(Protocol::Unifying)
     }
 
     #[test]
@@ -1917,13 +1890,36 @@ mod tests {
     }
 
     #[test]
+    fn an_idle_nuphy_link_is_not_connected_or_not_paired() {
+        let mut s = nuphy();
+        s.slots[0].connected = false;
+        assert_eq!(state_name(&s), "not connected");
+        assert!(matches!(link_health(&s), LinkHealth::Waiting));
+        let s = unpaired(Protocol::Nuphy);
+        assert_eq!(state_name(&s), "not paired");
+        assert!(matches!(link_health(&s), LinkHealth::NotPaired));
+    }
+
+    #[test]
+    fn a_bluetooth_link_with_nothing_connected_is_not_connected_or_not_paired() {
+        let mut s = status_of(Protocol::Bluetooth);
+        s.slots[0].stored = true;
+        assert_eq!(state_name(&s), "not connected");
+        assert!(matches!(link_health(&s), LinkHealth::Waiting));
+        for slot in &mut s.slots {
+            slot.stored = false;
+        }
+        assert_eq!(state_name(&s), "not paired");
+        assert!(matches!(link_health(&s), LinkHealth::NotPaired));
+    }
+
+    #[test]
     fn unifying_states_have_names() {
         let mut s = status_of(Protocol::Unifying);
         assert_eq!(state_name(&s), "connected");
-        unifying(&mut s).state = UnifyingState::Silent;
-        assert_eq!(state_name(&s), "silent");
-        s.link = Link::Unifying(None);
-        assert_eq!(state_name(&s), "not paired");
+        s.slots[0].connected = false;
+        assert_eq!(state_name(&s), "not connected");
+        assert_eq!(state_name(&unpaired(Protocol::Unifying)), "not paired");
     }
 
     #[test]

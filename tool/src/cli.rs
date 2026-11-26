@@ -10,10 +10,11 @@ use diagwire::{CHANNEL_FIRST, CHANNEL_LAST, NUPHY_PAIRING_CHANNEL};
 use crate::board::{self, State};
 use crate::device::{self, Device, Refused, Transport};
 use crate::format::{
-    NOISE_QUESTION, action_question, battery, bootloader_and_softdevice, channel_description,
-    describe_event, flash_question, flashed, hex, joined, last_packet, latency, name_parts,
-    noise_level, paired, pairing, pairing_offer, protocol_security, reset_by, state_name,
-    status_label, unifying_kind, uptime, usb_state, version, wall_clock,
+    LinkHealth, NOISE_QUESTION, action_question, battery, bootloader_and_softdevice,
+    channel_description, describe_event, flash_question, flashed, hex, joined, last_packet,
+    latency, link_health, name_parts, noise_level, paired, pairing, pairing_offer,
+    protocol_security, reset_by, state_name, status_label, unifying_kind, uptime, usb_state,
+    version, wall_clock,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -35,7 +36,9 @@ pub fn status<T: Transport>(dev: &mut Device<T>, s: &Status) -> Result<()> {
 fn status_lines(s: &Status, devices: &[SlotStatus]) -> Vec<String> {
     let (link, offer) = match &s.link {
         Link::Nuphy(nuphy) => (
-            format!(" ({})", paired(nuphy.own)),
+            nuphy
+                .own
+                .map_or(String::new(), |own| format!(" ({})", paired(own))),
             format!(", {}", pairing_offer(nuphy.forced)),
         ),
         _ => (String::new(), String::new()),
@@ -46,7 +49,7 @@ fn status_lines(s: &Status, devices: &[SlotStatus]) -> Vec<String> {
         .iter()
         .filter_map(|&counter| Some(format!("{} {}", counter.name(), s.counters.get(counter)?)))
         .collect();
-    let link = if s.protocol().has_esb() {
+    let link = if s.protocol().has_esb() && link_health(s) > LinkHealth::NotPaired {
         format!("{} on channel {}{link}", state_name(s), s.channel)
     } else {
         state_name(s).to_string()
@@ -98,7 +101,7 @@ fn labeled(rows: Vec<(&str, String)>) -> Vec<String> {
 
 fn slot_rows(s: &Status, slot: &Slot, d: &SlotStatus) -> Vec<(&'static str, String)> {
     let (label, details) = match &s.link {
-        Link::Unifying(Some(k)) => {
+        Link::Unifying(k) if slot.holds_device() => {
             let (label, kind) = match unifying_kind(k.kind) {
                 Some(kind) => (kind, String::new()),
                 None => ("device", format!(", type {:#04x}", k.kind)),
@@ -114,7 +117,7 @@ fn slot_rows(s: &Status, slot: &Slot, d: &SlotStatus) -> Vec<(&'static str, Stri
         ),
         _ => (slot.kind.name(), String::new()),
     };
-    let device = if slot.stored || slot.connected {
+    let device = if slot.holds_device() {
         let state = if slot.connected {
             "connected"
         } else {
@@ -141,18 +144,20 @@ fn slot_rows(s: &Status, slot: &Slot, d: &SlotStatus) -> Vec<(&'static str, Stri
     }
     if let Some(p) = d.pairing {
         rows.push(("security", pairing(p)));
-    } else if (slot.stored || slot.connected)
+    } else if slot.holds_device()
         && let Some(rating) = protocol_security(s.protocol())
     {
         rows.push(("security", rating.into()));
     }
-    let counters: Vec<String> = s
-        .protocol()
-        .counters()
-        .iter()
-        .filter_map(|&counter| Some(format!("{} {}", counter.name(), d.get(counter)?)))
-        .collect();
-    rows.push(("counters", counters.join(" ")));
+    if slot.holds_device() {
+        let counters: Vec<String> = s
+            .protocol()
+            .counters()
+            .iter()
+            .filter_map(|&counter| Some(format!("{} {}", counter.name(), d.get(counter)?)))
+            .collect();
+        rows.push(("counters", counters.join(" ")));
+    }
     if s.connected(d.slot) {
         rows.push(("latency", latency(d.latency)));
     }
@@ -748,9 +753,9 @@ mod tests {
     use crate::device::tests::{Fake, error_part, parts};
     use crate::protocol::tests::{
         awaited, clicked, clicked_entered, mouse_status, nuphy, status_of, status_with_window,
-        unifying,
+        unifying, unpaired,
     };
-    use crate::protocol::{BluetoothLink, Command, Link, Pairing, Protocol};
+    use crate::protocol::{Command, Pairing, Protocol};
 
     #[test]
     fn the_pairing_row_names_the_picked_device() {
@@ -777,7 +782,7 @@ mod tests {
         s.device.signal = None;
         let lines = lines(&s);
         let link = lines.iter().find(|l| l.starts_with("link")).unwrap();
-        assert!(link.ends_with("nothing connected"), "{link}");
+        assert!(link.ends_with("not connected"), "{link}");
         assert!(!lines.iter().any(|l| l.starts_with("signal")));
         assert!(
             lines
@@ -789,7 +794,7 @@ mod tests {
     #[test]
     fn a_connected_bluetooth_keyboard_shows_its_signal_and_last_packet() {
         let mut s = status_of(Protocol::Bluetooth);
-        s.link = Link::Bluetooth(BluetoothLink::Ready);
+        s.slots[0].connected = true;
         s.device.signal = Some(-58);
         s.device.last_packet_ms = Some(400);
         let lines = lines(&s);
@@ -814,12 +819,14 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_bluetooth_start_is_reported() {
-        let mut s = status_of(Protocol::Bluetooth);
-        s.link = Link::Bluetooth(BluetoothLink::StartFailed);
-        let lines = lines(&s);
-        let link = lines.iter().find(|l| l.starts_with("link")).unwrap();
-        assert!(link.ends_with("Bluetooth failed to start"), "{link}");
+    fn a_radio_that_failed_to_start_is_reported_in_any_protocol() {
+        for protocol in Protocol::ALL {
+            let mut s = status_of(protocol);
+            s.radio_failed = true;
+            let lines = lines(&s);
+            let link = lines.iter().find(|l| l.starts_with("link")).unwrap();
+            assert_eq!(link, "link      the radio failed to start", "{protocol:?}");
+        }
     }
 
     #[test]
@@ -1346,6 +1353,37 @@ mod tests {
     }
 
     #[test]
+    fn prints_an_unpaired_nuphy_link_without_a_channel() {
+        let mut s = unpaired(Protocol::Nuphy);
+        s.channel = 2;
+        assert_eq!(lines(&s)[2], "link      not paired");
+    }
+
+    #[test]
+    fn prints_the_signal_of_a_device_not_connected_as_of_a_connected_one() {
+        let mut s = status_of(Protocol::Nuphy);
+        s.slots[0].connected = false;
+        s.device.signal = Some(-85);
+        s.device.last_packet_ms = Some(45_000);
+        let lines = lines(&s);
+        assert!(
+            lines.contains(&"signal    -85 dBm, last packet 45 s ago".to_string()),
+            "{lines:#?}"
+        );
+    }
+
+    #[test]
+    fn prints_no_signal_or_counters_for_a_slot_with_nothing_paired() {
+        let lines = lines(&unpaired(Protocol::Nuphy));
+        assert!(!lines.iter().any(|l| l.starts_with("signal")), "{lines:#?}");
+        assert_eq!(
+            lines.iter().filter(|l| l.starts_with("counters")).count(),
+            1,
+            "{lines:#?}"
+        );
+    }
+
+    #[test]
     fn prints_a_keyboard_pairing_on_the_pairing_row() {
         let mut s = status_of(Protocol::Nuphy);
         s.pairing_window = PairingWindow::Pairing;
@@ -1417,16 +1455,12 @@ mod tests {
 
     #[test]
     fn a_unifying_status_with_no_keyboard_paired_says_its_slot_is_not_paired() {
-        let mut s = status_of(Protocol::Unifying);
-        s.link = Link::Unifying(None);
-        s.slots[0].stored = false;
-        s.slots[0].connected = false;
-        let lines = lines(&s);
+        let lines = lines(&unpaired(Protocol::Unifying));
         assert!(
             lines.contains(&"keyboard  not paired".to_string()),
             "{lines:#?}"
         );
-        assert_eq!(lines[2], "link      not paired on channel 62");
+        assert_eq!(lines[2], "link      not paired");
     }
 
     #[test]

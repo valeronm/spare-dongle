@@ -234,58 +234,6 @@ impl DeviceKind {
     }
 }
 
-/// A NuPhy status's link state byte.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum LinkState {
-    Idle,
-    Survey,
-    Pairing,
-    Confirmed,
-    Connected,
-    MovingHome,
-}
-
-codes!(LinkState {
-    Idle,
-    Survey,
-    Pairing,
-    Confirmed,
-    Connected,
-    MovingHome
-});
-
-/// A Unifying status's link state byte.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum UnifyingStatus {
-    NotPaired,
-    Connected,
-    Silent,
-}
-
-codes!(UnifyingStatus {
-    NotPaired,
-    Connected,
-    Silent
-});
-
-/// A Bluetooth status's link state byte.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum BtLink {
-    NoneReady,
-    /// A slot's device is connected and ready.
-    Ready,
-    StartFailed,
-}
-
-codes!(BtLink {
-    NoneReady,
-    Ready,
-    StartFailed
-});
-
 /// A status's pairing window byte.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -533,7 +481,7 @@ pub struct Status {
     pub firmware_version: [u8; 3],
     pub boot: Bootinfo,
     pub uptime_ms: u64,
-    pub link_state: u8,
+    pub radio_failed: bool,
     pub channel: u8,
     pub own: [u8; 3],
     /// All zero while pairing surveys.
@@ -1308,7 +1256,7 @@ impl Status {
         w.u32(self.boot.softdevice_version);
         w.u64(self.uptime_ms);
         w.u32(self.boot.reset_cause);
-        w.u8(self.link_state);
+        w.u8(self.radio_failed.into());
         w.u8(self.channel);
         w.bytes(&self.own);
         w.bytes(&self.forced);
@@ -1361,7 +1309,7 @@ impl Status {
         let (softdevice_fwid, softdevice_id, softdevice_version) = (r.u16()?, r.u32()?, r.u32()?);
         let uptime_ms = r.u64()?;
         let reset_cause = r.u32()?;
-        let (link_state, channel) = (r.u8()?, r.u8()?);
+        let (radio_failed, channel) = (r.u8()? != 0, r.u8()?);
         let (own, forced, keyboard_id) = (r.bytes()?, r.bytes()?, r.bytes()?);
         let usb = r.u8()?;
         let [invalid, dropped, usb_retries, merges, surveys] =
@@ -1403,7 +1351,7 @@ impl Status {
                 softdevice_version,
             },
             uptime_ms,
-            link_state,
+            radio_failed,
             channel,
             own,
             forced,

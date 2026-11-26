@@ -131,14 +131,6 @@ static void fill_status(struct diag_status *st, uint8_t slot)
 {
 	enum device_kind kind = kind_in(slot);
 	const struct connected *c = &devices[kind];
-	bool ready = false;
-
-	for (uint8_t i = 0; i < st->slot_count; i++) {
-		ready |= st->slots[i].ready;
-	}
-	st->link_state = core_radio_has_failed() ? BT_LINK_START_FAILED
-			 : ready ? BT_LINK_READY
-				 : BT_LINK_NONE_READY;
 	btpair_status(&pair, k_uptime_get_32(), st);
 	st->pairing = pairing_of(kind);
 	st->battery = battery_of(c);

@@ -295,8 +295,7 @@ static void slots(struct diag_slot *out)
 	out[0] = (struct diag_slot){
 		.kind = DEVICE_KIND_KEYBOARD,
 		.stored = unifying_has_device(&session.pairing),
-		.ready = unifying_session_status(&session, (uint64_t)k_uptime_get()) ==
-			 UNIFYING_STATUS_CONNECTED,
+		.ready = unifying_session_connected(&session, (uint64_t)k_uptime_get()),
 	};
 }
 
@@ -305,7 +304,6 @@ static void fill_status(struct diag_status *st, uint8_t slot)
 	uint64_t now = (uint64_t)k_uptime_get();
 
 	ARG_UNUSED(slot);
-	st->link_state = unifying_session_status(&session, now);
 	st->pairing_window = unifying_pairing_window(&session.pairing, now);
 	st->channel = session.channel;
 	if (session.heard) {
@@ -327,7 +325,7 @@ static void listed(struct diag_device *out, uint8_t place, uint64_t now)
 {
 	const struct unifying_device *d = &session.pairing.devices[place];
 	bool connected = place == session.active &&
-			 unifying_session_status(&session, now) == UNIFYING_STATUS_CONNECTED;
+			 unifying_session_connected(&session, now);
 
 	*out = (struct diag_device){.kind = DEVICE_KIND_KEYBOARD,
 				    .slot = connected ? 0 : DEVICE_NO_SLOT};

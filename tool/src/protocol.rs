@@ -1,9 +1,8 @@
 use anyhow::Result;
 pub use diagwire::{
-    BUCKETS as NOISE_BUCKETS, BUSY_DBM, BtLink as BluetoothLink, CHUNK, Command, Detail,
-    DeviceKind, Divert, EVENT_ADDR_LEN, ErrorCode, Forgotten, LinkState as NuphyState, Moved,
-    NoiseChannel, NoiseRecord as Noise, Part, Protocol, REPORT_LEN, Reader, Rssi, STRONG_DBM, Up,
-    Wheel, bucket_floor, channels_arg, parse_part, request,
+    BUCKETS as NOISE_BUCKETS, BUSY_DBM, CHUNK, Command, Detail, DeviceKind, Divert, EVENT_ADDR_LEN,
+    ErrorCode, Forgotten, Moved, NoiseChannel, NoiseRecord as Noise, Part, Protocol, REPORT_LEN,
+    Reader, Rssi, STRONG_DBM, Up, Wheel, bucket_floor, channels_arg, parse_part, request,
 };
 use diagwire::{
     Charging, HEARD_BOLT, NAME_MAX, NO_BATTERY, NO_RSSI, NO_SLOT, NUPHY_FIXED_CHANNELS,
@@ -204,12 +203,18 @@ pub struct Slot {
     pub connected: bool,
 }
 
+impl Slot {
+    pub fn holds_device(&self) -> bool {
+        self.stored || self.connected
+    }
+}
+
 /// The slots the tool shows, in slot order: those stored or connected, or slot 0, the one pairing
 /// fills first, when there are none.
 pub fn shown_slots(slots: &[Slot]) -> Vec<u8> {
     let shown: Vec<u8> = (0..)
         .zip(slots)
-        .filter(|(_, slot)| slot.stored || slot.connected)
+        .filter(|(_, slot)| slot.holds_device())
         .map(|(n, _)| n)
         .collect();
     if shown.is_empty() { vec![0] } else { shown }
@@ -281,7 +286,6 @@ impl SlotStatus {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NuphyLink {
-    pub state: NuphyState,
     /// The channels the keyboard got at pairing.
     pub own: Option<[u8; 3]>,
     /// The channels every pairing offers; `None` while pairing surveys.
@@ -290,26 +294,18 @@ pub struct NuphyLink {
     pub keyboard_id: Option<[u8; 4]>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UnifyingState {
-    Connected,
-    Silent,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnifyingLink {
     pub wpid: [u8; 2],
     pub serial: [u8; 4],
     pub kind: u8,
-    pub state: UnifyingState,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Link {
     Nuphy(NuphyLink),
-    /// `None` until a keyboard pairs.
-    Unifying(Option<UnifyingLink>),
-    Bluetooth(BluetoothLink),
+    Unifying(UnifyingLink),
+    Bluetooth,
 }
 
 impl Link {
@@ -317,7 +313,7 @@ impl Link {
         match self {
             Self::Nuphy(_) => Protocol::Nuphy,
             Self::Unifying(_) => Protocol::Unifying,
-            Self::Bluetooth(_) => Protocol::Bluetooth,
+            Self::Bluetooth => Protocol::Bluetooth,
         }
     }
 }
@@ -365,6 +361,7 @@ pub struct Status {
     pub channel: u8,
     pub usb_live: bool,
     pub usb_suspended: bool,
+    pub radio_failed: bool,
     pub counters: Counters,
     pub minute_next: u32,
     pub minute_oldest: u32,
@@ -447,7 +444,8 @@ impl Status {
     }
 
     pub fn signal_shown(&self, device: &SlotStatus) -> bool {
-        self.protocol().has_esb() || device.signal.is_some()
+        self.slot(device.slot).is_some_and(Slot::holds_device)
+            && (self.protocol().has_esb() || device.signal.is_some())
     }
 
     pub fn slot(&self, slot: u8) -> Option<&Slot> {
@@ -467,7 +465,7 @@ impl Status {
     pub fn keyboard_channels(&self) -> Vec<u8> {
         let mut channels: Vec<u8> = match &self.link {
             Link::Unifying(_) => UNIFYING_CHANNELS.to_vec(),
-            Link::Bluetooth(_) => Vec::new(),
+            Link::Bluetooth => Vec::new(),
             Link::Nuphy(nuphy) => NUPHY_FIXED_CHANNELS
                 .into_iter()
                 .chain(nuphy.own.into_iter().flatten())
@@ -536,6 +534,7 @@ pub fn read_status(payload: &[u8]) -> Result<Result<Status, VersionMismatch>> {
         channel: w.channel,
         usb_live: w.usb_live,
         usb_suspended: w.usb_suspended,
+        radio_failed: w.radio_failed,
         counters: Counters {
             invalid: w.invalid,
             dropped: w.dropped,
@@ -553,7 +552,7 @@ pub fn read_status(payload: &[u8]) -> Result<Result<Status, VersionMismatch>> {
             read_name(&w.pairing_name),
             w.passkey_entered,
         )?,
-        link: read_link(&w, protocol)?,
+        link: read_link(&w, protocol),
         slots,
         device: SlotStatus {
             slot: w.slot,
@@ -676,33 +675,21 @@ pub fn read_devices(payload: &[u8]) -> Result<Vec<StoredDevice>> {
         .collect()
 }
 
-fn read_link(w: &diagwire::Status, protocol: Protocol) -> Result<Link> {
+fn read_link(w: &diagwire::Status, protocol: Protocol) -> Link {
     let id = w.keyboard_id;
-    let state = || unknown("link state");
-    Ok(match protocol {
-        Protocol::Bluetooth => {
-            Link::Bluetooth(BluetoothLink::from_code(w.link_state).ok_or_else(state)?)
-        }
-        Protocol::Unifying => {
-            let state = match diagwire::UnifyingStatus::from_code(w.link_state).ok_or_else(state)? {
-                diagwire::UnifyingStatus::NotPaired => None,
-                diagwire::UnifyingStatus::Connected => Some(UnifyingState::Connected),
-                diagwire::UnifyingStatus::Silent => Some(UnifyingState::Silent),
-            };
-            Link::Unifying(state.map(|state| UnifyingLink {
-                wpid: [id[0], id[1]],
-                serial: w.keyboard_serial,
-                kind: w.keyboard_type,
-                state,
-            }))
-        }
+    match protocol {
+        Protocol::Bluetooth => Link::Bluetooth,
+        Protocol::Unifying => Link::Unifying(UnifyingLink {
+            wpid: [id[0], id[1]],
+            serial: w.keyboard_serial,
+            kind: w.keyboard_type,
+        }),
         Protocol::Nuphy => Link::Nuphy(NuphyLink {
-            state: NuphyState::from_code(w.link_state).ok_or_else(state)?,
             own: present(w.own),
             forced: present(w.forced),
             keyboard_id: present(id),
         }),
-    })
+    }
 }
 
 /// A minute's link-wide counters and the asked slot's own.
@@ -930,13 +917,11 @@ pub(crate) mod tests {
     fn run(s: &mut diagwire::Status, code: u8) {
         s.protocol = code;
         if code == Protocol::Unifying as u8 {
-            s.link_state = diagwire::UnifyingStatus::Connected as u8;
             s.channel = 62;
             s.own = [0; 3];
             s.forced = [0; 3];
         }
         if code == Protocol::Bluetooth as u8 {
-            s.link_state = BluetoothLink::NoneReady as u8;
             s.slots[0].ready = false;
         }
     }
@@ -1004,9 +989,22 @@ pub(crate) mod tests {
 
     pub(crate) fn unifying(s: &mut Status) -> &mut UnifyingLink {
         match &mut s.link {
-            Link::Unifying(Some(unifying)) => unifying,
-            _ => panic!("no Unifying keyboard"),
+            Link::Unifying(unifying) => unifying,
+            _ => panic!("not a Unifying status"),
         }
+    }
+
+    pub(crate) fn unpaired(protocol: Protocol) -> Status {
+        let mut s = status_of(protocol);
+        for slot in &mut s.slots {
+            slot.stored = false;
+            slot.connected = false;
+        }
+        if let Link::Nuphy(nuphy) = &mut s.link {
+            nuphy.own = None;
+            nuphy.keyboard_id = None;
+        }
+        s
     }
 
     pub(crate) fn status_in_protocol(version: u8) -> Vec<u8> {
@@ -1095,6 +1093,16 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_status_reads_a_radio_that_failed_to_start_in_any_protocol() {
+        for protocol in Protocol::ALL {
+            let running = status_running(protocol as u8);
+            assert_eq!(decoded(&running).map(|s| s.radio_failed), Some(false));
+            let failed = edit(&running, |s| s.radio_failed = true);
+            assert_eq!(decoded(&failed).map(|s| s.radio_failed), Some(true));
+        }
+    }
+
+    #[test]
     fn a_status_reads_a_keyboard_pairing() {
         let payload = edit(&status_running(Protocol::Nuphy as u8), |s| {
             s.pairing_window = Window::Pairing as u8
@@ -1103,22 +1111,6 @@ pub(crate) mod tests {
             decoded(&payload).map(|s| s.pairing_window),
             Some(PairingWindow::Pairing)
         );
-    }
-
-    #[test]
-    fn a_bluetooth_status_reads_its_link_states() {
-        let payload = |state: u8| {
-            edit(&status_running(Protocol::Bluetooth as u8), |s| {
-                s.link_state = state
-            })
-        };
-        for link in BluetoothLink::ALL {
-            assert_eq!(
-                decoded(&payload(link as u8)).map(|s| s.link),
-                Some(Link::Bluetooth(link))
-            );
-        }
-        assert!(read_status(&payload(BluetoothLink::ALL.len() as u8)).is_err());
     }
 
     #[test]
@@ -1199,6 +1191,7 @@ pub(crate) mod tests {
                 channel: 26,
                 usb_live: true,
                 usb_suspended: false,
+                radio_failed: false,
                 counters: Counters {
                     invalid: 1,
                     dropped: 2,
@@ -1212,7 +1205,6 @@ pub(crate) mod tests {
                 events_oldest: 88,
                 pairing_window: PairingWindow::Open,
                 link: Link::Nuphy(NuphyLink {
-                    state: NuphyState::Connected,
                     own: Some([26, 30, 34]),
                     forced: Some([62, 52, 44]),
                     keyboard_id: Some([0x70, 0x15, 0xa3, 0x29]),
@@ -1241,12 +1233,11 @@ pub(crate) mod tests {
         );
         assert_eq!(
             decoded(&status_running(Protocol::Unifying as u8)).map(|s| s.link),
-            Some(Link::Unifying(Some(UnifyingLink {
+            Some(Link::Unifying(UnifyingLink {
                 wpid: [0x70, 0x15],
                 serial: [0xb8, 0xbc, 0xd5, 0xb3],
                 kind: 1,
-                state: UnifyingState::Connected
-            })))
+            }))
         );
     }
 
@@ -1298,6 +1289,7 @@ pub(crate) mod tests {
                 channel: 0,
                 usb_live: true,
                 usb_suspended: false,
+                radio_failed: false,
                 counters: Counters {
                     invalid: 0,
                     dropped: 2,
@@ -1310,7 +1302,7 @@ pub(crate) mod tests {
                 events_total: 600,
                 events_oldest: 88,
                 pairing_window: awaited(123_456, Some("MX Keys")),
-                link: Link::Bluetooth(BluetoothLink::Ready),
+                link: Link::Bluetooth,
                 slots: vec![
                     Slot {
                         kind: DeviceKind::Keyboard,
@@ -1499,41 +1491,6 @@ pub(crate) mod tests {
         assert_eq!(
             window_with_entered(Window::PasskeyAwaited, 3),
             awaited(123_456, Some("MX Keys"))
-        );
-    }
-
-    #[test]
-    fn an_unknown_link_state_in_status_is_refused() {
-        for protocol in Protocol::ALL {
-            let payload = edit(&status_running(protocol as u8), |s| s.link_state = 9);
-            assert!(read_status(&payload).is_err(), "{protocol:?}");
-        }
-    }
-
-    #[test]
-    fn a_unifying_dongle_has_a_keyboard_unless_its_link_state_is_not_paired() {
-        let unifying = status_running(Protocol::Unifying as u8);
-        let payload = edit(&unifying, |s| {
-            s.link_state = diagwire::UnifyingStatus::NotPaired as u8
-        });
-        assert_eq!(
-            read_status(&payload).unwrap().unwrap().link,
-            Link::Unifying(None)
-        );
-        let payload = edit(&unifying, |s| {
-            s.link_state = diagwire::UnifyingStatus::Silent as u8;
-            s.keyboard_id = [0; 4];
-            s.keyboard_serial = [0; 4];
-            s.keyboard_type = 0;
-        });
-        assert_eq!(
-            read_status(&payload).unwrap().unwrap().link,
-            Link::Unifying(Some(UnifyingLink {
-                wpid: [0, 0],
-                serial: [0; 4],
-                kind: 0,
-                state: UnifyingState::Silent
-            }))
         );
     }
 

@@ -1681,7 +1681,7 @@ static void test_a_session_without_a_record_is_not_paired(void)
 	struct unifying_session s;
 
 	unifying_session_init(&s, &receiver);
-	CHECK_EQ(unifying_session_status(&s, 0), UNIFYING_STATUS_NOT_PAIRED);
+	CHECK(!unifying_has_device(&s.pairing));
 }
 
 static void test_a_forgotten_last_keyboard_leaves_the_session_unpaired_and_pairing_closed(void)
@@ -1692,13 +1692,13 @@ static void test_a_forgotten_last_keyboard_leaves_the_session_unpaired_and_pairi
 
 	session_paired(&s);
 	channel = s.channel;
-	CHECK_EQ(unifying_session_status(&s, 0), UNIFYING_STATUS_SILENT);
+	CHECK(unifying_has_device(&s.pairing) && !unifying_session_connected(&s, 0));
 	unifying_session_forget(&s, 0, &out);
 	CHECK(out.release_all);
 	CHECK(out.listen);
 	CHECK_EQ(out.pipes, unifying_listen_pipes(&s.pairing));
 	CHECK_EQ(out.set_channel, s.channel != channel);
-	CHECK_EQ(unifying_session_status(&s, 0), UNIFYING_STATUS_NOT_PAIRED);
+	CHECK(!unifying_has_device(&s.pairing));
 	CHECK(!unifying_pairing_window_open(&s.pairing, 100));
 	CHECK_MEM(s.receiver.base, receiver.base, sizeof(receiver.base));
 }
@@ -1828,7 +1828,7 @@ static void test_a_forgotten_keyboard_still_sending_is_ignored(void)
 				      1010, nonce, fake_aes, &out));
 	CHECK(!out.reconnected);
 	CHECK(!s.heard);
-	CHECK_EQ(unifying_session_status(&s, 0), UNIFYING_STATUS_NOT_PAIRED);
+	CHECK(!unifying_has_device(&s.pairing));
 }
 
 static void test_a_heard_paired_keyboard_is_connected_then_silent(void)
@@ -1837,12 +1837,12 @@ static void test_a_heard_paired_keyboard_is_connected_then_silent(void)
 	struct unifying_out out;
 
 	session_paired(&s);
-	CHECK_EQ(unifying_session_status(&s, 0), UNIFYING_STATUS_SILENT);
+	CHECK(unifying_has_device(&s.pairing) && !unifying_session_connected(&s, 0));
 	unifying_session_frame(&s, PIPE_0, keep_alive_1100, sizeof(keep_alive_1100),
 			       -60, 1000, nonce, fake_aes, &out);
 	CHECK_EQ(s.rssi, -60);
-	CHECK_EQ(unifying_session_status(&s, 1000 + 2 * s.links[0].keepalive_ms - 1), UNIFYING_STATUS_CONNECTED);
-	CHECK_EQ(unifying_session_status(&s, 1000 + 2 * s.links[0].keepalive_ms), UNIFYING_STATUS_SILENT);
+	CHECK(unifying_session_connected(&s, 1000 + 2 * s.links[0].keepalive_ms - 1));
+	CHECK(unifying_has_device(&s.pairing) && !unifying_session_connected(&s, 1000 + 2 * s.links[0].keepalive_ms));
 }
 
 static void test_the_tick_moves_the_channel_while_pairing_is_open(void)
@@ -2898,7 +2898,7 @@ static void test_a_radio_pause_postpones_the_silence(void)
 	unifying_session_radio_resumed(&s, 2500);
 	unifying_session_tick(&s, silence_after(&s, 2500) - 1, false, 0, 0, &out);
 	CHECK(!out.went_silent);
-	CHECK_EQ(unifying_session_status(&s, silence_after(&s, 2500) - 1), UNIFYING_STATUS_CONNECTED);
+	CHECK(unifying_session_connected(&s, silence_after(&s, 2500) - 1));
 	unifying_session_tick(&s, silence_after(&s, 2500), false, 0, 0, &out);
 	CHECK(out.went_silent);
 }
@@ -2915,7 +2915,7 @@ static void test_a_keyboard_going_quiet_while_pairing_is_open_is_reported_silent
 	CHECK(!out.went_silent);
 	unifying_session_tick(&s, silence_after(&s, 1000), false, 0, 0, &out);
 	CHECK(out.went_silent);
-	CHECK_EQ(unifying_session_status(&s, silence_after(&s, 1000)), UNIFYING_STATUS_SILENT);
+	CHECK(unifying_has_device(&s.pairing) && !unifying_session_connected(&s, silence_after(&s, 1000)));
 }
 
 static void test_silence_after_a_pairing_counts_from_its_last_frame(void)
@@ -3111,7 +3111,7 @@ static void test_a_radio_pause_during_a_silence_leaves_the_keyboard_silent(void)
 	silent = silence_after(&s, 1000);
 	unifying_session_tick(&s, silent, false, 0, 0, &out);
 	unifying_session_radio_resumed(&s, silent + 500);
-	CHECK_EQ(unifying_session_status(&s, silent + 600), UNIFYING_STATUS_SILENT);
+	CHECK(unifying_has_device(&s.pairing) && !unifying_session_connected(&s, silent + 600));
 }
 
 static void test_a_status_read_before_the_radio_resumed_is_not_silent(void)
@@ -3122,7 +3122,7 @@ static void test_a_status_read_before_the_radio_resumed_is_not_silent(void)
 	session_paired(&s);
 	hear(&s, 1000, &out);
 	unifying_session_radio_resumed(&s, 2000);
-	CHECK_EQ(unifying_session_status(&s, 1990), UNIFYING_STATUS_CONNECTED);
+	CHECK(unifying_session_connected(&s, 1990));
 }
 
 static void test_pairing_stays_open_when_the_keyboard_is_heard(void)
@@ -3134,7 +3134,7 @@ static void test_pairing_stays_open_when_the_keyboard_is_heard(void)
 	unifying_session_open_pairing(&s, 0);
 	hear(&s, 100, &out);
 	CHECK(unifying_pairing_window_open(&s.pairing, 110));
-	CHECK_EQ(unifying_session_status(&s, 110), UNIFYING_STATUS_CONNECTED);
+	CHECK(unifying_session_connected(&s, 110));
 }
 
 static void test_a_session_with_no_keyboard_closes_pairing_after_30_s(void)
@@ -3147,7 +3147,7 @@ static void test_a_session_with_no_keyboard_closes_pairing_after_30_s(void)
 	unifying_session_tick(&s, DIAG_PAIR_WINDOW_MS, false, 0, 0, &out);
 	CHECK(out.window_closed);
 	CHECK(!unifying_pairing_window_open(&s.pairing, DIAG_PAIR_WINDOW_MS));
-	CHECK_EQ(unifying_session_status(&s, 0), UNIFYING_STATUS_NOT_PAIRED);
+	CHECK(!unifying_has_device(&s.pairing));
 }
 
 static void give_place_key(uint8_t record[UNIFYING_RECORD_LEN], uint8_t place)
@@ -3194,7 +3194,7 @@ static void test_the_lowest_stored_place_is_active_after_boot(void)
 	CHECK_EQ(s.active, UNIFYING_NO_PLACE);
 	session_with_places(&s, 3);
 	CHECK_EQ(s.active, 0);
-	CHECK_EQ(unifying_session_status(&s, 0), UNIFYING_STATUS_SILENT);
+	CHECK(unifying_has_device(&s.pairing) && !unifying_session_connected(&s, 0));
 }
 
 static void test_a_stored_keyboard_takes_over_with_a_key_press(void)
@@ -3328,7 +3328,7 @@ static void test_any_valid_frame_takes_over_before_the_active_keyboard_is_heard(
 	CHECK_EQ(s.active, 1);
 	CHECK_EQ(out.heard, UNIFYING_HEARD_FIRST);
 	CHECK_EQ(out.down_ms, 1000);
-	CHECK_EQ(unifying_session_status(&s, 1000), UNIFYING_STATUS_CONNECTED);
+	CHECK(unifying_session_connected(&s, 1000));
 }
 
 static void test_any_valid_frame_takes_over_from_a_silent_keyboard(void)
@@ -3526,7 +3526,7 @@ static void test_forgetting_the_active_place_makes_the_lowest_stored_one_active(
 	CHECK(out.release_all);
 	CHECK_EQ(s.active, 1);
 	CHECK(!s.heard);
-	CHECK_EQ(unifying_session_status(&s, 1010), UNIFYING_STATUS_SILENT);
+	CHECK(unifying_has_device(&s.pairing) && !unifying_session_connected(&s, 1010));
 	CHECK(!unifying_pairing_window_open(&s.pairing, 1010));
 }
 
@@ -3625,7 +3625,7 @@ static void test_the_old_keyboard_does_not_take_back_a_just_paired_one(void)
 	hear(&s, 1040, &out);
 	CHECK_EQ(s.active, 1);
 	CHECK(!out.from_active);
-	CHECK_EQ(unifying_session_status(&s, 1040), UNIFYING_STATUS_CONNECTED);
+	CHECK(unifying_session_connected(&s, 1040));
 }
 
 static void test_a_takeover_forgets_the_battery_and_restarts_hidpp(void)

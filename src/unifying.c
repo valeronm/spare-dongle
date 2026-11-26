@@ -1004,15 +1004,9 @@ void unifying_session_replies_dropped(struct unifying_session *s)
 	s->queue.frame = UNIFYING_QUEUED_NONE;
 }
 
-enum unifying_status unifying_session_status(const struct unifying_session *s, uint64_t now_ms)
+bool unifying_session_connected(const struct unifying_session *s, uint64_t now_ms)
 {
-	if (!unifying_has_device(&s->pairing)) {
-		return UNIFYING_STATUS_NOT_PAIRED;
-	}
-	if (s->heard && !quiet_too_long(s, now_ms)) {
-		return UNIFYING_STATUS_CONNECTED;
-	}
-	return UNIFYING_STATUS_SILENT;
+	return unifying_has_device(&s->pairing) && s->heard && !quiet_too_long(s, now_ms);
 }
 
 void unifying_session_radio_resumed(struct unifying_session *s, uint64_t now_ms)

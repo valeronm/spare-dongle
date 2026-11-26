@@ -22,16 +22,16 @@ use crate::format::{
     ChannelRole, KEYBOARD_PAIRING, LinkHealth, NOISE_QUESTION, TITLE_SEPARATOR, Tone,
     action_question, battery, bootloader_and_softdevice, bucket_label, channel_role, counted_share,
     describe_event, device_at, device_lines, forget_question, heard_lines, last_packet, latency,
-    link_health, name_parts, noise_level, noise_ruler, paired, pairing, pairing_how,
-    pairing_picked, passkey_prompt, protocol_security, reset_by, sentence, share, slot_health,
-    slot_state, state_name, status_label, switch_question, uptime, usb_state, version,
-    waiting_device, waits_for_passkey, wall_clock, watch_role, watch_summary,
+    link_health, name_parts, noise_level, noise_ruler, pairing, pairing_how, pairing_picked,
+    passkey_prompt, protocol_security, reset_by, sentence, share, slot_health, slot_state,
+    state_name, status_label, switch_question, uptime, usb_state, version, waiting_device,
+    waits_for_passkey, wall_clock, watch_role, watch_summary,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
-    Action, BUSY_DBM, Counter, Event, HeardDevice, Link, Minute, NOISE_BUCKETS, NoiseChannel,
-    NuphyLink, Pairing, PairingWindow, Protocol, SlotStatus, Status, Step, StoredDevice, Watch,
-    shown_slots, step_channel,
+    Action, BUSY_DBM, Counter, Event, HeardDevice, Minute, NOISE_BUCKETS, NoiseChannel, Pairing,
+    PairingWindow, Protocol, Slot, SlotStatus, Status, Step, StoredDevice, Watch, shown_slots,
+    step_channel,
 };
 
 const POLL_EVERY: Duration = Duration::from_secs(1);
@@ -40,7 +40,7 @@ const EVENT_ROWS: usize = 8;
 const CHART_MIN_ROWS: u16 = 5;
 const TIME_AXIS_ROWS: u16 = 1;
 /// The narrowest a slot's status box and chart draw uncut.
-const PANEL_MIN_WIDTH: u16 = 59;
+const PANEL_MIN_WIDTH: u16 = 56;
 const SEPARATOR: &str = "   ";
 /// A link that averaged -70 dBm had no gaps, and gaps followed packets at -78 dBm or weaker.
 const SIGNAL_GOOD_DBM: i8 = -70;
@@ -158,9 +158,8 @@ fn status_row(label: &str, spans: impl IntoIterator<Item = Span<'static>>) -> Li
 fn link_color(health: LinkHealth) -> Color {
     match health {
         LinkHealth::Connected => Color::Green,
-        LinkHealth::Pairing => Color::Cyan,
         LinkHealth::Waiting => Color::Yellow,
-        LinkHealth::NotPaired => Color::Red,
+        LinkHealth::NotPaired | LinkHealth::RadioFailed => Color::Red,
     }
 }
 
@@ -202,9 +201,6 @@ fn channel_spans(s: &Status) -> Vec<Span<'static>> {
             channel.to_string(),
             role_style(channel_role(channel, s)),
         ));
-    }
-    if let Link::Nuphy(NuphyLink { own: None, .. }) = &s.link {
-        spans.push(Span::raw(format!("{SEPARATOR}{}", paired(None))));
     }
     spans
 }
@@ -1417,10 +1413,7 @@ fn dongle_lines(status: Option<&Status>) -> Vec<Line<'static>> {
     };
     if let Some(label) = pairing {
         dongle.push(Span::raw(SEPARATOR));
-        dongle.push(Span::styled(
-            label,
-            Style::new().fg(link_color(LinkHealth::Pairing)),
-        ));
+        dongle.push(Span::styled(label, Style::new().fg(Color::Cyan)));
     }
     let mut rows = vec![status_row("dongle", dongle)];
     if s.protocol().has_esb() {
@@ -1445,7 +1438,7 @@ fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<
     if let Some(d) = device
         && s.signal_shown(d)
     {
-        if let Some(dbm) = d.signal {
+        if let Some(dbm) = d.signal.filter(|_| s.connected(d.slot)) {
             link.extend([
                 Span::raw(SEPARATOR),
                 Span::styled(format!("{dbm} dBm"), Style::new().fg(signal_color(dbm))),
@@ -1464,7 +1457,7 @@ fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<
         ));
     } else if device
         .and_then(|d| s.slot(d.slot))
-        .is_some_and(|slot| slot.stored || slot.connected)
+        .is_some_and(Slot::holds_device)
         && let Some(rating) = protocol_security(s.protocol())
     {
         rows.push(status_row(
@@ -1753,11 +1746,9 @@ mod tests {
     use crate::format::pairing_open;
     use crate::protocol::REPORT_LEN;
     use crate::protocol::tests::{
-        awaited, clicked, clicked_entered, mouse_status, nuphy, status_of, status_running,
+        awaited, clicked, clicked_entered, mouse_status, nuphy, status_of, status_running, unpaired,
     };
-    use crate::protocol::{
-        BluetoothLink, Command, Detail, ErrorCode, Link, Noise, Pairing, Protocol, Rssi, SlotMinute,
-    };
+    use crate::protocol::{Command, Detail, ErrorCode, Noise, Pairing, Protocol, Rssi, SlotMinute};
     use chrono::TimeZone;
     use ratatui::{Terminal, backend::TestBackend};
 
@@ -2450,7 +2441,11 @@ mod tests {
     #[test]
     fn a_slot_panel_is_as_wide_as_the_view_needs_for_one_slot() {
         let mouse = app_with(closed(mouse_status()));
+        let mut lost = status_of(Protocol::Nuphy);
+        lost.slots[0].connected = false;
+        lost.device.last_packet_ms = Some(3_599_000);
         let needed = [
+            app_with(closed(lost)),
             app_with(closed(status_of(Protocol::Nuphy))),
             app_with(closed(status_of(Protocol::Unifying))),
             app_with(closed(status_of(Protocol::Bluetooth))),
@@ -3760,7 +3755,6 @@ mod tests {
     #[test]
     fn a_connected_bluetooth_status_box_shows_the_signal_and_last_packet() {
         let mut s = status_of(Protocol::Bluetooth);
-        s.link = Link::Bluetooth(BluetoothLink::Ready);
         s.slots[0].connected = true;
         s.device.signal = Some(-58);
         s.device.last_packet_ms = Some(400);
@@ -3770,6 +3764,28 @@ mod tests {
             inside_box(&rows[DEVICE_TITLE_ROW + 1]),
             "link      connected   -58 dBm   last packet 400 ms ago"
         );
+    }
+
+    #[test]
+    fn a_device_not_connected_shows_its_last_packet_without_a_signal() {
+        let mut s = status_of(Protocol::Nuphy);
+        s.slots[0].connected = false;
+        s.device.signal = Some(-85);
+        s.device.last_packet_ms = Some(45_000);
+        let rows = screen(&status_box(&s));
+        assert_eq!(
+            inside_box(&rows[CHANNELS_LINK_ROW]),
+            "link      not connected   last packet 45 s ago"
+        );
+    }
+
+    #[test]
+    fn a_slot_with_nothing_paired_shows_no_signal() {
+        let mut s = unpaired(Protocol::Nuphy);
+        s.device.signal = Some(-73);
+        s.device.last_packet_ms = Some(45_000);
+        let rows = screen(&status_box(&s));
+        assert_eq!(inside_box(&rows[CHANNELS_LINK_ROW]), "link      not paired");
     }
 
     #[test]
@@ -3832,14 +3848,14 @@ mod tests {
     }
 
     #[test]
-    fn a_never_paired_nuphy_dongle_says_so_on_the_channels_row() {
+    fn an_unpaired_nuphy_dongle_lists_the_fixed_channels_alone() {
         let mut s = status_of(Protocol::Nuphy);
         nuphy(&mut s).own = None;
         s.channel = 16;
         let terminal = status_box(&s);
         assert_eq!(
             inside_box(&screen(&terminal)[2]),
-            "channels  16 22 44 48 58 72 78   never paired"
+            "channels  16 22 44 48 58 72 78"
         );
     }
 
@@ -3882,9 +3898,7 @@ mod tests {
         weak.device.signal = Some(-80);
         assert_eq!(cell_at(&status_box(&weak), LINK, "-80 dBm").fg, Color::Red);
         assert_eq!(cell_at(&terminal, 1, "pairing open").fg, Color::Cyan);
-        let mut s = status_of(Protocol::Unifying);
-        s.link = Link::Unifying(None);
-        let terminal = status_box(&s);
+        let terminal = status_box(&unpaired(Protocol::Unifying));
         assert_eq!(cell_at(&terminal, LINK, "not paired").fg, Color::Red);
     }
 

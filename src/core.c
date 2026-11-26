@@ -710,6 +710,7 @@ void core_fill_status(struct diag_status *st, uint8_t slot)
 	*st = (struct diag_status){
 		.uptime_ms = (uint64_t)k_uptime_get(),
 		.boot = boot_info,
+		.radio_failed = radio_failed,
 		.protocol = active,
 		.usb_live = usb_live(),
 		.usb_suspended = usb_suspended(),

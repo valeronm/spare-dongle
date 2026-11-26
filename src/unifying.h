@@ -398,7 +398,7 @@ bool unifying_session_open_pairing(struct unifying_session *s, uint64_t now_ms);
 /* The receiver was off until now_ms, so silence before it is not the keyboard's. */
 void unifying_session_radio_resumed(struct unifying_session *s, uint64_t now_ms);
 
-enum unifying_status unifying_session_status(const struct unifying_session *s, uint64_t now_ms);
+bool unifying_session_connected(const struct unifying_session *s, uint64_t now_ms);
 
 /* Points *out at the channels unifying_session_move accepts and returns how many. */
 size_t unifying_session_channels(const uint8_t **out);

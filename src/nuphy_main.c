@@ -214,7 +214,6 @@ static void fill_status(struct diag_status *s, uint8_t slot)
 	const uint8_t *forced;
 
 	ARG_UNUSED(slot);
-	s->link_state = link.state;
 	s->pairing_window = link_window(&link, k_uptime_get_32());
 	s->channel = link.channel;
 	s->last_rssi = keyboard_rssi;
