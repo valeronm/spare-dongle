@@ -32,6 +32,8 @@
   where Bluetooth mode said "Bluetooth failed to start".
 - The live view shows no signal for a device not connected, and `status` and the live view show
   none for a dongle with nothing paired, where `status` also leaves out the device's counters.
+- A device's packets, gaps, link losses and latency start over from zero when it pairs, instead of
+  carrying on from the device paired before it.
 - The live view ignores pasted text, which it used to take as key presses.
 - A button already held when a Bluetooth mouse connects, such as both buttons closing a Logi Bolt
   passkey, does nothing until it is released.

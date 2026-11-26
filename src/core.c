@@ -36,6 +36,9 @@ static const struct core_loop *loop;
 static uint32_t packets[DEVICE_SLOTS];
 static uint32_t gaps[DEVICE_SLOTS];
 static uint32_t link_losses[DEVICE_SLOTS];
+/* The history takes each minute's counts as differences of the running totals, which a pairing
+ * therefore cannot zero. */
+static struct history_totals at_pairing;
 /* Below 0 for a slot that has sent nothing since boot. */
 static int64_t last_input_ms[DEVICE_SLOTS];
 static bool usb_was_suspended;
@@ -236,6 +239,16 @@ void core_gap(uint8_t slot)
 void core_link_lost(uint8_t slot)
 {
 	link_losses[slot]++;
+}
+
+void core_slot_paired(uint8_t slot)
+{
+	at_pairing.packets[slot] = packets[slot];
+	at_pairing.gaps[slot] = gaps[slot];
+	at_pairing.link_losses[slot] = link_losses[slot];
+	lock_reports();
+	reports.latency[slot] = (struct report_latency){0};
+	unlock_reports(0);
 }
 
 void core_log(uint8_t slot, struct diag_detail d)
@@ -498,6 +511,7 @@ static void clear(const struct diag_request *req)
 	memset(packets, 0, sizeof(packets));
 	memset(gaps, 0, sizeof(gaps));
 	memset(link_losses, 0, sizeof(link_losses));
+	at_pairing = (struct history_totals){0};
 	history_clear(&history, k_uptime_get(), &(struct history_totals){0});
 	log_event(DEVICE_NO_SLOT, (struct diag_detail){.tag = DIAG_DETAIL_CLEAR});
 	diag_reply(req, NULL, 0, DIAG_AFTER_NONE);
@@ -721,9 +735,9 @@ void core_fill_status(struct diag_status *st, uint8_t slot)
 		.slot = slot,
 		.last_rssi = DIAG_NO_RSSI,
 		.last_rx_age_ms = UINT32_MAX,
-		.packets = t.packets[slot],
-		.gaps = t.gaps[slot],
-		.link_losses = t.link_losses[slot],
+		.packets = t.packets[slot] - at_pairing.packets[slot],
+		.gaps = t.gaps[slot] - at_pairing.gaps[slot],
+		.link_losses = t.link_losses[slot] - at_pairing.link_losses[slot],
 		.latency_average_us = reports_latency_average_us(&l),
 		.latency_max_us = l.max_us,
 		.battery = DEVICE_BATTERY_UNKNOWN,

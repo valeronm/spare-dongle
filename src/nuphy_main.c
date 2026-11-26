@@ -85,6 +85,7 @@ static void apply(const struct link_out *out)
 		err = store_save_nuphy(&record, sizeof(record));
 		printk("nuphy record saved: %d\n", err);
 		if (out->save_pairing) {
+			core_slot_paired(0);
 			core_log(0, (struct diag_detail){
 					    .tag = DIAG_DETAIL_PAIRED,
 					    .PAIRED = {.own = {link.own[0], link.own[1], link.own[2]},

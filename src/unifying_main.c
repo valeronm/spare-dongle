@@ -67,6 +67,7 @@ static void on_paired(uint8_t place)
 	unifying_record_of(&session.pairing, place, record);
 	err = store_save_unifying(place, record, sizeof(record));
 	printk("pairing saved in place %u: %d\n", place, err);
+	core_slot_paired(0);
 	core_log(0, (struct diag_detail){.tag = DIAG_DETAIL_UNIFYING_PAIRED,
 					 .UNIFYING_PAIRED = {.wpid = {d->wpid[0], d->wpid[1]},
 							     .kind = d->type,

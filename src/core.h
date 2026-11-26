@@ -90,6 +90,8 @@ void core_count(enum core_counter c);
 void core_packet(uint8_t slot);
 void core_gap(uint8_t slot);
 void core_link_lost(uint8_t slot);
+/* Starts the slot's packets, gaps, link losses and latency in the status over from zero. */
+void core_slot_paired(uint8_t slot);
 /* Takes the radio's noise readings; they count toward the minute when read on the home channel,
  * which *home then holds, else CHANMOVE_NO_HOME. */
 bool core_take_radio_noise(struct noise_tally *t, int *home);

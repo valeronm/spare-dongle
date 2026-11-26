@@ -549,6 +549,7 @@ static void on_event(const struct ble_event *ev)
 		break;
 	case BLE_PAIRED:
 		btpair_paired(&pair, &policy, ev->kind);
+		core_slot_paired(slot_of(ev->kind));
 		printk("bluetooth paired\n");
 		log_device((struct diag_detail){.tag = DIAG_DETAIL_BT_PAIRED, .BT_PAIRED = {.passkey = ev->paired.passkey_used}},
 			   ev->kind);
