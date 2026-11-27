@@ -23,7 +23,7 @@ bool usb_live(void);
  * on high resolution, else 1. */
 uint8_t usb_mouse_wheel_steps(void);
 bool usb_suspended(void);
-int usb_wakeup(void);
+void usb_wakeup(void);
 
 /* Blocks until the host reads the report, or fails at once when the interface is not ready. */
 int usb_diag_send(const uint8_t report[DIAG_REPORT_LEN]);

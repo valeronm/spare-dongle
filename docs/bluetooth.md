@@ -30,7 +30,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | Vendor-specific keys | yes | no, besides the brightness keys it diverts | 🔴 |
 | **Back to the keyboard** | | | |
 | Lock LEDs | yes | yes, where the device has them | ⚪ |
-| Wakes a suspended PC | on any key or mouse movement | the same, once the device has stopped reconnecting after the PC slept | ⚪ |
+| Wakes a suspended PC | on any key or mouse movement | the same | ⚪ |
 | Tells the keyboard the PC suspended | on Linux | yes | ⚪ |
 | **Pairing** | | | |
 | Pairing opens | in the PC's settings | on request from the tool | ⚪ |
@@ -61,11 +61,11 @@ keyboard in it or a mouse's map with no relative pointer, such as a tablet's.
 The dongle switches a Logitech mouse's vertical wheel to high resolution when the PC turns on the
 dongle's high-resolution wheel, and the thumb wheel stays in notches.
 
-The devices go to sleep when the PC does. A keyboard that keeps trying to reconnect after the PC
-sleeps, as the Air75 V2 does until it goes to sleep itself, cannot wake the PC until it stops.
-Whether input wakes the PC depends on its Bluetooth settings for its own Bluetooth and on its USB
-settings for the dongle. On the PC, Logitech Options, Solaar or Linux's HID++
-driver[^hidpp-driver] speaks HID++.
+When the PC sleeps the dongle drops every link, and the Air75 V2 turns its lights off. A device
+that reconnects while the PC sleeps, as the Air75 V2 does within seconds, wakes it only with a key
+press or mouse movement. Whether input wakes the PC depends on its Bluetooth settings for its own
+Bluetooth and on its USB settings for the dongle. On the PC, Logitech Options, Solaar or Linux's
+HID++ driver[^hidpp-driver] speaks HID++.
 
 ## Reliability
 
@@ -142,10 +142,9 @@ What the code does not show:
 - When the PC suspends, the dongle drops every link with reason `0x15`, as Linux does with its own
   Bluetooth. The Air75 V2's radio module ignores the HID Control Point's suspend, so losing its
   link is the only notice of a suspend it acts on.
-- A device whose link was dropped keeps advertising until it sleeps, and the Air75 V2 reconnected
-  within seconds. The dongle ignores a dropped device until its adverts stop, and scans at the fast
-  duty meanwhile for at most three minutes, since the slow scan can miss a device's adverts for
-  several seconds.
+- The Air75 V2 went on advertising through a 13-minute suspend after its link was dropped, with
+  gaps of up to 4 s between the adverts a continuous scan heard. Once reconnected it stays silent
+  until a key is pressed.
 
 ### Pairing
 

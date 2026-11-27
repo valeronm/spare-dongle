@@ -441,9 +441,9 @@ int usb_send(const struct report_usb *r)
 	return hid_device_submit_report(ifaces[iface].dev, len, ifaces[iface].buf);
 }
 
-int usb_wakeup(void)
+void usb_wakeup(void)
 {
-	return usbd_wakeup_request(&dongle_usbd);
+	usbd_wakeup_request(&dongle_usbd);
 }
 
 int usb_diag_send(const uint8_t report[DIAG_REPORT_LEN])

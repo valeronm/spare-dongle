@@ -46,7 +46,7 @@ bool btpair_is_open(const struct btpair *p, uint32_t now_ms)
 	return btpair_state(p, now_ms) != BTPAIR_CLOSED;
 }
 
-enum btpolicy_want btpair_wants(struct btpair *p, struct btpolicy *policy,
+enum btpolicy_want btpair_wants(struct btpair *p, const struct btpolicy *policy,
 				const struct btpolicy_advert *a, uint32_t now_ms)
 {
 	enum btpair_state state = btpair_state(p, now_ms);

@@ -31,7 +31,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | Vendor-specific keys | with Logi Options+ | no, besides the brightness keys it diverts | 🔴 |
 | **Back to the keyboard** | | | |
 | Lock LEDs | not checked | yes, where the device has them | |
-| Wakes a suspended PC | on any key or mouse movement; on Linux also right after the PC suspends, unless Solaar runs[^linux-wake] | on any key or mouse movement, once the device has stopped reconnecting after the PC slept | 🟢 |
+| Wakes a suspended PC | on any key or mouse movement; on Linux also right after the PC suspends, unless Solaar runs[^linux-wake] | on any key or mouse movement | 🟢 |
 | Tells the keyboard the PC suspended | not checked | yes | |
 | **Pairing** | | | |
 | Pairing opens | in Logi Options+ or Solaar; devices sold with the receiver come paired[^white-paper] | on request from the tool | ⚪ |

@@ -76,15 +76,15 @@ static void a_ready_keyboard_is_kept_from_stored_ones_and_replaced_by_a_new_one(
 	struct btpolicy_advert fresh = new_advert(3);
 
 	btpolicy_init(&policy);
-	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_PASSIVE);
 	CHECK(btpolicy_peer(&policy, DEVICE_KIND_KEYBOARD) == NULL);
 	btpolicy_connecting(&policy, &first);
 	CHECK_MEM(btpolicy_peer(&policy, DEVICE_KIND_KEYBOARD), first.addr, BTPOLICY_ADDR_LEN);
-	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_OFF);
 	CHECK_EQ(btpolicy_wants(&policy, &second, false, 0), BTPOLICY_IGNORE);
 	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0), BTPOLICY_IGNORE);
 	btpolicy_connected(&policy, DEVICE_KIND_KEYBOARD);
-	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_OFF);
 	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0), BTPOLICY_IGNORE);
 	btpolicy_ready(&policy, DEVICE_KIND_KEYBOARD);
 	CHECK(btpolicy_is_ready(&policy, DEVICE_KIND_KEYBOARD));
@@ -92,7 +92,7 @@ static void a_ready_keyboard_is_kept_from_stored_ones_and_replaced_by_a_new_one(
 	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0), BTPOLICY_REPLACE);
 	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 500, false);
 	CHECK(!btpolicy_is_ready(&policy, DEVICE_KIND_KEYBOARD));
-	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_PASSIVE);
 	CHECK_EQ(btpolicy_wants(&policy, &second, false, 500), BTPOLICY_CONNECT);
 }
 
@@ -308,7 +308,7 @@ static void a_mouse_connects_beside_a_ready_keyboard(void)
 
 	btpolicy_init(&policy);
 	ready(&keyboard);
-	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_PASSIVE);
 	CHECK_EQ(btpolicy_wants(&policy, &mouse, true, 0), BTPOLICY_CONNECT);
 	btpolicy_connecting(&policy, &mouse);
 	CHECK_MEM(btpolicy_peer(&policy, DEVICE_KIND_MOUSE), mouse.addr, BTPOLICY_ADDR_LEN);
@@ -324,7 +324,7 @@ static void one_device_is_set_up_at_a_time(void)
 
 	btpolicy_init(&policy);
 	btpolicy_connecting(&policy, &keyboard);
-	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_OFF);
 	CHECK_EQ(btpolicy_wants(&policy, &mouse, true, 0), BTPOLICY_IGNORE);
 	btpolicy_connected(&policy, DEVICE_KIND_KEYBOARD);
 	CHECK_EQ(btpolicy_wants(&policy, &mouse, true, 0), BTPOLICY_IGNORE);
@@ -346,141 +346,6 @@ static void a_slot_being_dropped_wants_nothing_until_it_is_idle(void)
 	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 100), BTPOLICY_CONNECT);
 }
 
-static void drop_hushed(enum device_kind kind, uint32_t now_ms)
-{
-	btpolicy_hush(&policy, kind, now_ms);
-	btpolicy_disconnected(&policy, kind, now_ms, false);
-}
-
-static bool hushed(const struct btpolicy_advert *a, uint32_t now_ms)
-{
-	return btpolicy_wants(&policy, a, false, now_ms) == BTPOLICY_IGNORE;
-}
-
-static void a_hushed_device_that_keeps_advertising_is_ignored_until_it_goes_quiet(void)
-{
-	struct btpolicy_advert keyboard = stored_advert(1);
-	uint32_t t = 1000;
-
-	btpolicy_init(&policy);
-	ready(&keyboard);
-	drop_hushed(DEVICE_KIND_KEYBOARD, t);
-	for (int i = 0; i < 5; i++) {
-		t += BTPOLICY_QUIET_MS - 1;
-		CHECK(hushed(&keyboard, t));
-	}
-	CHECK(!hushed(&keyboard, t + BTPOLICY_QUIET_MS));
-}
-
-static void a_hushed_slot_is_being_dropped(void)
-{
-	struct btpolicy_advert keyboard = stored_advert(1);
-	struct btpolicy_advert fresh = new_advert(2);
-
-	btpolicy_init(&policy);
-	ready(&keyboard);
-	btpolicy_hush(&policy, DEVICE_KIND_KEYBOARD, 0);
-	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0), BTPOLICY_IGNORE);
-}
-
-static void a_hushed_device_quiet_since_the_drop_is_heard(void)
-{
-	struct btpolicy_advert mouse = new_mouse(1);
-
-	mouse.stored = true;
-	btpolicy_init(&policy);
-	ready(&mouse);
-	drop_hushed(DEVICE_KIND_MOUSE, 1000);
-	CHECK(!hushed(&mouse, 1000 + BTPOLICY_QUIET_MS));
-}
-
-static void another_device_of_the_same_kind_neither_is_hushed_nor_extends_the_hush(void)
-{
-	struct btpolicy_advert keyboard = stored_advert(1);
-	struct btpolicy_advert other = stored_advert(2);
-
-	btpolicy_init(&policy);
-	ready(&keyboard);
-	drop_hushed(DEVICE_KIND_KEYBOARD, 0);
-	CHECK(!hushed(&other, BTPOLICY_QUIET_MS - 1));
-	CHECK(!hushed(&keyboard, BTPOLICY_QUIET_MS));
-}
-
-static void a_device_disconnected_before_the_hush_is_heard_at_once(void)
-{
-	struct btpolicy_advert keyboard = stored_advert(1);
-
-	btpolicy_init(&policy);
-	ready(&keyboard);
-	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 0, false);
-	btpolicy_hush(&policy, DEVICE_KIND_KEYBOARD, 0);
-	CHECK(!hushed(&keyboard, 10));
-}
-
-static void lifting_the_hushes_hears_every_device(void)
-{
-	struct btpolicy_advert keyboard = stored_advert(1);
-
-	btpolicy_init(&policy);
-	ready(&keyboard);
-	drop_hushed(DEVICE_KIND_KEYBOARD, 0);
-	btpolicy_unhush(&policy);
-	CHECK(!hushed(&keyboard, 10));
-}
-
-static void the_hush_holds_across_the_clock_wrap(void)
-{
-	struct btpolicy_advert keyboard = stored_advert(1);
-	uint32_t before_wrap = UINT32_MAX - 100;
-
-	btpolicy_init(&policy);
-	ready(&keyboard);
-	drop_hushed(DEVICE_KIND_KEYBOARD, before_wrap);
-	CHECK(hushed(&keyboard, before_wrap + 500));
-	CHECK(!hushed(&keyboard, before_wrap + 500 + BTPOLICY_QUIET_MS));
-}
-
-static void a_hush_older_than_half_the_clock_has_lapsed(void)
-{
-	struct btpolicy_advert keyboard = stored_advert(1);
-
-	btpolicy_init(&policy);
-	ready(&keyboard);
-	drop_hushed(DEVICE_KIND_KEYBOARD, 0);
-	CHECK(!hushed(&keyboard, 0x80000000u + 10));
-}
-
-static void a_hush_scans_fast_no_longer_than_the_cap(void)
-{
-	struct btpolicy_advert keyboard = stored_advert(1);
-	uint32_t t = UINT32_MAX - 100;
-	uint32_t dropped = t;
-
-	btpolicy_init(&policy);
-	ready(&keyboard);
-	drop_hushed(DEVICE_KIND_KEYBOARD, dropped);
-	while (t - dropped < BTPOLICY_FAST_SCAN_MS) {
-		CHECK_EQ(btpolicy_scan(&policy, false, t), BTPOLICY_SCAN_PASSIVE_FAST);
-		t += BTPOLICY_QUIET_MS - 1;
-		CHECK(hushed(&keyboard, t));
-	}
-	CHECK_EQ(btpolicy_scan(&policy, false, t), BTPOLICY_SCAN_PASSIVE);
-	CHECK(hushed(&keyboard, t + 10));
-}
-
-static void a_hush_scans_fast_until_the_device_goes_quiet(void)
-{
-	struct btpolicy_advert keyboard = stored_advert(1);
-
-	btpolicy_init(&policy);
-	ready(&keyboard);
-	drop_hushed(DEVICE_KIND_KEYBOARD, 0);
-	CHECK_EQ(btpolicy_scan(&policy, false, 10), BTPOLICY_SCAN_PASSIVE_FAST);
-	CHECK(hushed(&keyboard, BTPOLICY_QUIET_MS - 1));
-	CHECK_EQ(btpolicy_scan(&policy, false, BTPOLICY_QUIET_MS + 10), BTPOLICY_SCAN_PASSIVE_FAST);
-	CHECK_EQ(btpolicy_scan(&policy, false, 2 * BTPOLICY_QUIET_MS - 1), BTPOLICY_SCAN_PASSIVE);
-}
-
 static void both_slots_ready_scan_only_while_the_window_is_open(void)
 {
 	struct btpolicy_advert keyboard = stored_advert(1);
@@ -491,8 +356,8 @@ static void both_slots_ready_scan_only_while_the_window_is_open(void)
 	btpolicy_connecting(&policy, &mouse);
 	btpolicy_connected(&policy, DEVICE_KIND_MOUSE);
 	btpolicy_ready(&policy, DEVICE_KIND_MOUSE);
-	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_OFF);
-	CHECK_EQ(btpolicy_scan(&policy, true, 0), BTPOLICY_SCAN_ACTIVE);
+	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(btpolicy_scan(&policy, true), BTPOLICY_SCAN_ACTIVE);
 }
 
 static void a_failed_keyboard_leaves_the_mouse_slot_free_to_connect(void)
@@ -513,11 +378,11 @@ static void a_pairing_window_scans_actively_for_scan_responses(void)
 	struct btpolicy_advert keyboard = stored_advert(1);
 
 	btpolicy_init(&policy);
-	CHECK_EQ(btpolicy_scan(&policy, true, 0), BTPOLICY_SCAN_ACTIVE);
+	CHECK_EQ(btpolicy_scan(&policy, true), BTPOLICY_SCAN_ACTIVE);
 	btpolicy_connecting(&policy, &keyboard);
-	CHECK_EQ(btpolicy_scan(&policy, true, 0), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(btpolicy_scan(&policy, true), BTPOLICY_SCAN_OFF);
 	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 0, false);
-	CHECK_EQ(btpolicy_scan(&policy, false, 0), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_PASSIVE);
 }
 
 int main(void)
@@ -545,16 +410,6 @@ int main(void)
 	RUN(a_mouse_connects_beside_a_ready_keyboard);
 	RUN(one_device_is_set_up_at_a_time);
 	RUN(a_slot_being_dropped_wants_nothing_until_it_is_idle);
-	RUN(a_hushed_device_that_keeps_advertising_is_ignored_until_it_goes_quiet);
-	RUN(a_hushed_slot_is_being_dropped);
-	RUN(a_hushed_device_quiet_since_the_drop_is_heard);
-	RUN(another_device_of_the_same_kind_neither_is_hushed_nor_extends_the_hush);
-	RUN(a_device_disconnected_before_the_hush_is_heard_at_once);
-	RUN(lifting_the_hushes_hears_every_device);
-	RUN(the_hush_holds_across_the_clock_wrap);
-	RUN(a_hush_older_than_half_the_clock_has_lapsed);
-	RUN(a_hush_scans_fast_until_the_device_goes_quiet);
-	RUN(a_hush_scans_fast_no_longer_than_the_cap);
 	RUN(both_slots_ready_scan_only_while_the_window_is_open);
 	RUN(a_failed_keyboard_leaves_the_mouse_slot_free_to_connect);
 	RUN(a_pairing_window_scans_actively_for_scan_responses);

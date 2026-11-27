@@ -30,7 +30,7 @@ void btpair_open_to_pick(struct btpair *p, uint32_t now_ms);
 bool btpair_is_open(const struct btpair *p, uint32_t now_ms);
 /* btpolicy_wants with the window's rules for a new device: one heard while picking is listed, and
  * only the picked one is wanted. */
-enum btpolicy_want btpair_wants(struct btpair *p, struct btpolicy *policy,
+enum btpolicy_want btpair_wants(struct btpair *p, const struct btpolicy *policy,
 				const struct btpolicy_advert *a, uint32_t now_ms);
 /* Writes the devices listed while picking, in the order they were first heard, and returns how
  * many. */

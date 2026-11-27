@@ -10,6 +10,8 @@
 - The live view sets the terminal's title to SpareDongle, the protocol and the link's state.
 - The live view no longer shows when a device's last packet arrived, which `status` still shows,
   so two devices' boxes fit side by side in a narrower terminal.
+- In Bluetooth mode a keyboard that reconnects on its own while the PC sleeps no longer wakes it;
+  a key press or mouse movement does.
 
 ## [0.7.0] - 2026-11-26
 
