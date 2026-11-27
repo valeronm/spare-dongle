@@ -62,6 +62,9 @@ static void test_status_matches_fixture(void)
 		.latency_max_us = 4200,
 		.name = "MX Keys",
 		.battery = {.level = 85, .charging = DEVICE_CHARGING_CHARGING},
+		.params = {.interval = 6, .latency = 44, .timeout = 216, .tx_phy = DIAG_PHY_LE1_M,
+			   .rx_phy = DIAG_PHY_LE1_M},
+		.asked = {.interval_min = 6, .interval_max = 9, .latency = 44, .timeout = 216},
 	};
 
 	check_status_fixture("status.hex", &s);
@@ -96,6 +99,9 @@ static void test_a_mouse_slot_status_matches_fixture(void)
 		.pairing = DIAG_PAIRING_KNOWN | DIAG_PAIRING_SECURE,
 		.name = "MX Master 3S",
 		.battery = DEVICE_BATTERY_UNKNOWN,
+		.params = {.interval = 6, .latency = 44, .timeout = 216, .tx_phy = DIAG_PHY_LE1_M,
+			   .rx_phy = DIAG_PHY_LE1_M},
+		.asked = {.interval_min = 6, .interval_max = 9, .latency = 44, .timeout = 216},
 	};
 
 	check_status_fixture("status-slot1.hex", &s);

@@ -145,6 +145,10 @@ fn slot_rows(s: &Status, slot: &Slot, d: &SlotStatus) -> Vec<(&'static str, Stri
     {
         rows.push(("security", rating.into()));
     }
+    if let Some(link) = d.link {
+        rows.push(("params", format::params_text(&link.params)));
+        rows.push(("asked", format::asked_text(link.asked.as_ref())));
+    }
     if slot.holds_device() {
         let counters: Vec<String> = s
             .protocol()
@@ -852,6 +856,19 @@ mod tests {
     }
 
     #[test]
+    fn a_device_that_asked_nothing_says_so() {
+        let mut s = mouse_status();
+        if let Some(link) = &mut s.device.link {
+            link.asked = None;
+        }
+        let lines = status_lines(&s, std::slice::from_ref(&s.device));
+        assert!(
+            lines.contains(&"asked     nothing".to_string()),
+            "{lines:#?}"
+        );
+    }
+
+    #[test]
     fn a_bolt_device_is_marked_after_its_name() {
         let mut s = mouse_status();
         s.device.pairing = Some(Pairing {
@@ -880,6 +897,7 @@ mod tests {
             latency: None,
             pairing: None,
             battery: None,
+            link: None,
         };
         assert_eq!(
             status_lines(&s, &[keyboard, s.device.clone()]),
@@ -899,6 +917,8 @@ mod tests {
                 "mouse     MX Master 3S, connected",
                 "signal    -60 dBm, last packet 250 ms ago",
                 "security  secure, no passkey",
+                "params    7.5 ms, latency 44, timeout 2.16 s, 1M",
+                "asked     7.5–11.25 ms, latency 44, timeout 2.16 s",
                 "counters  packets 2000",
                 "latency   no report yet",
             ]

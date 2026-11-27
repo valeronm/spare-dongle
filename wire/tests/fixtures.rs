@@ -300,6 +300,30 @@ fn watch_and_devices_survive_a_round_trip() {
 }
 
 #[test]
+fn status_carries_the_slots_link_params_and_request() {
+    let s = Status::decode(&fixture("status.hex")).unwrap();
+    assert_eq!(
+        s.params,
+        LinkParams {
+            interval: 6,
+            latency: 44,
+            timeout: 216,
+            tx_phy: Phy::Le1M as u8,
+            rx_phy: Phy::Le1M as u8,
+        }
+    );
+    assert_eq!(
+        s.asked,
+        AskedParams {
+            interval_min: 6,
+            interval_max: 9,
+            latency: 44,
+            timeout: 216,
+        }
+    );
+}
+
+#[test]
 fn a_standby_slot_sets_its_flag_bit() {
     let want = fixture("status-slot1.hex");
     let mut status = Status::decode(&want).unwrap();
@@ -326,7 +350,9 @@ fn a_charging_byte_of_no_state_goes_out_as_unknown() {
     };
     let mut out = [0; PAYLOAD_MAX];
     let n = status.encode(&mut out);
-    assert_eq!(out[n - 2..n], [40, Charging::Unknown as u8]);
+    let back = Status::decode(&out[..n]).unwrap();
+    assert_eq!(back.battery.level, 40);
+    assert_eq!(back.battery.charging, Charging::Unknown as u8);
 }
 
 #[test]

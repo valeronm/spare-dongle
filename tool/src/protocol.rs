@@ -1,8 +1,9 @@
 use anyhow::Result;
 pub use diagwire::{
-    BUCKETS as NOISE_BUCKETS, BUSY_DBM, CHUNK, Command, Detail, DeviceKind, Divert, EVENT_ADDR_LEN,
-    ErrorCode, Forgotten, Moved, NoiseChannel, NoiseRecord as Noise, Part, Protocol, REPORT_LEN,
-    Reader, Rssi, STRONG_DBM, Up, Wheel, bucket_floor, channels_arg, parse_part, request,
+    AskedParams, BUCKETS as NOISE_BUCKETS, BUSY_DBM, CHUNK, Command, Detail, DeviceKind, Divert,
+    EVENT_ADDR_LEN, ErrorCode, Forgotten, Moved, NoiseChannel, NoiseRecord as Noise, Part, Phy,
+    Protocol, REPORT_LEN, Reader, Rssi, STRONG_DBM, Up, Wheel, bucket_floor, channels_arg,
+    parse_part, request,
 };
 use diagwire::{
     Charging, HEARD_BOLT, NAME_MAX, NO_BATTERY, NO_RSSI, NO_SLOT, NUPHY_FIXED_CHANNELS,
@@ -242,6 +243,25 @@ pub struct SlotStatus {
     pub pairing: Option<Pairing>,
     /// `None` until the device reports its battery.
     pub battery: Option<Battery>,
+    /// `None` for a slot without a Bluetooth link.
+    pub link: Option<DeviceLink>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeviceLink {
+    pub params: LinkParams,
+    /// `None` when the device asked for nothing on this connection.
+    pub asked: Option<AskedParams>,
+}
+
+/// Intervals in units of 1.25 ms and timeouts in 10 ms, as Bluetooth counts them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LinkParams {
+    pub interval: u16,
+    pub latency: u16,
+    pub timeout: u16,
+    pub tx_phy: Phy,
+    pub rx_phy: Phy,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -574,7 +594,25 @@ pub fn read_status(payload: &[u8]) -> Result<Result<Status, VersionMismatch>> {
             }),
             pairing: read_pairing(w.pairing),
             battery: read_battery(w.battery)?,
+            link: read_link_params(w.params)?.map(|params| DeviceLink {
+                params,
+                asked: (w.asked.interval_min != 0).then_some(w.asked),
+            }),
         },
+    }))
+}
+
+fn read_link_params(p: diagwire::LinkParams) -> Result<Option<LinkParams>> {
+    if p.interval == 0 {
+        return Ok(None);
+    }
+    let phy = |code| Phy::from_code(code).ok_or_else(|| unknown("PHY"));
+    Ok(Some(LinkParams {
+        interval: p.interval,
+        latency: p.latency,
+        timeout: p.timeout,
+        tx_phy: phy(p.tx_phy)?,
+        rx_phy: phy(p.rx_phy)?,
     }))
 }
 
@@ -920,6 +958,23 @@ pub(crate) mod tests {
         out[..len].to_vec()
     }
 
+    /// The link status.hex and status-slot1.hex carry.
+    pub(crate) const FIXTURE_LINK: DeviceLink = DeviceLink {
+        params: LinkParams {
+            interval: 6,
+            latency: 44,
+            timeout: 216,
+            tx_phy: Phy::Le1M,
+            rx_phy: Phy::Le1M,
+        },
+        asked: Some(AskedParams {
+            interval_min: 6,
+            interval_max: 9,
+            latency: 44,
+            timeout: 216,
+        }),
+    };
+
     fn run(s: &mut diagwire::Status, code: u8) {
         s.protocol = code;
         if code == Protocol::Unifying as u8 {
@@ -930,6 +985,8 @@ pub(crate) mod tests {
         if code == Protocol::Bluetooth as u8 {
             s.slots[0].ready = false;
         }
+        s.params = Default::default();
+        s.asked = Default::default();
     }
 
     /// A status reply from a dongle running `protocol`, with its pairing window and event count.
@@ -1235,6 +1292,7 @@ pub(crate) mod tests {
                     }),
                     pairing: None,
                     battery: Some(Battery::Level(85, Some(ChargeState::Charging))),
+                    link: Some(FIXTURE_LINK),
                 },
             })
         );
@@ -1339,6 +1397,7 @@ pub(crate) mod tests {
                         bolt: false,
                     }),
                     battery: None,
+                    link: Some(FIXTURE_LINK),
                 },
             })
         );
@@ -1421,6 +1480,12 @@ pub(crate) mod tests {
     #[test]
     fn a_slot_of_an_unknown_kind_is_refused() {
         let payload = edited("status.hex", |s| s.slots[0].kind = 7);
+        assert!(read_status(&payload).is_err());
+    }
+
+    #[test]
+    fn a_link_on_an_unknown_phy_is_refused() {
+        let payload = edited("status.hex", |s| s.params.rx_phy = 3);
         assert!(read_status(&payload).is_err());
     }
 

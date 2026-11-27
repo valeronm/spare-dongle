@@ -4,10 +4,10 @@ use chrono::{DateTime, Duration, Local};
 use crate::board::State;
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
-    Action, AwaitedPasskey, BUSY_DBM, Battery, ChargeState, Detail, DeviceKind, Divert,
-    EVENT_ADDR_LEN, Event, Forgotten, HeardDevice, Latency, Link, Moved, Noise, Pairing, Protocol,
-    STRONG_DBM, Slot, SoftDevice, Status, StoredDevice, Up, VersionMismatch, Watch, Wheel,
-    bucket_floor,
+    Action, AskedParams, AwaitedPasskey, BUSY_DBM, Battery, ChargeState, Detail, DeviceKind,
+    Divert, EVENT_ADDR_LEN, Event, Forgotten, HeardDevice, Latency, Link, LinkParams, Moved, Noise,
+    Pairing, Phy, Protocol, STRONG_DBM, Slot, SoftDevice, Status, StoredDevice, Up,
+    VersionMismatch, Watch, Wheel, bucket_floor,
 };
 
 pub const NOISE_QUESTION: &str =
@@ -617,6 +617,79 @@ pub fn battery(b: Battery) -> String {
     }
 }
 
+fn decimal(whole: u32, thousandths: u32) -> String {
+    let rest = format!("{thousandths:03}");
+    match rest.trim_end_matches('0') {
+        "" => whole.to_string(),
+        r => format!("{whole}.{r}"),
+    }
+}
+
+fn interval_ms(units: u16) -> String {
+    let us = u32::from(units) * 1250;
+    decimal(us / 1000, us % 1000)
+}
+
+fn timeout_text(units: u16) -> String {
+    let ms = u32::from(units) * 10;
+    if ms < 1000 {
+        format!("{ms} ms")
+    } else {
+        format!("{} s", decimal(ms / 1000, ms % 1000))
+    }
+}
+
+fn phy_name(phy: Phy) -> &'static str {
+    match phy {
+        Phy::Le1M => "1M",
+        Phy::Le2M => "2M",
+        Phy::Coded => "Coded",
+    }
+}
+
+fn timing(interval: String, latency: u16, timeout: u16, timeout_label: &str) -> [String; 3] {
+    [
+        format!("{interval} ms"),
+        format!("latency {latency}"),
+        format!("{timeout_label}{}", timeout_text(timeout)),
+    ]
+}
+
+fn params_line(p: &LinkParams, separator: &str, timeout_label: &str) -> String {
+    let phy = if p.tx_phy == p.rx_phy {
+        phy_name(p.tx_phy).to_string()
+    } else {
+        format!("{}/{}", phy_name(p.tx_phy), phy_name(p.rx_phy))
+    };
+    let [interval, latency, timeout] =
+        timing(interval_ms(p.interval), p.latency, p.timeout, timeout_label);
+    [interval, latency, timeout, phy].join(separator)
+}
+
+pub fn params_text(p: &LinkParams) -> String {
+    params_line(p, ", ", "timeout ")
+}
+
+pub fn params_short(p: &LinkParams) -> String {
+    params_line(p, " · ", "")
+}
+
+pub fn asked_text(a: Option<&AskedParams>) -> String {
+    let Some(a) = a else {
+        return "nothing".into();
+    };
+    let interval = if a.interval_min == a.interval_max {
+        interval_ms(a.interval_min)
+    } else {
+        format!(
+            "{}–{}",
+            interval_ms(a.interval_min),
+            interval_ms(a.interval_max)
+        )
+    };
+    timing(interval, a.latency, a.timeout, "timeout ").join(", ")
+}
+
 /// In milliseconds to a tenth, rounded half up.
 pub fn latency(l: Option<Latency>) -> String {
     let Some(l) = l else {
@@ -1015,6 +1088,66 @@ pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn link_params_read_in_milliseconds_and_seconds() {
+        let p = LinkParams {
+            interval: 6,
+            latency: 44,
+            timeout: 216,
+            tx_phy: Phy::Le1M,
+            rx_phy: Phy::Le1M,
+        };
+        assert_eq!(params_text(&p), "7.5 ms, latency 44, timeout 2.16 s, 1M");
+        let p = LinkParams {
+            interval: 12,
+            latency: 6,
+            timeout: 43,
+            tx_phy: Phy::Le2M,
+            rx_phy: Phy::Le1M,
+        };
+        assert_eq!(params_text(&p), "15 ms, latency 6, timeout 430 ms, 2M/1M");
+        let p = LinkParams {
+            interval: 9,
+            latency: 0,
+            timeout: 400,
+            tx_phy: Phy::Coded,
+            rx_phy: Phy::Coded,
+        };
+        assert_eq!(params_text(&p), "11.25 ms, latency 0, timeout 4 s, Coded");
+    }
+
+    #[test]
+    fn short_link_params_leave_out_what_the_row_label_implies() {
+        let p = LinkParams {
+            interval: 6,
+            latency: 44,
+            timeout: 216,
+            tx_phy: Phy::Le1M,
+            rx_phy: Phy::Le1M,
+        };
+        assert_eq!(params_short(&p), "7.5 ms · latency 44 · 2.16 s · 1M");
+    }
+
+    #[test]
+    fn a_request_reads_as_a_range_or_one_interval() {
+        let a = AskedParams {
+            interval_min: 6,
+            interval_max: 9,
+            latency: 44,
+            timeout: 216,
+        };
+        assert_eq!(
+            asked_text(Some(&a)),
+            "7.5–11.25 ms, latency 44, timeout 2.16 s"
+        );
+        let a = AskedParams {
+            interval_max: 6,
+            ..a
+        };
+        assert_eq!(asked_text(Some(&a)), "7.5 ms, latency 44, timeout 2.16 s");
+        assert_eq!(asked_text(None), "nothing");
+    }
     use crate::protocol::{
         DeviceKind, read_status,
         tests::{fixture, status_in_protocol, status_of, unpaired},

@@ -121,6 +121,7 @@ static void fill_status(struct diag_status *st, uint8_t slot)
 	btpair_status(&pair, k_uptime_get_32(), st);
 	st->pairing = pairing_of(slot);
 	st->battery = battery_of(c);
+	ble_fill_link(slot, st);
 	if (c->rssi_read) {
 		st->last_rssi = c->rssi;
 	}

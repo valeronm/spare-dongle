@@ -10,6 +10,8 @@
 #include "btpolicy.h"
 #include "noise.h"
 
+struct diag_status;
+
 #define BLE_REPORT_MAX 64
 #define BLE_MAP_MAX 1024
 #define BLE_NAME_MAX BTPOLICY_NAME_MAX
@@ -116,6 +118,8 @@ size_t ble_copy_map(uint8_t slot, uint8_t *out, size_t cap);
 /* The name of the slot's device, the advertised one until its own is read; empty if it gave
  * none. */
 void ble_copy_name(uint8_t slot, char out[BLE_NAME_MAX + 1]);
+/* The link's parameters and the device's last request on it, all zero with no link. */
+void ble_fill_link(uint8_t slot, struct diag_status *st);
 void ble_disconnect(uint8_t slot);
 /* Disconnects as a host that is powering off does. */
 void ble_power_off(uint8_t slot);

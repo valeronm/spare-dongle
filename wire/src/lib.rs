@@ -471,6 +471,44 @@ pub struct Battery {
     pub charging: u8,
 }
 
+/// A Bluetooth LE PHY, numbered as the Core spec's PHY bits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Phy {
+    Le1M = 1,
+    Le2M = 2,
+    Coded = 4,
+}
+codes!(Phy { Le1M, Le2M, Coded });
+
+/// The parameters a link runs with; all zero for a slot without a link.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(C)]
+pub struct LinkParams {
+    /// In units of 1.25 ms.
+    pub interval: u16,
+    pub latency: u16,
+    /// In units of 10 ms.
+    pub timeout: u16,
+    /// A `Phy`.
+    pub tx_phy: u8,
+    /// A `Phy`.
+    pub rx_phy: u8,
+}
+
+/// The device's last connection parameter request on this connection; all zero for none, since a
+/// request's minimum interval is at least 6.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(C)]
+pub struct AskedParams {
+    /// In units of 1.25 ms.
+    pub interval_min: u16,
+    pub interval_max: u16,
+    pub latency: u16,
+    /// In units of 10 ms.
+    pub timeout: u16,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
 pub struct Slot {
@@ -538,6 +576,8 @@ pub struct Status {
     /// Padded with zeros.
     pub name: [u8; NAME_MAX],
     pub battery: Battery,
+    pub params: LinkParams,
+    pub asked: AskedParams,
 }
 
 /// `busy` and `strong` are shares of the readings in hundredths of a percent; all 0 without
@@ -1333,6 +1373,15 @@ impl Status {
         w.u8(self.battery.level);
         let charging = Charging::from_code(self.battery.charging).unwrap_or(Charging::Unknown);
         w.u8(charging as u8);
+        w.u16(self.params.interval);
+        w.u16(self.params.latency);
+        w.u16(self.params.timeout);
+        w.u8(self.params.tx_phy);
+        w.u8(self.params.rx_phy);
+        w.u16(self.asked.interval_min);
+        w.u16(self.asked.interval_max);
+        w.u16(self.asked.latency);
+        w.u16(self.asked.timeout);
         w.at
     }
 
@@ -1378,6 +1427,19 @@ impl Status {
         let battery = Battery {
             level: r.u8()?,
             charging: r.u8()?,
+        };
+        let params = LinkParams {
+            interval: r.u16()?,
+            latency: r.u16()?,
+            timeout: r.u16()?,
+            tx_phy: r.u8()?,
+            rx_phy: r.u8()?,
+        };
+        let asked = AskedParams {
+            interval_min: r.u16()?,
+            interval_max: r.u16()?,
+            latency: r.u16()?,
+            timeout: r.u16()?,
         };
         Ok(Self {
             firmware_version,
@@ -1425,6 +1487,8 @@ impl Status {
             pairing,
             name,
             battery,
+            params,
+            asked,
         })
     }
 }

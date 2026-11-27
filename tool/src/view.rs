@@ -1578,7 +1578,7 @@ fn dongle_lines(status: Option<&Status>) -> Vec<Line<'static>> {
 }
 
 fn device_rows(protocol: Option<Protocol>) -> u16 {
-    2 + u16::from(protocol.is_some())
+    2 + u16::from(protocol.is_some()) + u16::from(protocol == Some(Protocol::Bluetooth))
 }
 
 fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<'static>> {
@@ -1616,6 +1616,12 @@ fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<
         rows.push(status_row(
             "security",
             [Span::styled(rating, Style::new().fg(Color::Red))],
+        ));
+    }
+    if let Some(link) = device.and_then(|d| d.link) {
+        rows.push(status_row(
+            "params",
+            vec![Span::raw(crate::format::params_short(&link.params))],
         ));
     }
     if let Some(d) = device.filter(|d| s.connected(d.slot)) {
@@ -2526,6 +2532,7 @@ mod tests {
             latency: None,
             pairing: None,
             battery: None,
+            link: None,
         };
         let mut app = app_with(s);
         history(&mut app).slots.push(SlotHistory {
@@ -2542,8 +2549,8 @@ mod tests {
     /// In NuPhy and Unifying mode, where the dongle box adds a channels row.
     const CHANNELS_DEVICE_TITLE_ROW: usize = DEVICE_TITLE_ROW + 1;
     const CHANNELS_LINK_ROW: usize = CHANNELS_DEVICE_TITLE_ROW + 1;
-    /// Under the device box's three rows.
-    const CHART_ROW: usize = DEVICE_TITLE_ROW + 5;
+    /// Under the Bluetooth device box.
+    const CHART_ROW: usize = DEVICE_TITLE_ROW + 6;
 
     fn signal_legend() -> String {
         legend(
@@ -2823,7 +2830,7 @@ mod tests {
         press(&mut app, 'k');
         press(&mut app, 'm');
         assert_eq!(drawn_at(&mut app, width, 30), rows);
-        let mut app = app_with(status_of(Protocol::Bluetooth));
+        let mut app = app_with(closed(status_of(Protocol::Bluetooth)));
         let rows = drawn_at(&mut app, 80, 24);
         let footer = footer_at(&app, 80);
         assert!(!steps_panels(&footer), "{footer}");

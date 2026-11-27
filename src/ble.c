@@ -51,6 +51,8 @@ struct link {
 	bool passkey_used;
 	/* The device took the Bolt mode write on this connection. */
 	bool bolt_mode;
+	struct diag_link_params params;
+	struct diag_asked_params asked;
 };
 
 static struct link links[DEVICE_SLOTS];
@@ -422,9 +424,16 @@ static void read_name(struct link *l)
 BUILD_ASSERT(BLE_ADDRESS_MAX >= BT_ADDR_LE_STR_LEN);
 BUILD_ASSERT(BLE_REASON_NOT_ESTABLISHED == BT_HCI_ERR_CONN_FAIL_TO_ESTAB);
 BUILD_ASSERT(sizeof(bt_addr_le_t) == BTPOLICY_ADDR_LEN);
+BUILD_ASSERT((int)DIAG_PHY_LE1_M == (int)BT_GAP_LE_PHY_1M &&
+	     (int)DIAG_PHY_LE2_M == (int)BT_GAP_LE_PHY_2M &&
+	     (int)DIAG_PHY_CODED == (int)BT_GAP_LE_PHY_CODED);
 
 static void connection_ended(struct link *l, uint8_t reason)
 {
+	k_sched_lock();
+	l->params = (struct diag_link_params){0};
+	l->asked = (struct diag_asked_params){0};
+	k_sched_unlock();
 	if (bt_hogp_assign_check(&l->hogp)) {
 		bt_hogp_release(&l->hogp);
 	}
@@ -437,15 +446,27 @@ static void connection_ended(struct link *l, uint8_t reason)
 	emit(l, (struct ble_event){.type = BLE_DISCONNECTED, .reason = reason});
 }
 
-static void print_params(struct link *l)
+static void read_params(struct link *l)
 {
 	struct bt_conn_info info;
+	struct diag_link_params p;
 
-	if (bt_conn_get_info(l->conn, &info) == 0) {
-		printk("bluetooth link %u: interval %u us, latency %u, timeout %u ms\n",
-		       slot_of_link(l), info.le.interval_us, info.le.latency,
-		       info.le.timeout * 10u);
+	if (bt_conn_get_info(l->conn, &info) != 0) {
+		return;
 	}
+	p = (struct diag_link_params){
+		.interval = BT_GAP_US_TO_CONN_INTERVAL(info.le.interval_us),
+		.latency = info.le.latency,
+		.timeout = info.le.timeout,
+		.tx_phy = info.le.phy->tx_phy,
+		.rx_phy = info.le.phy->rx_phy,
+	};
+	k_sched_lock();
+	l->params = p;
+	k_sched_unlock();
+	printk("bluetooth link %u: interval %u us, latency %u, timeout %u ms, phy %u/%u\n",
+	       slot_of_link(l), info.le.interval_us, info.le.latency, info.le.timeout * 10u,
+	       info.le.phy->tx_phy, info.le.phy->rx_phy);
 }
 
 /* A link lost during the Bolt mode write reports its loss through its disconnect. */
@@ -533,7 +554,7 @@ static void on_connected(struct bt_conn *conn, uint8_t err)
 	l->map_len = 0;
 	bt_addr_le_to_str(bt_conn_get_dst(conn), ev.address, sizeof(ev.address));
 	emit(l, ev);
-	print_params(l);
+	read_params(l);
 	l->passkey_used = false;
 	l->bolt_mode = false;
 	l->failed = false;
@@ -576,16 +597,37 @@ static void on_params_updated(struct bt_conn *conn, uint16_t interval, uint16_t 
 	ARG_UNUSED(latency);
 	ARG_UNUSED(timeout);
 	if (l) {
-		print_params(l);
+		read_params(l);
 	}
 }
 
 /* A controller left to choose from a requested range takes the longest interval. */
 static bool on_param_request(struct bt_conn *conn, struct bt_le_conn_param *param)
 {
-	ARG_UNUSED(conn);
+	struct link *l = link_of_conn(conn);
+
+	if (l) {
+		k_sched_lock();
+		l->asked = (struct diag_asked_params){
+			.interval_min = param->interval_min,
+			.interval_max = param->interval_max,
+			.latency = param->latency,
+			.timeout = param->timeout,
+		};
+		k_sched_unlock();
+	}
 	param->interval_max = param->interval_min;
 	return true;
+}
+
+static void on_phy_updated(struct bt_conn *conn, struct bt_conn_le_phy_info *param)
+{
+	struct link *l = link_of_conn(conn);
+
+	ARG_UNUSED(param);
+	if (l) {
+		read_params(l);
+	}
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
@@ -594,6 +636,7 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.security_changed = on_security_changed,
 	.le_param_req = on_param_request,
 	.le_param_updated = on_params_updated,
+	.le_phy_updated = on_phy_updated,
 };
 
 static void on_pairing_complete(struct bt_conn *conn, bool bonded)
@@ -928,6 +971,14 @@ static int start_survey(void)
 	int err = bt_hci_register_vnd_evt_cb(on_vendor_event);
 
 	return err ? err : hci_vs_sdc_qos_channel_survey_enable(&survey);
+}
+
+void ble_fill_link(uint8_t slot, struct diag_status *st)
+{
+	k_sched_lock();
+	st->params = links[slot].params;
+	st->asked = links[slot].asked;
+	k_sched_unlock();
 }
 
 bool ble_take_noise(struct noise_tally *t, int *home)
