@@ -386,6 +386,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "diagwire",
+ "serde",
 ]
 
 [[package]]
@@ -396,6 +397,8 @@ dependencies = [
  "diagclient",
  "jni",
  "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

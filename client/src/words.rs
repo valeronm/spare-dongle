@@ -59,7 +59,8 @@ fn health_name(health: LinkHealth) -> &'static str {
 }
 
 /// Ordered from worst to best.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum LinkHealth {
     RadioFailed,
     NotPaired,
@@ -160,17 +161,24 @@ pub fn reset_by(bits: u32) -> String {
     format!("reset by {}", reset_causes(bits))
 }
 
-pub fn bootloader_and_softdevice(s: &Status) -> [String; 2] {
-    let bootloader = s.bootloader_version.map_or("unknown".into(), version);
-    let softdevice = match s.softdevice {
-        SoftDevice::Absent => "no SoftDevice".into(),
-        SoftDevice::Unnamed { fwid } => format!("SoftDevice FWID {fwid:#06x}"),
+pub fn bootloader(s: &Status) -> String {
+    s.bootloader_version.map_or("unknown".into(), version)
+}
+
+pub fn softdevice(s: &Status) -> Option<String> {
+    match s.softdevice {
+        SoftDevice::Absent => None,
+        SoftDevice::Unnamed { fwid } => Some(format!("FWID {fwid:#06x}")),
         SoftDevice::Named { id, version } => {
             let version = version.map_or(String::new(), |v| format!(" {}", self::version(v)));
-            format!("SoftDevice S{id}{version}")
+            Some(format!("S{id}{version}"))
         }
-    };
-    [format!("bootloader {bootloader}"), softdevice]
+    }
+}
+
+pub fn bootloader_and_softdevice(s: &Status) -> [String; 2] {
+    let softdevice = softdevice(s).map_or("no SoftDevice".into(), |d| format!("SoftDevice {d}"));
+    [format!("bootloader {}", bootloader(s)), softdevice]
 }
 
 pub fn uptime(ms: u64) -> String {

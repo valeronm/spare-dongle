@@ -11,3 +11,4 @@ testing = []
 [dependencies]
 diagwire = { path = "../wire" }
 anyhow = "1"
+serde = { version = "1", features = ["derive"] }

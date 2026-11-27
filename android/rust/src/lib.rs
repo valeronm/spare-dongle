@@ -1,12 +1,12 @@
 mod descriptor;
-mod rows;
 mod usbfs;
+mod view;
 
 use descriptor::{is_diagnostic, report_descriptor_length};
 use diagclient::device::Device;
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JObject};
-use jni::sys::{JNI_FALSE, jboolean, jint, jlong, jobjectArray};
+use jni::objects::{JByteArray, JClass};
+use jni::sys::{JNI_FALSE, jboolean, jint, jlong, jstring};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 type Dongle = Device<usbfs::Usbfs>;
@@ -24,26 +24,16 @@ pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_open(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_statusRows(
-    mut env: JNIEnv,
+pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_snapshotJson(
+    env: JNIEnv,
     _: JClass,
     handle: jlong,
-) -> jobjectArray {
+) -> jstring {
     let dev = unsafe { &mut *(handle as *mut Dongle) };
-    let read = catch_unwind(AssertUnwindSafe(|| {
-        dev.status()
-            .and_then(|s| Ok(rows::status_rows(&s, &dev.shown(&s)?)))
-    }));
-    let rows = read.unwrap_or_else(|_| Err(anyhow::anyhow!("the status reader failed")));
-    match rows.and_then(|rows| to_java(&mut env, &rows)) {
-        Ok(array) => array,
-        Err(e) => {
-            if matches!(env.exception_check(), Ok(false)) {
-                let _ = env.throw_new("java/io/IOException", format!("{e:#}"));
-            }
-            std::ptr::null_mut()
-        }
-    }
+    json_or_throw(env, || {
+        let s = dev.status()?;
+        Ok(serde_json::to_string(&view::snapshot(&s, &dev.shown(&s)?))?)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -83,12 +73,16 @@ pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_close(
     drop(unsafe { Box::from_raw(handle as *mut Dongle) });
 }
 
-fn to_java(env: &mut JNIEnv, rows: &[(&str, String)]) -> anyhow::Result<jobjectArray> {
-    let array =
-        env.new_object_array((rows.len() * 2) as i32, "java/lang/String", JObject::null())?;
-    for (i, text) in rows.iter().flat_map(|(l, v)| [*l, v.as_str()]).enumerate() {
-        let s = env.new_string(text)?;
-        env.set_object_array_element(&array, i as i32, s)?;
+fn json_or_throw(mut env: JNIEnv, read: impl FnOnce() -> anyhow::Result<String>) -> jstring {
+    let json = catch_unwind(AssertUnwindSafe(read))
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("the status reader failed")));
+    match json.and_then(|json| Ok(env.new_string(json)?)) {
+        Ok(s) => s.into_raw(),
+        Err(e) => {
+            if matches!(env.exception_check(), Ok(false)) {
+                let _ = env.throw_new("java/io/IOException", format!("{e:#}"));
+            }
+            std::ptr::null_mut()
+        }
     }
-    Ok(array.into_raw())
 }

@@ -20,6 +20,7 @@ import android.widget.TextView
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import org.json.JSONObject
 
 class StatusActivity : Activity() {
     private enum class Permission { ASK, PENDING, GRANTED, DENIED }
@@ -182,6 +183,27 @@ class StatusActivity : Activity() {
         }
     }
 
+    private fun statusRows(dongle: JSONObject, status: JSONObject): List<Pair<String, String>> {
+        val details = dongle.getJSONArray("rows")
+        val firmware = (0 until details.length()).map(details::getJSONObject).first { it.getString("label") == "firmware" }
+        val rows = mutableListOf(
+            "firmware" to firmware.getString("value"),
+            "protocol" to status.getString("protocol"),
+            "link" to status.getJSONObject("link").getString("text"),
+            "usb" to status.getString("usb"),
+        )
+        val devices = status.getJSONArray("devices")
+        for (i in 0 until devices.length()) {
+            val d = devices.getJSONObject(i)
+            val state = d.getJSONObject("state").getString("text")
+            val name = d.optString("name").takeUnless { d.isNull("name") }
+            rows += d.getString("kind") to if (name != null) "$name, $state" else state
+            if (!d.isNull("signalText")) rows += "signal" to d.getString("signalText")
+            if (!d.isNull("batteryText")) rows += "battery" to d.getString("batteryText")
+        }
+        return rows
+    }
+
     /** Owns a [Dongle] whose handle only its executor's thread touches. */
     private inner class Session(private val dongle: Dongle) {
         private val executor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
@@ -194,7 +216,8 @@ class StatusActivity : Activity() {
         private fun poll() {
             if (closed) return
             try {
-                val rows = dongle.rows()
+                val snapshot = JSONObject(dongle.snapshotJson())
+                val rows = statusRows(snapshot.getJSONObject("dongle"), snapshot.getJSONObject("status"))
                 runOnUiThread { if (session === this) showRows(rows) }
             } catch (e: Throwable) {
                 closeDongle()

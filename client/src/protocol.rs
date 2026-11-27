@@ -272,7 +272,8 @@ pub enum Battery {
     Charge(ChargeState),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ChargeState {
     Discharging,
     Charging,

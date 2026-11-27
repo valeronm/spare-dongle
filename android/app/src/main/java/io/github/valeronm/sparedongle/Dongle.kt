@@ -11,8 +11,7 @@ class Dongle private constructor(
     private val intf: UsbInterface,
     private val handle: Long,
 ) : AutoCloseable {
-    fun rows(): List<Pair<String, String>> =
-        Native.statusRows(handle).toList().chunked(2) { (l, v) -> l to v }
+    fun snapshotJson(): String = Native.snapshotJson(handle)
 
     override fun close() {
         Native.close(handle)
