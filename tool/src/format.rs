@@ -2,12 +2,10 @@ use anyhow::Result;
 use chrono::{DateTime, Duration, Local};
 
 use crate::board::State;
-use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
     Action, AskedParams, AwaitedPasskey, BUSY_DBM, Detail, DeviceKind, Divert, EVENT_ADDR_LEN,
     Event, Forgotten, HeardDevice, Latency, Link, LinkParams, Moved, Noise, Pairing, Phy, Protocol,
-    STRONG_DBM, Slot, SoftDevice, Status, StoredDevice, Up, VersionMismatch, Watch, Wheel,
-    bucket_floor,
+    STRONG_DBM, Slot, Status, StoredDevice, Up, VersionMismatch, Watch, Wheel, bucket_floor,
 };
 pub use diagclient::words::*;
 
@@ -205,13 +203,6 @@ pub fn forget_question(d: &StoredDevice, protocol: Protocol) -> String {
         "Forget {} ({})? It has to be paired again to be used.",
         device_name(d),
         device_address(d, protocol)
-    )
-}
-
-pub fn switch_question(to: Protocol) -> String {
-    format!(
-        "Switch to {}? The dongle reboots and history starts over.",
-        to.name()
     )
 }
 
@@ -598,68 +589,6 @@ pub fn latency(l: Option<Latency>) -> String {
     format!("{} average, {} max", tenths(l.average_us), tenths(l.max_us))
 }
 
-const RESET_CAUSES: [&str; 17] = [
-    "pin",
-    "software",
-    "brownout",
-    "power-on",
-    "watchdog",
-    "debug",
-    "security",
-    "low-power wake",
-    "cpu lockup",
-    "parity",
-    "pll",
-    "clock",
-    "hardware",
-    "user",
-    "temperature",
-    "bootloader",
-    "flash",
-];
-
-fn reset_causes(bits: u32) -> String {
-    let names: Vec<_> = RESET_CAUSES
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| bits & (1 << i) != 0)
-        .map(|(_, name)| *name)
-        .collect();
-    if names.is_empty() {
-        "none".into()
-    } else {
-        names.join(", ")
-    }
-}
-
-pub fn reset_by(bits: u32) -> String {
-    format!("reset by {}", reset_causes(bits))
-}
-
-/// The bootloader's version and the SoftDevice's, each with its name.
-pub fn bootloader_and_softdevice(s: &Status) -> [String; 2] {
-    let bootloader = s.bootloader_version.map_or("unknown".into(), version);
-    let softdevice = match s.softdevice {
-        SoftDevice::Absent => "no SoftDevice".into(),
-        SoftDevice::Unnamed { fwid } => format!("SoftDevice FWID {fwid:#06x}"),
-        SoftDevice::Named { id, version } => {
-            let version = version.map_or(String::new(), |v| format!(" {}", self::version(v)));
-            format!("SoftDevice S{id}{version}")
-        }
-    };
-    [format!("bootloader {bootloader}"), softdevice]
-}
-
-pub fn uptime(ms: u64) -> String {
-    let s = ms / 1000;
-    let (days, h, m, s) = (s / 86400, s / 3600 % 24, s / 60 % 60, s % 60);
-    if days > 0 {
-        format!("{days}d {h:02}:{m:02}:{s:02}")
-    } else {
-        format!("{h:02}:{m:02}:{s:02}")
-    }
-}
-
 /// Converts a dongle uptime into the local clock time it happened at.
 pub fn wall_clock(now: DateTime<Local>, uptime_now_ms: u64, at_ms: u64) -> DateTime<Local> {
     now - Duration::milliseconds(uptime_now_ms.saturating_sub(at_ms) as i64)
@@ -1041,7 +970,7 @@ mod tests {
         assert_eq!(asked_text(None), "nothing");
     }
     use crate::protocol::{
-        Battery, ChargeState, DeviceKind, read_status,
+        Battery, ChargeState, DeviceKind, SoftDevice, read_status,
         tests::{fixture, status_in_protocol, status_of, unpaired},
     };
     use chrono::TimeZone;

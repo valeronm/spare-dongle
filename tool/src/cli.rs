@@ -11,10 +11,10 @@ use crate::board::{self, State};
 use crate::device::{self, Device, Refused, Transport};
 use crate::format::{
     LinkHealth, NOISE_QUESTION, action_question, battery, bootloader_and_softdevice,
-    channel_description, describe_event, flash_question, flashed, hex, joined, latency,
-    link_health, name_parts, noise_level, paired, pairing, pairing_offer, protocol_security,
-    reset_by, signal, state_name, status_label, unifying_kind, uptime, usb_state, version,
-    wall_clock,
+    channel_description, counters_line, describe_event, flash_question, flashed, hex, history_line,
+    joined, latency, link_health, name_parts, noise_level, paired, pairing, pairing_offer,
+    protocol_security, reset_by, signal, state_name, status_label, unifying_kind, uptime,
+    usb_state, version, wall_clock,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -43,12 +43,6 @@ fn status_lines(s: &Status, devices: &[SlotStatus]) -> Vec<String> {
         ),
         _ => (String::new(), String::new()),
     };
-    let counters: Vec<String> = s
-        .protocol()
-        .counters()
-        .iter()
-        .filter_map(|&counter| Some(format!("{} {}", counter.name(), s.counters.get(counter)?)))
-        .collect();
     let link = if s.protocol().has_esb() && link_health(s) > LinkHealth::NotPaired {
         format!("{} on channel {}{link}", state_name(s), s.channel)
     } else {
@@ -73,15 +67,8 @@ fn status_lines(s: &Status, devices: &[SlotStatus]) -> Vec<String> {
             "uptime",
             format!("{}, {}", uptime(s.uptime_ms), reset_by(s.reset_cause)),
         ),
-        ("counters", counters.join(" ")),
-        (
-            "history",
-            format!(
-                "{} minutes, {} events held",
-                s.minute_next.saturating_sub(s.minute_oldest),
-                s.events_total.saturating_sub(s.events_oldest)
-            ),
-        ),
+        ("counters", counters_line(s)),
+        ("history", history_line(s)),
     ];
     let mut lines = labeled(rows);
     for d in devices {

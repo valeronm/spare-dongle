@@ -1,4 +1,5 @@
-use crate::protocol::{Battery, ChargeState, Slot, SlotStatus, Status};
+use crate::protocol::ProtocolInfo as _;
+use crate::protocol::{Battery, ChargeState, Protocol, Slot, SlotStatus, SoftDevice, Status};
 
 pub fn usb_state(live: bool, suspended: bool) -> &'static str {
     match (live, suspended) {
@@ -112,4 +113,90 @@ pub const UNNAMED: &str = "unnamed";
 pub fn signal(d: &SlotStatus) -> String {
     let level = d.signal.map_or(String::new(), |dbm| format!("{dbm} dBm, "));
     format!("{level}{}", last_packet(d.last_packet_ms))
+}
+
+pub fn switch_question(to: Protocol) -> String {
+    format!(
+        "Switch to {}? The dongle reboots and history starts over.",
+        to.name()
+    )
+}
+
+const RESET_CAUSES: [&str; 17] = [
+    "pin",
+    "software",
+    "brownout",
+    "power-on",
+    "watchdog",
+    "debug",
+    "security",
+    "low-power wake",
+    "cpu lockup",
+    "parity",
+    "pll",
+    "clock",
+    "hardware",
+    "user",
+    "temperature",
+    "bootloader",
+    "flash",
+];
+
+pub fn reset_causes(bits: u32) -> String {
+    let names: Vec<_> = RESET_CAUSES
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| bits & (1 << i) != 0)
+        .map(|(_, name)| *name)
+        .collect();
+    if names.is_empty() {
+        "none".into()
+    } else {
+        names.join(", ")
+    }
+}
+
+pub fn reset_by(bits: u32) -> String {
+    format!("reset by {}", reset_causes(bits))
+}
+
+pub fn bootloader_and_softdevice(s: &Status) -> [String; 2] {
+    let bootloader = s.bootloader_version.map_or("unknown".into(), version);
+    let softdevice = match s.softdevice {
+        SoftDevice::Absent => "no SoftDevice".into(),
+        SoftDevice::Unnamed { fwid } => format!("SoftDevice FWID {fwid:#06x}"),
+        SoftDevice::Named { id, version } => {
+            let version = version.map_or(String::new(), |v| format!(" {}", self::version(v)));
+            format!("SoftDevice S{id}{version}")
+        }
+    };
+    [format!("bootloader {bootloader}"), softdevice]
+}
+
+pub fn uptime(ms: u64) -> String {
+    let s = ms / 1000;
+    let (days, h, m, s) = (s / 86400, s / 3600 % 24, s / 60 % 60, s % 60);
+    if days > 0 {
+        format!("{days}d {h:02}:{m:02}:{s:02}")
+    } else {
+        format!("{h:02}:{m:02}:{s:02}")
+    }
+}
+
+pub fn counters_line(s: &Status) -> String {
+    let counters: Vec<String> = s
+        .protocol()
+        .counters()
+        .iter()
+        .filter_map(|&counter| Some(format!("{} {}", counter.name(), s.counters.get(counter)?)))
+        .collect();
+    counters.join(" ")
+}
+
+pub fn history_line(s: &Status) -> String {
+    format!(
+        "{} minutes, {} events held",
+        s.minute_next.saturating_sub(s.minute_oldest),
+        s.events_total.saturating_sub(s.events_oldest)
+    )
 }
