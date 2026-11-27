@@ -163,6 +163,19 @@ mod tests {
     }
 
     #[test]
+    fn an_alternate_setting_ahead_of_setting_0_is_skipped() {
+        let raw = dongle_raw_descriptors();
+        let diag = raw.len() - 9 - 9 - 7 - 7;
+        let mut alternate = vec![9, 4, 5, 1, 2, 3, 0, 0, 0];
+        alternate.extend(hid(KEYBOARD_DESC_LEN));
+        let raw = [&raw[..diag], &alternate, &raw[diag..]].concat();
+        assert_eq!(
+            report_descriptor_length(&raw, 5),
+            Some(DIAG_DESC.len() as u16)
+        );
+    }
+
+    #[test]
     fn the_keyboards_report_descriptor_length_is_its_own() {
         let raw = dongle_raw_descriptors();
         assert_eq!(report_descriptor_length(&raw, 2), Some(KEYBOARD_DESC_LEN));

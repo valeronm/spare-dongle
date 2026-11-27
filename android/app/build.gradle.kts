@@ -26,9 +26,14 @@ android {
 
     testOptions {
         unitTests.all {
-            val strings = layout.projectDirectory.file("src/main/res/values/strings.xml").asFile
-            it.inputs.file(strings)
-            it.systemProperty("sparedongle.strings", strings.path)
+            mapOf(
+                "sparedongle.strings" to layout.projectDirectory.file("src/main/res/values/strings.xml").asFile,
+                "sparedongle.filter" to layout.projectDirectory.file("src/main/res/xml/dongle.xml").asFile,
+                "sparedongle.codes" to rootProject.layout.projectDirectory.file("codes.json").asFile,
+            ).forEach { (name, file) ->
+                it.inputs.file(file)
+                it.systemProperty(name, file.path)
+            }
         }
     }
 }

@@ -29,8 +29,12 @@ pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_readingJson(
     _: JClass,
     handle: jlong,
 ) -> jstring {
-    let dev = unsafe { &mut *(handle as *mut Dongle) };
-    string_or_throw(env, || Ok(serde_json::to_string(&view::read(dev)?)?))
+    string_or_throw(env, || {
+        // SAFETY: Kotlin's `Dongle` passes 0 once closed, from one thread.
+        Ok(serde_json::to_string(&view::read(unsafe {
+            dongle(handle)
+        }?)?)?)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -39,8 +43,8 @@ pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_reportText(
     _: JClass,
     handle: jlong,
 ) -> jstring {
-    let dev = unsafe { &mut *(handle as *mut Dongle) };
-    string_or_throw(env, || view::report_text(dev))
+    // SAFETY: Kotlin's `Dongle` passes 0 once closed, from one thread.
+    string_or_throw(env, || view::report_text(unsafe { dongle(handle) }?))
 }
 
 #[unsafe(no_mangle)]
@@ -50,12 +54,12 @@ pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_switchProtocol
     handle: jlong,
     code: JString,
 ) -> jboolean {
-    let dev = unsafe { &mut *(handle as *mut Dongle) };
     or_throw(env, JNI_FALSE, "the protocol switch failed", |env| {
         let code: String = env.get_string(&code)?.into();
         let want = view::protocol_named(&code)
             .ok_or_else(|| anyhow::anyhow!("unknown protocol \"{code}\""))?;
-        let (_, rebooting) = dev.protocol(Some(want))?;
+        // SAFETY: Kotlin's `Dongle` passes 0 once closed, from one thread.
+        let (_, rebooting) = unsafe { dongle(handle) }?.protocol(Some(want))?;
         Ok(jboolean::from(rebooting))
     })
 }
@@ -90,11 +94,27 @@ pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_reportDescript
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_close(
-    _: JNIEnv,
+    env: JNIEnv,
     _: JClass,
     handle: jlong,
 ) {
-    drop(unsafe { Box::from_raw(handle as *mut Dongle) });
+    or_throw(env, (), "closing the dongle failed", |_| {
+        // SAFETY: Kotlin's `Dongle` passes 0 once closed, from one thread.
+        let live: *mut Dongle = unsafe { dongle(handle) }?;
+        drop(unsafe { Box::from_raw(live) });
+        Ok(())
+    });
+}
+
+/// Fails on a 0 handle.
+///
+/// # Safety
+///
+/// `handle` is 0 or a handle from `open` that `close` has not freed, used by no other call at
+/// the same time.
+unsafe fn dongle<'a>(handle: jlong) -> anyhow::Result<&'a mut Dongle> {
+    unsafe { (handle as *mut Dongle).as_mut() }
+        .ok_or_else(|| anyhow::anyhow!("the dongle is closed"))
 }
 
 fn string_or_throw(env: JNIEnv, read: impl FnOnce() -> anyhow::Result<String>) -> jstring {
@@ -120,4 +140,17 @@ fn or_throw<T>(
         }
         failed
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_zero_handle_is_a_closed_dongle() {
+        assert_eq!(
+            unsafe { dongle(0) }.map(|_| ()).unwrap_err().to_string(),
+            "the dongle is closed"
+        );
+    }
 }

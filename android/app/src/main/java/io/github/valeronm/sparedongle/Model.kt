@@ -92,13 +92,13 @@ data class StatusModel(
 @Immutable
 data class Version(val major: Long, val minor: Long, val patch: Long)
 
+enum class SoftDeviceKind(override val code: String) : Coded { Absent("absent"), Unnamed("unnamed"), Named("named") }
+
 sealed interface SoftDevice {
     data object Absent : SoftDevice
 
-    /** Its information structure is too short to hold the ID. */
     data class Unnamed(val fwid: Int) : SoftDevice
 
-    /** [id] is the number in its name, 140 for S140. */
     data class Named(val id: Long, val version: Version?) : SoftDevice
 }
 
@@ -111,7 +111,6 @@ data class History(val minutes: Long, val events: Long)
 @Immutable
 data class DongleModel(
     val firmware: Version,
-    /** Null when no bootloader left its version for the firmware. */
     val bootloader: Version?,
     val softdevice: SoftDevice,
     val uptimeMs: Long,
@@ -174,11 +173,10 @@ private fun dongle(o: JSONObject) = DongleModel(
 
 private fun version(o: JSONObject) = Version(o.getLong("major"), o.getLong("minor"), o.getLong("patch"))
 
-private fun softdevice(o: JSONObject): SoftDevice = when (val kind = o.getString("kind")) {
-    "absent" -> SoftDevice.Absent
-    "unnamed" -> SoftDevice.Unnamed(o.getInt("fwid"))
-    "named" -> SoftDevice.Named(o.getLong("id"), o.objectOrNull("version")?.let(::version))
-    else -> throw JSONException("unknown softdevice kind \"$kind\"")
+private fun softdevice(o: JSONObject): SoftDevice = when (enumOf<SoftDeviceKind>("softdevice kind", o.getString("kind"))) {
+    SoftDeviceKind.Absent -> SoftDevice.Absent
+    SoftDeviceKind.Unnamed -> SoftDevice.Unnamed(o.getInt("fwid"))
+    SoftDeviceKind.Named -> SoftDevice.Named(o.getLong("id"), o.objectOrNull("version")?.let(::version))
 }
 
 private inline fun <reified T> JSONObject.enum(key: String): T where T : Enum<T>, T : Coded = enumOf(key, getString(key))

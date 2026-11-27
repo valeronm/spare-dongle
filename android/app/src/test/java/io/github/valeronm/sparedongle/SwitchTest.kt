@@ -54,13 +54,19 @@ class SwitchTest {
     }
 
     @Test
-    fun theDeadlineWithAStatusInHandLeavesTheDongleUnswitched() {
-        assertEquals(Step.End(notice = Notice.SwitchFailed), switch.onDeadline(ready(ProtocolCode.Nuphy), sessionOpen = true))
+    fun theDeadlineWithAStatusFromTheOpenSessionLeavesTheDongleUnswitched() {
+        assertEquals(
+            Step.End(notice = Notice.SwitchFailed),
+            switch.onDeadline(ready(ProtocolCode.Nuphy), readBy = 2, open = 2),
+        )
     }
 
     @Test
-    fun theDeadlineWithAStatusLeftFromAClosedSessionFindsTheDongleNotBack() {
-        assertEquals(Step.End(shown = MessageKind.NotBack), switch.onDeadline(ready(ProtocolCode.Nuphy), sessionOpen = false))
+    fun theDeadlineWithAStatusFromAnEarlierSessionFindsTheDongleNotBack() {
+        assertEquals(
+            listOf(Step.End(shown = MessageKind.NotBack), Step.End(shown = MessageKind.NotBack)),
+            listOf(2, null).map { open -> switch.onDeadline(ready(ProtocolCode.Nuphy), readBy = 1, open = open) },
+        )
     }
 
     @Test
@@ -68,7 +74,31 @@ class SwitchTest {
         val states = listOf(UiState.Message(MessageKind.ReadFailed("timed out")), UiState.Message(MessageKind.PlugIn), null)
         assertEquals(
             states.map { Step.End(shown = MessageKind.NotBack) },
-            states.map { switch.onDeadline(it, sessionOpen = true) },
+            states.map { switch.onDeadline(it, readBy = 1, open = 1) },
+        )
+    }
+
+    @Test
+    fun aRestoredSwitchKeepsItsDeadline() {
+        assertEquals(switch, restoredSwitch(ProtocolCode.Unifying, deadline = 15_000, now = 14_999))
+    }
+
+    @Test
+    fun aRestoredSwitchPastItsDeadlineIsDropped() {
+        assertEquals(
+            listOf(null, null),
+            listOf(15_000L, 20_000L).map { restoredSwitch(ProtocolCode.Unifying, deadline = 15_000, now = it) },
+        )
+    }
+
+    @Test
+    fun anIncompleteSavedSwitchRestoresNone() {
+        assertEquals(
+            listOf(null, null),
+            listOf(
+                restoredSwitch(null, deadline = 15_000, now = 0),
+                restoredSwitch(ProtocolCode.Unifying, deadline = null, now = 0),
+            ),
         )
     }
 

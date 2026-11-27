@@ -6,19 +6,31 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 
+/** Holds a native handle until [take] hands it over to be freed. */
+internal class Handle(private var value: Long) {
+    /** Throws [IllegalStateException] once the handle is taken. */
+    fun get(): Long = value.takeIf { it != 0L } ?: throw IllegalStateException("the dongle is closed")
+
+    /** Returns null once the handle is taken. */
+    fun take(): Long? = value.takeIf { it != 0L }?.also { value = 0 }
+}
+
+/** A call after [close] throws [IllegalStateException]; a second [close] does nothing. */
 class Dongle private constructor(
     private val connection: UsbDeviceConnection,
     private val intf: UsbInterface,
-    private val handle: Long,
+    handle: Long,
 ) : AutoCloseable {
-    fun readingJson(): String = Native.readingJson(handle)
+    private val handle = Handle(handle)
 
-    fun reportText(): String = Native.reportText(handle)
+    fun readingJson(): String = Native.readingJson(handle.get())
 
-    fun switchProtocol(target: ProtocolCode): Boolean = Native.switchProtocol(handle, target.code)
+    fun reportText(): String = Native.reportText(handle.get())
+
+    fun switchProtocol(target: ProtocolCode): Boolean = Native.switchProtocol(handle.get(), target.code)
 
     override fun close() {
-        Native.close(handle)
+        Native.close(handle.take() ?: return)
         connection.releaseInterface(intf)
         connection.close()
     }

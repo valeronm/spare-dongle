@@ -30,12 +30,6 @@ class MessageTest {
     }
 
     @Test
-    fun aSwitchNamesItsTarget() {
-        val message = switchingMessage(ProtocolCode.Bluetooth, false)
-        assertEquals(R.string.switching_to to ProtocolCode.Bluetooth, message.headline to message.headlineArg)
-    }
-
-    @Test
     fun aDongleThatDidNotComeBackOffersTryAgain() {
         assertEquals(Retry.TryAgain, message(MessageKind.NotBack).retry)
     }

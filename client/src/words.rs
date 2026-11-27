@@ -1,15 +1,17 @@
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
     AskedParams, AwaitedPasskey, Battery, ChargeState, Counter, Latency, LinkParams, Pairing, Phy,
-    Protocol, ResetCause, STRONG_DBM, Slot, SlotStatus, SoftDevice, Status,
+    Protocol, ResetCause, Slot, SlotStatus, SoftDevice, Status,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Usb {
-    Live,
-    Suspended,
-    NotConfigured,
+crate::with_all! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+    #[serde(rename_all = "kebab-case")]
+    pub enum Usb {
+        Live,
+        Suspended,
+        NotConfigured,
+    }
 }
 
 /// A suspended bus keeps its configuration.
@@ -74,15 +76,17 @@ pub fn health_name(health: LinkHealth) -> &'static str {
     }
 }
 
-/// Ordered from worst to best.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum LinkHealth {
-    RadioFailed,
-    NotPaired,
-    Waiting,
-    Standby,
-    Connected,
+crate::with_all! {
+    /// Ordered from worst to best.
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+    #[serde(rename_all = "kebab-case")]
+    pub enum LinkHealth {
+        RadioFailed,
+        NotPaired,
+        Waiting,
+        Standby,
+        Connected,
+    }
 }
 
 pub fn battery(b: Battery) -> String {
@@ -136,13 +140,17 @@ pub const UNNAMED: &str = "unnamed";
 /// A link that averaged -70 dBm had no gaps, and gaps followed packets at -78 dBm or weaker.
 pub const SIGNAL_GOOD_DBM: i8 = -70;
 pub const SIGNAL_WEAK_DBM: i8 = -78;
+/// The top bar's cutoff is unmeasured, since a link at `SIGNAL_GOOD_DBM` already had no gaps.
+pub const SIGNAL_STRONG_DBM: i8 = -60;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SignalQuality {
-    Good,
-    Fair,
-    Weak,
+crate::with_all! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+    #[serde(rename_all = "kebab-case")]
+    pub enum SignalQuality {
+        Good,
+        Fair,
+        Weak,
+    }
 }
 
 pub fn signal_quality(dbm: i8) -> SignalQuality {
@@ -156,7 +164,7 @@ pub fn signal_quality(dbm: i8) -> SignalQuality {
 /// Out of 4.
 pub fn signal_bars(dbm: i8) -> u8 {
     match dbm {
-        STRONG_DBM.. => 4,
+        SIGNAL_STRONG_DBM.. => 4,
         SIGNAL_GOOD_DBM.. => 3,
         SIGNAL_WEAK_DBM.. => 2,
         _ => 1,

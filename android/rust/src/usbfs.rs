@@ -81,3 +81,14 @@ impl Transport for Usbfs {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn the_bulk_request_is_the_kernels() {
+        assert_eq!(USBDEVFS_BULK, 0xc018_5502);
+    }
+}

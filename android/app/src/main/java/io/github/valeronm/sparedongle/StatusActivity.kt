@@ -46,6 +46,7 @@ class StatusActivity : ComponentActivity() {
 
     private lateinit var manager: UsbManager
     private var ui by mutableStateOf<UiState?>(null)
+    private var uiSession: Session? = null
     private var screen by mutableStateOf(Screen.Status)
     private var session: Session? = null
     private var permission = Permission.ASK
@@ -55,7 +56,7 @@ class StatusActivity : ComponentActivity() {
     private var notice by mutableStateOf<Notice?>(null)
     private val timer = Handler(Looper.getMainLooper())
     private val retry = Runnable { connect(::attached) }
-    private val timeout = Runnable { switch?.let { perform(it.onDeadline(ui, sessionOpen = session != null)) } }
+    private val timeout = Runnable { switch?.let { perform(it.onDeadline(ui, uiSession, session)) } }
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -97,8 +98,8 @@ class StatusActivity : ComponentActivity() {
         screen = Screen.entries.firstOrNull { it.name == savedScreen } ?: Screen.Status
         val savedTarget = savedInstanceState?.getString(KEY_SWITCH_TARGET)
         val target = ProtocolCode.entries.firstOrNull { it.name == savedTarget }
-        val deadline = savedInstanceState?.getLong(KEY_SWITCH_DEADLINE)
-        if (target != null && deadline != null) startSwitch(PendingSwitch(target, deadline))
+        val deadline = savedInstanceState?.takeIf { it.containsKey(KEY_SWITCH_DEADLINE) }?.getLong(KEY_SWITCH_DEADLINE)
+        restoredSwitch(target, deadline, SystemClock.elapsedRealtime())?.let(::startSwitch)
         setContent {
             SpareDongleTheme {
                 Content(
@@ -162,11 +163,13 @@ class StatusActivity : ComponentActivity() {
         manager.deviceList.values.firstOrNull { it.vendorId == Dongle.VID && it.productId == Dongle.PID }
 
     // Both the attach intent and the attach broadcast report one plug-in, which a new device id marks.
+    // A dongle that re-enumerates before its detach is handled leaves a session open on the device it left.
     private fun attached(): UsbDevice? {
         val device = findDevice() ?: return null
         if (device.deviceId != attachedId) {
             attachedId = device.deviceId
             permission = Permission.ASK
+            stop()
         }
         return device
     }
@@ -187,10 +190,12 @@ class StatusActivity : ComponentActivity() {
             }
             return
         }
-        session = Session({ Dongle.open(manager, device) }) { state ->
+        lateinit var opened: Session
+        opened = Session({ Dongle.open(manager, device) }) { state ->
             if (state is UiState.Message) stop()
-            update(state)
+            update(state, opened)
         }
+        session = opened
     }
 
     private fun askAgain() {
@@ -259,9 +264,10 @@ class StatusActivity : ComponentActivity() {
         if (ui is UiState.Ready) screen = next
     }
 
-    private fun update(state: UiState) {
+    private fun update(state: UiState, from: Session? = null) {
         if (state is UiState.Message) screen = Screen.Status
         ui = state
+        uiSession = from
         switch?.let { perform(it.onState(state)) }
     }
 

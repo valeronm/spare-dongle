@@ -27,15 +27,20 @@ data class PendingSwitch(val target: ProtocolCode, val deadline: Long) {
     }
 
     /**
-     * A dongle still answering at the deadline stayed on a protocol other than [target]; [ui] holds an answer only
-     * while a session is open.
+     * A dongle still answering at the deadline stayed on a protocol other than [target]; [ui] is an answer only if
+     * [readBy] is the session still [open].
      */
-    fun onDeadline(ui: UiState?, sessionOpen: Boolean): Step = if (sessionOpen && ui is UiState.Ready) {
-        Step.End(notice = Notice.SwitchFailed)
-    } else {
-        Step.End(shown = MessageKind.NotBack)
-    }
+    fun <S : Any> onDeadline(ui: UiState?, readBy: S?, open: S?): Step =
+        if (open != null && readBy == open && ui is UiState.Ready) {
+            Step.End(notice = Notice.SwitchFailed)
+        } else {
+            Step.End(shown = MessageKind.NotBack)
+        }
 }
+
+/** Null when [deadline] has passed or the switch was not saved whole. */
+fun restoredSwitch(target: ProtocolCode?, deadline: Long?, now: Long): PendingSwitch? =
+    if (target != null && deadline != null && deadline > now) PendingSwitch(target, deadline) else null
 
 /** A notice set while [shown] was showing outlives it. */
 fun afterShown(current: Notice?, shown: Notice): Notice? = current.takeIf { it != shown }

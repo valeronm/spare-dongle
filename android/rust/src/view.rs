@@ -55,7 +55,6 @@ pub struct Snapshot {
 #[serde(rename_all = "camelCase")]
 struct DongleView {
     firmware: Version<u8>,
-    /// `None` when no bootloader left its version for the firmware.
     bootloader: Option<Version<u8>>,
     softdevice: SoftDeviceView,
     uptime_ms: u64,
@@ -134,11 +133,13 @@ pub struct Mismatch {
     older: Side,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-enum Side {
-    Dongle,
-    App,
+diagclient::with_all! {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    enum Side {
+        Dongle,
+        App,
+    }
 }
 
 impl From<VersionMismatch> for Mismatch {
@@ -248,6 +249,42 @@ mod tests {
 
     fn dongle_json(s: &Status) -> Value {
         serde_json::to_value(dongle_view(s)).unwrap()
+    }
+
+    #[test]
+    fn every_enum_code_is_the_one_the_app_reads() {
+        let codes: Value = serde_json::from_str(include_str!("../../codes.json")).unwrap();
+        assert_eq!(
+            json!({
+                "protocol": Protocol::ALL,
+                "deviceKind": DeviceKind::ALL,
+                "link": LinkHealth::ALL,
+                "usb": Usb::ALL,
+                "charge": ChargeState::ALL,
+                "signalQuality": SignalQuality::ALL,
+                "counter": Counter::ALL,
+                "resetCause": ResetCause::ALL,
+                "side": Side::ALL,
+                "softdeviceKind": softdevice_kinds(),
+            }),
+            codes
+        );
+    }
+
+    /// The match has no wildcard, so a new variant fails to compile until it joins the walk.
+    fn softdevice_kinds() -> Vec<Value> {
+        let after = |view: Option<&SoftDeviceView>| match view {
+            None => Some(SoftDeviceView::Absent),
+            Some(SoftDeviceView::Absent) => Some(SoftDeviceView::Unnamed { fwid: 0 }),
+            Some(SoftDeviceView::Unnamed { .. }) => Some(SoftDeviceView::Named {
+                id: 0,
+                version: None,
+            }),
+            Some(SoftDeviceView::Named { .. }) => None,
+        };
+        std::iter::successors(after(None), |view| after(Some(view)))
+            .map(|view| serde_json::to_value(view).unwrap()["kind"].clone())
+            .collect()
     }
 
     fn keyboard_json(s: &Status) -> Value {

@@ -50,20 +50,21 @@ class Session(
         if (state is UiState.Message) throw CancellationException()
     }
 
-    private fun read(): UiState {
+    private fun read(): UiState = try {
         val dongle = dongle ?: connect() ?: return UiState.Message(MessageKind.CannotOpen)
-        return try {
-            when (val reading = parseReading(dongle.readingJson())) {
-                is Reading.Snapshot -> UiState.Ready(reading)
-                is Reading.Mismatch -> UiState.Message(MessageKind.Outdated(reading))
-            }
-        } catch (e: Throwable) {
-            UiState.Message(MessageKind.ReadFailed(e.message ?: e.javaClass.simpleName))
+        when (val reading = parseReading(dongle.readingJson())) {
+            is Reading.Snapshot -> UiState.Ready(reading)
+            is Reading.Mismatch -> UiState.Message(MessageKind.Outdated(reading))
         }
+    } catch (e: Throwable) {
+        UiState.Message(MessageKind.ReadFailed(e.message ?: e.javaClass.simpleName))
     }
 
     private fun connect(): Dongle? = try {
         openDongle()
+    } catch (e: LinkageError) {
+        // A LinkageError comes from an APK without the native library, not from the dongle.
+        throw e
     } catch (_: Throwable) {
         null
     }?.also { dongle = it }

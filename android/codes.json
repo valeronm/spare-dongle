@@ -1,0 +1,15 @@
+{
+    "protocol": ["nuphy", "unifying", "bluetooth"],
+    "deviceKind": ["keyboard", "mouse"],
+    "link": ["radio-failed", "not-paired", "waiting", "standby", "connected"],
+    "usb": ["live", "suspended", "not-configured"],
+    "charge": ["discharging", "charging", "charged", "fault"],
+    "signalQuality": ["good", "fair", "weak"],
+    "counter": ["packets", "invalid", "dropped", "link-losses", "gaps", "usb-retries", "merges", "surveys"],
+    "resetCause": [
+        "pin", "software", "brownout", "power-on", "watchdog", "debug", "security", "low-power-wake",
+        "cpu-lockup", "parity", "pll", "clock", "hardware", "user", "temperature", "bootloader", "flash"
+    ],
+    "side": ["dongle", "app"],
+    "softdeviceKind": ["absent", "unnamed", "named"]
+}

@@ -117,17 +117,19 @@ impl ProtocolInfo for Protocol {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Counter {
-    Packets,
-    Invalid,
-    Dropped,
-    LinkLosses,
-    Gaps,
-    UsbRetries,
-    Merges,
-    Surveys,
+crate::with_all! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+    #[serde(rename_all = "kebab-case")]
+    pub enum Counter {
+        Packets,
+        Invalid,
+        Dropped,
+        LinkLosses,
+        Gaps,
+        UsbRetries,
+        Merges,
+        Surveys,
+    }
 }
 
 impl Counter {
@@ -279,14 +281,16 @@ pub enum Battery {
     Charge(ChargeState),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ChargeState {
-    Discharging,
-    Charging,
-    /// On power with the battery full.
-    Charged,
-    Fault,
+crate::with_all! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+    #[serde(rename_all = "kebab-case")]
+    pub enum ChargeState {
+        Discharging,
+        Charging,
+        /// On power with the battery full.
+        Charged,
+        Fault,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -382,41 +386,30 @@ fn softdevice(fwid: u16, id: u32, version: u32) -> SoftDevice {
     }
 }
 
-/// Declares the enum and its `ALL` from one list.
-macro_rules! reset_causes {
-    ($($variant:ident),+ $(,)?) => {
-        /// The RESET_* bits of Zephyr's hwinfo, each variant's value its bit.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-        #[serde(rename_all = "kebab-case")]
-        pub enum ResetCause {
-            $($variant),+
-        }
-
-        impl ResetCause {
-            const ALL: [Self; [$(stringify!($variant)),+].len()] = [$(Self::$variant),+];
-        }
-    };
+crate::with_all! {
+    /// The RESET_* bits of Zephyr's hwinfo, each variant's value its bit.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+    #[serde(rename_all = "kebab-case")]
+    pub enum ResetCause {
+        Pin,
+        Software,
+        Brownout,
+        PowerOn,
+        Watchdog,
+        Debug,
+        Security,
+        LowPowerWake,
+        CpuLockup,
+        Parity,
+        Pll,
+        Clock,
+        Hardware,
+        User,
+        Temperature,
+        Bootloader,
+        Flash,
+    }
 }
-
-reset_causes!(
-    Pin,
-    Software,
-    Brownout,
-    PowerOn,
-    Watchdog,
-    Debug,
-    Security,
-    LowPowerWake,
-    CpuLockup,
-    Parity,
-    Pll,
-    Clock,
-    Hardware,
-    User,
-    Temperature,
-    Bootloader,
-    Flash,
-);
 
 impl ResetCause {
     /// The causes `bits` sets, in bit order.

@@ -103,8 +103,11 @@ macro_rules! codes {
         }
 
         impl From<$name> for u8 {
+            // The match has no wildcard, so a variant missing from the list fails to compile.
             fn from(v: $name) -> u8 {
-                v as u8
+                match v {
+                    $($name::$variant => $name::$variant as u8),+
+                }
             }
         }
     };
