@@ -147,9 +147,14 @@ What the code does not show:
   and the link fails with reason `0x3e`, at a 7.5 ms and a 30 ms connection interval alike.
 - After the dongle connects at 7.5 ms, the MX Keys asks for 20 to 25 ms with peripheral latency 20
   and the MX Master 3S for 7.5 to 11.25 ms with latency 44. The dongle grants the shortest of each.
-  The Air75 V2 and the Mi Silent Mouse ask for nothing and stay at 7.5 ms. With the controller's
-  default 7.5 ms connection event, two links at 7.5 ms took turns and a mouse sent half its reports;
-  `prj.conf` caps the event at 2.5 ms.
+  The Air75 V2 and the Mi Silent Mouse ask for nothing and stay at 7.5 ms; moved to 15 ms, the Air75
+  V2 asks for 7.5 ms with latency 6 within five seconds. With the controller's default 7.5 ms
+  connection event, two links at 7.5 ms took turns and a mouse sent half its reports, and with
+  2.5 ms three of them filled the interval and one of them ran one event in two or three, sending
+  its reports in bursts. `prj.conf` caps the event at 1.25 ms, which fits four, but an event that
+  short carries one report when another link's event follows it: placed so, the Mi Silent Mouse
+  sent fewer reports than it made and fell about 100 ms behind. Which link loses out changes with
+  every reconnect.
 - A key pressed on the MX Keys while it is disconnected is sent once the dongle has subscribed,
   late by the connection setup.
 - When the PC suspends, the dongle drops every link with reason `0x15`, as Linux does with its own

@@ -776,6 +776,8 @@ int ble_scan(enum btpolicy_scan mode)
 
 /* Reading a device's services takes dozens of exchanges, each two connection intervals long. */
 #define SHORTEST_INTERVAL 6 /* 7.5 ms */
+BUILD_ASSERT(DEVICE_SLOTS * CONFIG_BT_CTLR_SDC_MAX_CONN_EVENT_LEN_DEFAULT <=
+	     BT_CONN_INTERVAL_TO_US(SHORTEST_INTERVAL));
 #define SETUP_CONN_PARAM                                                                           \
 	BT_LE_CONN_PARAM(SHORTEST_INTERVAL, SHORTEST_INTERVAL, 0, BT_GAP_MS_TO_CONN_TIMEOUT(4000))
 
