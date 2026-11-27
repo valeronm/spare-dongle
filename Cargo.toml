@@ -1,6 +1,6 @@
 [workspace]
-members = ["tool", "wire", "ffi"]
-default-members = ["tool", "wire"]
+members = ["tool", "wire", "ffi", "client"]
+default-members = ["tool", "wire", "client"]
 resolver = "3"
 
 # The C library the firmware and the host tests link: a panic stops the program, since nothing

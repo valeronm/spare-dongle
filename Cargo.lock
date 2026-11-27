@@ -359,6 +359,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "diagclient"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "diagwire",
+]
+
+[[package]]
 name = "diagwire"
 version = "0.0.0"
 
@@ -1096,6 +1104,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "diagclient",
  "diagwire",
  "hidapi",
  "libc",

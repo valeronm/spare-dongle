@@ -3490,9 +3490,9 @@ mod tests {
         fn write(&mut self, _: &[u8; REPORT_LEN]) -> Result<(), Lost> {
             Err(Lost {
                 doing: "writing to the dongle",
-                cause: hidapi::HidError::HidApiError {
+                cause: Box::new(hidapi::HidError::HidApiError {
                     message: "device disconnected".into(),
-                },
+                }),
             })
         }
 

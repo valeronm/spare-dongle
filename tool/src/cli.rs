@@ -11,10 +11,10 @@ use crate::board::{self, State};
 use crate::device::{self, Device, Refused, Transport};
 use crate::format::{
     LinkHealth, NOISE_QUESTION, action_question, battery, bootloader_and_softdevice,
-    channel_description, describe_event, flash_question, flashed, hex, joined, last_packet,
-    latency, link_health, name_parts, noise_level, paired, pairing, pairing_offer,
-    protocol_security, reset_by, state_name, status_label, unifying_kind, uptime, usb_state,
-    version, wall_clock,
+    channel_description, describe_event, flash_question, flashed, hex, joined, latency,
+    link_health, name_parts, noise_level, paired, pairing, pairing_offer, protocol_security,
+    reset_by, signal, state_name, status_label, unifying_kind, uptime, usb_state, version,
+    wall_clock,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -129,11 +129,7 @@ fn slot_rows(s: &Status, slot: &Slot, d: &SlotStatus) -> Vec<(&'static str, Stri
     };
     let mut rows = vec![(label, device)];
     if s.signal_shown(d) {
-        let level = d.signal.map_or(String::new(), |dbm| format!("{dbm} dBm, "));
-        rows.push((
-            "signal",
-            format!("{level}{}", last_packet(d.last_packet_ms)),
-        ));
+        rows.push(("signal", signal(d)));
     }
     if let Some(b) = d.battery {
         rows.push(("battery", battery(b)));

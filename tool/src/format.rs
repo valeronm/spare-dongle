@@ -4,11 +4,14 @@ use chrono::{DateTime, Duration, Local};
 use crate::board::State;
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
-    Action, AskedParams, AwaitedPasskey, BUSY_DBM, Battery, ChargeState, Detail, DeviceKind,
-    Divert, EVENT_ADDR_LEN, Event, Forgotten, HeardDevice, Latency, Link, LinkParams, Moved, Noise,
-    Pairing, Phy, Protocol, STRONG_DBM, Slot, SoftDevice, Status, StoredDevice, Up,
-    VersionMismatch, Watch, Wheel, bucket_floor,
+    Action, AskedParams, AwaitedPasskey, BUSY_DBM, Detail, DeviceKind, Divert, EVENT_ADDR_LEN,
+    Event, Forgotten, HeardDevice, Latency, Link, LinkParams, Moved, Noise, Pairing, Phy, Protocol,
+    STRONG_DBM, Slot, SoftDevice, Status, StoredDevice, Up, VersionMismatch, Watch, Wheel,
+    bucket_floor,
 };
+pub use diagclient::words::*;
+
+pub const KEYBOARD_PAIRING: &str = "a keyboard is pairing";
 
 pub const NOISE_QUESTION: &str =
     "The keyboard stops for about 1.5 s while the noise is measured. Measure?";
@@ -50,11 +53,6 @@ fn device_name(d: &StoredDevice) -> &str {
     shown_name(d.name.as_deref())
 }
 
-/// A device that advertised no name shows as unnamed.
-pub fn shown_name(name: Option<&str>) -> &str {
-    name.unwrap_or(UNNAMED)
-}
-
 /// The item a numbered list numbers `place`, counting from 1.
 pub fn device_at<T>(list: &[T], place: usize) -> Option<&T> {
     list.get(place.checked_sub(1)?)
@@ -64,9 +62,6 @@ pub fn device_at<T>(list: &[T], place: usize) -> Option<&T> {
 const BOLT: &str = "Bolt";
 /// Between the parts of a device title, and before a name's Bolt mark.
 pub const TITLE_SEPARATOR: &str = " · ";
-/// Stands in for a device that has not sent its name.
-pub const UNNAMED: &str = "unnamed";
-
 /// The name with its Bolt mark, split where the mark starts.
 pub fn name_parts(name: &str, bolt: bool) -> Vec<(String, Tone)> {
     let mut parts = vec![(name.to_string(), Tone::Plain)];
@@ -466,14 +461,6 @@ pub fn noise_level(loudest: i8) -> u8 {
     u8::try_from(i16::from(loudest) + 100).unwrap_or(0)
 }
 
-pub fn usb_state(live: bool, suspended: bool) -> &'static str {
-    match (live, suspended) {
-        (_, true) => "suspended",
-        (true, false) => "live",
-        (false, false) => "not configured",
-    }
-}
-
 pub fn pairing_offer(forced: Option<[u8; 3]>) -> String {
     forced.map_or("picks channels by survey".into(), |f| {
         format!("offers channels {} {} {}, set by hand", f[0], f[1], f[2])
@@ -494,67 +481,6 @@ pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-pub fn state_name(s: &Status) -> &'static str {
-    health_name(link_health(s))
-}
-
-pub fn slot_state(s: &Status, slot: &Slot) -> &'static str {
-    health_name(slot_health(s, slot))
-}
-
-pub fn slot_connection(slot: &Slot) -> &'static str {
-    health_name(connection_health(slot))
-}
-
-/// A radio that failed to start overrides every slot's own state.
-pub fn slot_health(s: &Status, slot: &Slot) -> LinkHealth {
-    if s.radio_failed {
-        LinkHealth::RadioFailed
-    } else {
-        connection_health(slot)
-    }
-}
-
-fn connection_health(slot: &Slot) -> LinkHealth {
-    match (slot.connected, slot.standby) {
-        (true, false) => LinkHealth::Connected,
-        (true, true) => LinkHealth::Standby,
-        (false, _) if slot.stored => LinkHealth::Waiting,
-        (false, _) => LinkHealth::NotPaired,
-    }
-}
-
-/// A link is connected while any of its slots is.
-pub fn link_health(s: &Status) -> LinkHealth {
-    s.slots
-        .iter()
-        .map(|slot| slot_health(s, slot))
-        .max()
-        .unwrap_or(LinkHealth::NotPaired)
-}
-
-pub const KEYBOARD_PAIRING: &str = "a keyboard is pairing";
-
-fn health_name(health: LinkHealth) -> &'static str {
-    match health {
-        LinkHealth::RadioFailed => "the radio failed to start",
-        LinkHealth::NotPaired => "not paired",
-        LinkHealth::Waiting => "not connected",
-        LinkHealth::Standby => "standby",
-        LinkHealth::Connected => "connected",
-    }
-}
-
-/// Ordered from worst to best.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum LinkHealth {
-    RadioFailed,
-    NotPaired,
-    Waiting,
-    Standby,
-    Connected,
-}
-
 pub fn unifying_kind(kind: u8) -> Option<&'static str> {
     Some(match kind {
         0x01 => "keyboard",
@@ -568,22 +494,6 @@ pub fn unifying_kind(kind: u8) -> Option<&'static str> {
         0x0b => "gamepad",
         0x0c => "joystick",
         _ => return None,
-    })
-}
-
-pub fn duration(ms: u32) -> String {
-    let s = ms / 1000;
-    match ms {
-        0..1_000 => format!("{ms} ms"),
-        1_000..60_000 => format!("{s} s"),
-        60_000..3_600_000 => format!("{} min {} s", s / 60, s % 60),
-        _ => format!("{} h {} min", s / 3600, s / 60 % 60),
-    }
-}
-
-pub fn last_packet(age_ms: Option<u32>) -> String {
-    age_ms.map_or("no packet since boot".into(), |ms| {
-        format!("last packet {} ago", duration(ms))
     })
 }
 
@@ -601,20 +511,6 @@ pub fn pairing(p: Pairing) -> String {
     let method = if p.secure { "secure" } else { "legacy" };
     let passkey = if p.passkey { "passkey" } else { "no passkey" };
     format!("{method}, {passkey}")
-}
-
-pub fn battery(b: Battery) -> String {
-    let name = |c| match c {
-        ChargeState::Discharging => "discharging",
-        ChargeState::Charging => "charging",
-        ChargeState::Charged => "charged",
-        ChargeState::Fault => "battery fault",
-    };
-    match b {
-        Battery::Level(level, None | Some(ChargeState::Discharging)) => format!("{level}%"),
-        Battery::Level(level, Some(c)) => format!("{level}%, {}", name(c)),
-        Battery::Charge(c) => name(c).into(),
-    }
 }
 
 fn decimal(whole: u32, thousandths: u32) -> String {
@@ -738,10 +634,6 @@ fn reset_causes(bits: u32) -> String {
 
 pub fn reset_by(bits: u32) -> String {
     format!("reset by {}", reset_causes(bits))
-}
-
-pub fn version<T: std::fmt::Display>([major, minor, patch]: [T; 3]) -> String {
-    format!("{major}.{minor}.{patch}")
 }
 
 /// The bootloader's version and the SoftDevice's, each with its name.
@@ -1149,7 +1041,7 @@ mod tests {
         assert_eq!(asked_text(None), "nothing");
     }
     use crate::protocol::{
-        DeviceKind, read_status,
+        Battery, ChargeState, DeviceKind, read_status,
         tests::{fixture, status_in_protocol, status_of, unpaired},
     };
     use chrono::TimeZone;

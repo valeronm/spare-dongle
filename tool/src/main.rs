@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 
 use protocol::{Action, Protocol};
 
-pub const TOOL: &str = env!("CARGO_BIN_NAME");
+pub use diagclient::TOOL;
 pub const PRODUCT: &str = "SpareDongle";
 
 #[derive(Parser)]
@@ -193,6 +193,11 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_shared_tool_name_is_the_binary_name() {
+        assert_eq!(TOOL, env!("CARGO_BIN_NAME"));
+    }
 
     #[test]
     fn the_stored_list_is_the_devices_command() {
