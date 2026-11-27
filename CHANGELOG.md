@@ -12,6 +12,8 @@
   so two devices' boxes fit side by side in a narrower terminal.
 - In Bluetooth mode a keyboard that reconnects on its own while the PC sleeps no longer wakes it;
   a key press or mouse movement does.
+- A Bluetooth mouse whose report flags disagree with its report types, such as the Mi Silent Mouse,
+  connects instead of dropping its link after every setup.
 
 ## [0.7.0] - 2026-11-26
 

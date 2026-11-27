@@ -1,0 +1,32 @@
+Take a report's type from its Report Reference
+
+A Xiaomi Mi Silent Mouse gives a feature report the notify property, which the
+HIDS client takes for an input report and then fails its setup on the Report
+Reference that says otherwise.
+
+diff --git a/subsys/bluetooth/services/hogp.c b/subsys/bluetooth/services/hogp.c
+index 96534878b2..0ac573e60f 100644
+--- a/subsys/bluetooth/services/hogp.c
++++ b/subsys/bluetooth/services/hogp.c
+@@ -633,10 +633,17 @@ static uint8_t repref_read_process(struct bt_conn *conn, uint8_t err,
+ 
+ 	rep = hogp->rep_info[rep_idx];
+ 	if ((uint8_t)rep->ref.type != bdata[1]) {
+-		LOG_ERR("Unexpected report type (%u while expecting %u)",
+-			bdata[1], rep->ref.type);
+-		hids_prep_error(hogp, -EINVAL);
+-		return BT_GATT_ITER_STOP;
++		/* Some devices give a feature report the notify property. */
++		if (bdata[1] < BT_HIDS_REPORT_TYPE_INPUT || bdata[1] > BT_HIDS_REPORT_TYPE_FEATURE ||
++		    (bdata[1] == BT_HIDS_REPORT_TYPE_INPUT && !rep->handlers.ccc)) {
++			LOG_ERR("Unexpected report type (%u while expecting %u)",
++				bdata[1], rep->ref.type);
++			hids_prep_error(hogp, -EINVAL);
++			return BT_GATT_ITER_STOP;
++		}
++		LOG_WRN("Report (idx: %u) type %u, not %u as its properties suggest",
++			rep_idx, bdata[1], rep->ref.type);
++		rep->ref.type = (enum bt_hids_report_type)bdata[1];
+ 	}
+ 	rep->ref.id = bdata[0];
+ 	LOG_DBG("Report reference read (idx: %u, id: %u)",
