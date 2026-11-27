@@ -82,7 +82,7 @@ A connected Bluetooth device's `params` are its connection interval, peripheral 
 timeout and radio PHY as the link runs them, and `asked` the interval range, latency and timeout of
 the device's last connection parameter request on this connection, or "nothing". The dongle grants
 the shortest interval a device asks for, so the two differ where a device asked for a range. The
-live view shows `params` in each device's box.
+live view shows the interval and PHY on each device's `link` row.
 
 `devices` lists the paired devices with their kind, marking the keyboard and mouse used last as
 active and the other connected ones as standby, and `forget <n>` removes the one at that place in

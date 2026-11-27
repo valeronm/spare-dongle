@@ -1578,7 +1578,7 @@ fn dongle_lines(status: Option<&Status>) -> Vec<Line<'static>> {
 }
 
 fn device_rows(protocol: Option<Protocol>) -> u16 {
-    2 + u16::from(protocol.is_some()) + u16::from(protocol == Some(Protocol::Bluetooth))
+    2 + u16::from(protocol.is_some())
 }
 
 fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<'static>> {
@@ -1602,6 +1602,12 @@ fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<
             Span::styled(format!("{dbm} dBm"), Style::new().fg(signal_color(dbm))),
         ]);
     }
+    if let Some(l) = device.and_then(|d| d.link) {
+        link.extend([
+            Span::raw(SEPARATOR),
+            Span::raw(crate::format::params_short(&l.params)),
+        ]);
+    }
     let mut rows = vec![status_row("link", link)];
     if let Some(p) = device.and_then(|d| d.pairing) {
         rows.push(status_row(
@@ -1616,12 +1622,6 @@ fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<
         rows.push(status_row(
             "security",
             [Span::styled(rating, Style::new().fg(Color::Red))],
-        ));
-    }
-    if let Some(link) = device.and_then(|d| d.link) {
-        rows.push(status_row(
-            "params",
-            vec![Span::raw(crate::format::params_short(&link.params))],
         ));
     }
     if let Some(d) = device.filter(|d| s.connected(d.slot)) {
@@ -1905,7 +1905,8 @@ mod tests {
     use crate::format::pairing_open;
     use crate::protocol::REPORT_LEN;
     use crate::protocol::tests::{
-        awaited, clicked, clicked_entered, mouse_status, nuphy, status_of, status_running, unpaired,
+        FIXTURE_LINK, awaited, clicked, clicked_entered, mouse_status, nuphy, status_of,
+        status_running, unpaired,
     };
     use crate::protocol::{Command, Detail, ErrorCode, Noise, Pairing, Protocol, Rssi, SlotMinute};
     use chrono::TimeZone;
@@ -2550,7 +2551,7 @@ mod tests {
     const CHANNELS_DEVICE_TITLE_ROW: usize = DEVICE_TITLE_ROW + 1;
     const CHANNELS_LINK_ROW: usize = CHANNELS_DEVICE_TITLE_ROW + 1;
     /// Under the Bluetooth device box.
-    const CHART_ROW: usize = DEVICE_TITLE_ROW + 6;
+    const CHART_ROW: usize = DEVICE_TITLE_ROW + 5;
 
     fn signal_legend() -> String {
         legend(
@@ -2652,7 +2653,10 @@ mod tests {
         let link = &rows[DEVICE_TITLE_ROW + 1];
         let (keyboard, mouse) = link.split_at(link.find("││").unwrap() + 3);
         assert_eq!(inside_box(keyboard), "link      ○ not connected");
-        assert_eq!(inside_box(mouse), "link      ● connected   -60 dBm");
+        assert_eq!(
+            inside_box(mouse),
+            "link      ● connected   -60 dBm   7.5 ms · 1M"
+        );
         let security = &rows[DEVICE_TITLE_ROW + 2];
         let (keyboard, mouse) = security.split_at(security.find("││").unwrap() + 3);
         assert_eq!(inside_box(keyboard), "");
@@ -2830,7 +2834,7 @@ mod tests {
         press(&mut app, 'k');
         press(&mut app, 'm');
         assert_eq!(drawn_at(&mut app, width, 30), rows);
-        let mut app = app_with(closed(status_of(Protocol::Bluetooth)));
+        let mut app = app_with(status_of(Protocol::Bluetooth));
         let rows = drawn_at(&mut app, 80, 24);
         let footer = footer_at(&app, 80);
         assert!(!steps_panels(&footer), "{footer}");
@@ -4060,15 +4064,16 @@ mod tests {
     }
 
     #[test]
-    fn a_connected_bluetooth_status_box_shows_the_signal() {
+    fn a_connected_bluetooth_status_box_shows_the_signal_interval_and_phy() {
         let mut s = status_of(Protocol::Bluetooth);
         s.slots[0].connected = true;
         s.device.signal = Some(-58);
+        s.device.link = Some(FIXTURE_LINK);
         let rows = screen(&status_box(&s));
         assert!(rows[1].starts_with("│dongle"), "{}", rows[1]);
         assert_eq!(
             inside_box(&rows[DEVICE_TITLE_ROW + 1]),
-            "link      ● connected   -58 dBm"
+            "link      ● connected   -58 dBm   7.5 ms · 1M"
         );
     }
 

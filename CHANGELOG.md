@@ -27,7 +27,7 @@
 - A stored Bluetooth device reconnects within a few seconds of advertising, instead of up to a
   minute later.
 - `status` shows each connected Bluetooth device's connection interval, latency, timeout and radio
-  PHY, and what the device asked for, and the live view shows the link's values in its box.
+  PHY, and what the device asked for, and the live view shows the interval and PHY on its link row.
 - A Bluetooth mouse whose report flags disagree with its report types, such as the Mi Silent Mouse,
   connects instead of dropping its link after every setup.
 - The diagnostic protocol is now 7, so the 0.7.0 tool and earlier can only `flash` new firmware.

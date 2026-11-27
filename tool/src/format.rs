@@ -647,31 +647,31 @@ fn phy_name(phy: Phy) -> &'static str {
     }
 }
 
-fn timing(interval: String, latency: u16, timeout: u16, timeout_label: &str) -> [String; 3] {
-    [
-        format!("{interval} ms"),
-        format!("latency {latency}"),
-        format!("{timeout_label}{}", timeout_text(timeout)),
-    ]
+fn timing(interval: String, latency: u16, timeout: u16) -> String {
+    format!(
+        "{interval} ms, latency {latency}, timeout {}",
+        timeout_text(timeout)
+    )
 }
 
-fn params_line(p: &LinkParams, separator: &str, timeout_label: &str) -> String {
-    let phy = if p.tx_phy == p.rx_phy {
+fn phy_text(p: &LinkParams) -> String {
+    if p.tx_phy == p.rx_phy {
         phy_name(p.tx_phy).to_string()
     } else {
         format!("{}/{}", phy_name(p.tx_phy), phy_name(p.rx_phy))
-    };
-    let [interval, latency, timeout] =
-        timing(interval_ms(p.interval), p.latency, p.timeout, timeout_label);
-    [interval, latency, timeout, phy].join(separator)
+    }
 }
 
 pub fn params_text(p: &LinkParams) -> String {
-    params_line(p, ", ", "timeout ")
+    format!(
+        "{}, {}",
+        timing(interval_ms(p.interval), p.latency, p.timeout),
+        phy_text(p)
+    )
 }
 
 pub fn params_short(p: &LinkParams) -> String {
-    params_line(p, " · ", "")
+    format!("{} ms · {}", interval_ms(p.interval), phy_text(p))
 }
 
 pub fn asked_text(a: Option<&AskedParams>) -> String {
@@ -687,7 +687,7 @@ pub fn asked_text(a: Option<&AskedParams>) -> String {
             interval_ms(a.interval_max)
         )
     };
-    timing(interval, a.latency, a.timeout, "timeout ").join(", ")
+    timing(interval, a.latency, a.timeout)
 }
 
 /// In milliseconds to a tenth, rounded half up.
@@ -1118,7 +1118,7 @@ mod tests {
     }
 
     #[test]
-    fn short_link_params_leave_out_what_the_row_label_implies() {
+    fn short_link_params_hold_the_interval_and_phy() {
         let p = LinkParams {
             interval: 6,
             latency: 44,
@@ -1126,7 +1126,7 @@ mod tests {
             tx_phy: Phy::Le1M,
             rx_phy: Phy::Le1M,
         };
-        assert_eq!(params_short(&p), "7.5 ms · latency 44 · 2.16 s · 1M");
+        assert_eq!(params_short(&p), "7.5 ms · 1M");
     }
 
     #[test]
