@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SpareDongle</string>
+    <string name="plug_in">Plug the dongle in</string>
+    <string name="waiting">Waiting for USB access</string>
+    <string name="access_denied">USB access denied</string>
+    <string name="cannot_open">Can\'t open the dongle\'s diagnostic interface</string>
+</resources>

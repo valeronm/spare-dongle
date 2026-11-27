@@ -152,6 +152,15 @@ place of the one used longest ago, never the keyboard or mouse used last.
 over USB, in a live view or one command at a time. [docs/tool.md](docs/tool.md) describes what it
 shows and every command.
 
+## Android app
+
+The app in `android/` shows the dongle's status, refreshed every second, when the dongle is plugged
+into a phone through a USB OTG adapter, and Android offers to open it when the dongle is plugged in.
+It runs on arm64 phones with Android 8 or later. It is not released, so it is built from source and
+installed as a debug build. The build needs the Android SDK with the NDK, `cargo-ndk` and a full JDK
+on top of the Rust toolchain, since Gradle compiles the status reader in `android/rust` for the
+phone before packaging it.
+
 ## Building from source
 
 - [mise](https://mise.jdx.dev), which installs Rust, CMake, Ninja, Python and uv at the versions in

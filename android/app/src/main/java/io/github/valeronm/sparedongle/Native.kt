@@ -1,0 +1,8 @@
+package io.github.valeronm.sparedongle
+
+object Native {
+    init { System.loadLibrary("sparedongle") }
+    @JvmStatic external fun open(fd: Int, inEndpoint: Int, outEndpoint: Int): Long
+    @JvmStatic external fun statusRows(handle: Long): Array<String>
+    @JvmStatic external fun close(handle: Long)
+}

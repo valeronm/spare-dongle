@@ -31,6 +31,7 @@
 - A Bluetooth mouse whose report flags disagree with its report types, such as the Mi Silent Mouse,
   connects instead of dropping its link after every setup.
 - The diagnostic protocol is now 7, so the 0.7.0 tool and earlier can only `flash` new firmware.
+- An Android app shows the dongle's status when the dongle is plugged into a phone.
 
 ## [0.7.0] - 2026-11-26
 
