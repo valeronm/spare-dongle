@@ -20,9 +20,10 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | | NuPhy dongle | SpareDongle |  |
 |---|---|---|---|
 | **Devices** | | | |
-| Keyboards connected at once | one, and a [second slot](#second-pairing-slot) no known keyboard uses | one | ⚪ |
-| Keyboards stored | one, and a [second slot](#second-pairing-slot) no known keyboard uses | one | ⚪ |
+| Keyboards | yes | yes | ⚪ |
 | Mice | the keyboard's mouse keys | the same | ⚪ |
+| Devices paired | one, and a [second slot](#second-pairing-slot) no known keyboard uses | one | ⚪ |
+| Devices connected at once | one, and a [second slot](#second-pairing-slot) no known keyboard uses | one | ⚪ |
 | Mouse wheel | in notches | the same | ⚪ |
 | **Keys** | | | |
 | Keyboard keys (6KRO) | yes | yes | ⚪ |

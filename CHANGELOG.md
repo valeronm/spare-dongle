@@ -12,14 +12,15 @@
   so two devices' boxes fit side by side in a narrower terminal.
 - In Bluetooth mode a keyboard that reconnects on its own while the PC sleeps no longer wakes it;
   a key press or mouse movement does.
-- In Bluetooth mode up to four stored devices stay connected at once, and the PC hears one keyboard
-  and one mouse: the only one of its kind connected, or else the one last used.
-- `status`, `devices` and the live view mark a connected device the PC does not hear as standby, the
-  live view dimmed, and the events list each switch from one device to another.
-- `devices` marks a device the PC hears as active instead of naming its slot.
-- The live view shows a keyboard's box beside a mouse's, each on the device of its kind the PC
-  hears, and `k` and `m` step them through the other keyboards and mice in place of `o`, each box's
-  title giving its place among the devices of its kind.
+- In Bluetooth mode up to four stored devices stay connected at once and each one's input reaches
+  the PC, while keys and buttons stay held only for the keyboard and the mouse used last.
+- `status`, `devices` and the live view mark a connected device other than the keyboard or mouse
+  used last as standby, the live view dimmed, and the events list each switch from one device to
+  another.
+- `devices` marks the keyboard and mouse used last as active instead of naming their slots.
+- The live view shows a keyboard's box beside a mouse's, each on the one used last, and `k` and `m`
+  step them through the other keyboards and mice in place of `o`, each box's title giving its place
+  among the devices of its kind.
 - The live view opens the channels with `c` instead of `m`, and clears with `x` instead of `c`.
 - A Bluetooth mouse keeps its full report rate beside a keyboard or mouse that asks for no
   connection interval, such as the Air75 V2, where it moved in jerks.

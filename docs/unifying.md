@@ -18,9 +18,10 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | | Unifying receiver | SpareDongle |  |
 |---|---|---|---|
 | **Devices** | | | |
-| Keyboards connected at once | up to six devices[^unifying] | one | 🔴 |
-| Keyboards stored | up to six devices | up to six | ⚪ |
+| Keyboards | yes | yes | ⚪ |
 | Mice | yes | no | 🔴 |
+| Devices paired | up to six | up to six | ⚪ |
+| Devices connected at once | up to six[^unifying] | one | 🔴 |
 | Mouse wheel | with a paired mouse | no mice | 🔴 |
 | **Keys** | | | |
 | Keyboard keys (6KRO) | yes | yes | ⚪ |

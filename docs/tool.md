@@ -65,12 +65,12 @@ keyboard or a mouse. `status`, `history` and the live view show every slot that 
 or connected, each with its own name, signal and counters, and `status` also its last packet; the
 channel, noise, USB and the other link-wide counters are shared. The live view shows the shared
 state in one dongle box, and below it a keyboard's box and chart beside a mouse's, each showing the
-device of its kind the PC hears. `k` steps the keyboard's box to the next keyboard, standby ones
-first, then those not connected, and `m` does the same for mice; a box stepped away from the device
-the PC hears stays on its device until its key wraps back. With more than one device of a kind, its
-box's title gives its place among them, as `keyboard 1 of 2`, the first being the one the PC hears.
-A terminal too narrow for both shows one, and `k` or `m` brings up its kind's box before stepping
-it. Event lines name the device they are about.
+active device of its kind, the one used last. `k` steps the keyboard's box to the next keyboard,
+standby ones first, then those not connected, and `m` does the same for mice; a box stepped away
+from the active device stays on its device until its key wraps back. With more than one device of a
+kind, its box's title gives its place among them, as `keyboard 1 of 2`, the first being the active
+one. A terminal too narrow for both shows one, and `k` or `m` brings up its kind's box before
+stepping it. Event lines name the device they are about.
 
 Each connected device's latency is the delay from a report's arrival at the dongle to the PC
 fetching it over USB, as its average and maximum since the last `clear`, or "no report yet" before
@@ -78,10 +78,10 @@ the first one. It leaves out the time on air and in the Bluetooth controller, wh
 cannot see. Reports the dongle makes up itself, such as the release when a device drops out, are
 not counted.
 
-`devices` lists the paired devices with their kind, marking those the PC hears as active and the
-others connected as standby, and `forget <n>` removes the one at that place in the list. In the live
-view `d` shows the list in place of the chart, and a device's number asks to forget it. A NuPhy
-dongle that forgets its keyboard stops taking its keys.
+`devices` lists the paired devices with their kind, marking the keyboard and mouse used last as
+active and the other connected ones as standby, and `forget <n>` removes the one at that place in
+the list. In the live view `d` shows the list in place of the chart, and a device's number asks to
+forget it. A NuPhy dongle that forgets its keyboard stops taking its keys.
 
 ## Bluetooth mode
 
@@ -90,13 +90,14 @@ refuses `noise`, `moves`, `move` and `channels`. Its noise is read across the da
 devices hop over, leaving out the three advertising channels, where nearby devices advertise all the
 time. Each device's signal is its connection's, read from the radio once a second while it is
 connected. The events record each device's connects, disconnects with their reason, pairings and
-refused pairings, each device forgotten, on request or for a report map it cannot use, a device
-that lost its pairing, which has to be forgotten and paired again, and each switch of the keyboard
-or mouse the PC hears from one device to another.
+refused pairings, each device forgotten, on request or for a report map it cannot use, a device that
+lost its pairing, which has to be forgotten and paired again, and each switch of the active keyboard
+or mouse from one device to another.
 
-The PC hears one keyboard and one mouse. A device connected while another of its kind is the one
-the PC hears shows as `standby`: the PC does not hear it until its next key press, click or
-movement, which makes it the one heard. The live view dims a standby device's link.
+Every connected device's key presses, clicks and movements reach the PC. Per kind, the device used
+last is active, and only its keys and buttons stay held; another connected device of the kind shows
+as `standby` until its next key press, click or movement, which goes through and makes it active.
+The live view dims a standby device's link.
 
 - `pair` opens pairing for 60 seconds and lists the new devices in pairing mode, in the order it
   hears them, each with its kind, a Bolt mark and its signal; typing a device's number pairs that

@@ -18,7 +18,7 @@ Unifying mode the radio noise.
 </p>
 
 The `spare-dongle` live view, here in Bluetooth mode with two keyboards and two mice connected,
-showing the MX Keys and the MX Master 3S the PC hears: each device's signal over time, its latency
+showing the MX Keys and the MX Master 3S used last: each device's signal over time, its latency
 through the dongle, and the dongle's events.
 
 ## Protocols
@@ -126,15 +126,14 @@ low power while pairing. If the link gets worse after the Wi-Fi around you chang
 **Unifying:** switch the keyboard off and on. On a keyboard with Easy-Switch keys, such as the MX
 Keys, first hold an Easy-Switch key until it blinks fast.
 
-**Bluetooth:** the dongle keeps up to four keyboards and mice connected at once, and the PC hears
-one keyboard and one mouse: the only one of its kind connected, or else the one last used. Run
-`spare-dongle pair` and put the keyboard or mouse in Bluetooth pairing mode. The tool lists the
-devices it hears in pairing mode, each keeping its number; type the number of yours. If the device
-asks for a passkey, the tool prints six digits to type on the keyboard and press Enter, or for a
-Logi Bolt mouse ten clicks. A keyboard with no passkey step, such as the Air75 V2, and most mice
-pair without one. Running `pair` again after a failed attempt gives a new passkey. Opening pairing
-keeps the connected devices, and a device that pairs with four connected takes the place of the
-standby one used longest ago.
+**Bluetooth:** the dongle keeps up to four keyboards and mice connected at once and passes on the
+input of each. Run `spare-dongle pair` and put the keyboard or mouse in Bluetooth pairing mode. The
+tool lists the devices it hears in pairing mode, each keeping its number; type the number of yours.
+If the device asks for a passkey, the tool prints six digits to type on the keyboard and press
+Enter, or for a Logi Bolt mouse ten clicks. A keyboard with no passkey step, such as the Air75 V2,
+and most mice pair without one. Running `pair` again after a failed attempt gives a new passkey.
+Opening pairing keeps the connected devices, and a device that pairs with four connected takes the
+place of the one used longest ago, never the keyboard or mouse used last.
 [docs/tool.md](docs/tool.md#bluetooth-mode) covers the stored devices.
 
 ## LED

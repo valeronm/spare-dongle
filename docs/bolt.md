@@ -19,9 +19,10 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | | Bolt receiver | SpareDongle |  |
 |---|---|---|---|
 | **Devices** | | | |
-| Keyboards connected at once | three devices, mice included[^white-paper] | up to four, mice included; the one typed on last types | ⚪ |
-| Keyboards stored | up to six, mice included[^white-paper] | up to eight, mice included | 🟢 |
-| Mice | within the three | up to four with the keyboards; the one moved last moves the pointer | ⚪ |
+| Keyboards | yes | as any Bluetooth keyboard, not checked with a Bolt one | |
+| Mice | yes | yes | ⚪ |
+| Devices paired | up to six[^white-paper] | up to eight | 🟢 |
+| Devices connected at once | three[^white-paper] | up to four | 🟢 |
 | Mouse wheel | in notches until Logi Options+ or Solaar turns on high resolution | high resolution on Logitech mice | 🟢 |
 | **Keys** | | | |
 | Keyboard keys (6KRO) | yes | yes | ⚪ |
