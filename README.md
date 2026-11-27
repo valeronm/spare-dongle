@@ -35,7 +35,7 @@ Support is compared with the original receiver, or for Bluetooth the PC's own. I
 safe even during pairing, 🟡 weak only during pairing and 🔴 weak at any time.
 
 One firmware speaks NuPhy, Unifying and Bluetooth LE, but only one runs at a time, chosen by a
-setting the dongle keeps in flash. A new dongle runs NuPhy. `spare-dongle protocol nuphy`,
+setting the dongle keeps in flash. A new dongle runs Bluetooth. `spare-dongle protocol nuphy`,
 `unifying` or `bluetooth` switches it, and the dongle reboots into the new protocol. Each protocol
 keeps its own pairing, so switching back needs no new pairing.
 

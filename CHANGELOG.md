@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A new dongle, or one after `spare-dongle reset`, runs Bluetooth instead of NuPhy, as does one
+  updated from a release before 0.7.0 without ever running `spare-dongle protocol`.
+
 ## [0.7.0] - 2026-11-26
 
 - Bluetooth keyboards and mice send their input more often, a mouse as often as it does on a Logi

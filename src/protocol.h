@@ -7,8 +7,8 @@
 #include "diagwire.h"
 
 /*
- * A dongle that never chose, or holds a value this firmware does not know, runs NuPhy. save is set
- * when nothing is stored: a stored protocol keeps a dongle in the mode it first ran when the
+ * A dongle that never chose, or holds a value this firmware does not know, runs Bluetooth. save is
+ * set when nothing is stored: a stored protocol keeps a dongle in the mode it first ran when the
  * default changes, and an unknown value is kept for the newer firmware that wrote it.
  */
 enum protocol protocol_from_stored(bool loaded, uint8_t value, bool *save);
