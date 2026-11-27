@@ -24,6 +24,8 @@
 - The live view opens the channels with `c` instead of `m`, and clears with `x` instead of `c`.
 - A Bluetooth mouse keeps its full report rate beside a keyboard or mouse that asks for no
   connection interval, such as the Air75 V2, where it moved in jerks.
+- A stored Bluetooth device reconnects within a few seconds of advertising, instead of up to a
+  minute later.
 - A Bluetooth mouse whose report flags disagree with its report types, such as the Mi Silent Mouse,
   connects instead of dropping its link after every setup.
 - The diagnostic protocol is now 7, so the 0.7.0 tool and earlier can only `flash` new firmware.

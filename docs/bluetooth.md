@@ -74,11 +74,12 @@ HID++ driver[^hidpp-driver] speaks HID++.
 ## Reliability
 
 The dongle connects to stored devices as it hears them, up to four at a time, and a stored device
-heard with four connected waits until one goes. A device switched on reconnects within about a
-second. After the dongle restarts, the stored devices, up to the four most recently connected, show
-as not connected until they return, and the MX Keys can come back only at its next key press, which
-reaches the PC a second or two late. Pairing a new device with four connected drops the device used
-longest ago, never the keyboard or mouse used last.
+heard with four connected waits until one goes. A device switched on usually reconnects within a
+second or two, but a connect the device never joins can keep it away for up to a couple of minutes,
+which the Mi Silent Mouse does often. After the dongle restarts, the stored devices, up to the four
+most recently connected, show as not connected until they return, and the MX Keys can come back only
+at its next key press, which reaches the PC a second or two late. Pairing a new device with four
+connected drops the device used longest ago, never the keyboard or mouse used last.
 
 ## Security
 
@@ -136,15 +137,18 @@ active device per kind and the pairing policy in `src/btpolicy.c`, the report-ma
 
 What the code does not show:
 
-- While a slot is free and pairing is closed, the dongle scans for a few milliseconds a second,
-  except while it waits for a dropped device to go quiet: a scan of 30 ms every 60 ms took about an
-  eighth of a moving mouse's reports.
+- While a slot is free and pairing is closed, the dongle scans all the time, and while pairing is
+  open it scans actively for 30 ms of every 60. A scan of 11.25 ms every 1.28 s took tens of seconds
+  to hear the Air75 V2, which advertises about every 650 ms; the continuous scan cost a moving mouse
+  no reports it could measure.
 - The MX Keys reconnects to its bonded host with a short burst of directed adverts only, which
-  Zephyr's host drops unless the central scans under its identity address, and which the slow scan
-  can miss after the dongle restarts. The Air75 V2 reconnects with undirected adverts carrying the
-  HID service.
-- About one connect in six to the Air75 V2 is never established: the keyboard sends no first packet
-  and the link fails with reason `0x3e`, at a 7.5 ms and a 30 ms connection interval alike.
+  Zephyr's host drops unless the central scans under its identity address. The Air75 V2 reconnects
+  with undirected adverts carrying the HID service.
+- Between one connect in six and one in two to the Air75 V2 or the Mi Silent Mouse fails with
+  reason `0x3e`: the dongle runs the first six connection events and hears nothing in any of them,
+  at a 7.5 ms and a 30 ms connection interval alike and with fresh batteries in the mouse. Sometimes
+  the device advertises again at once, and at other times it stays silent for 5 to 100 seconds, and
+  the Mi Silent Mouse also falls silent that long after being switched off and on.
 - After the dongle connects at 7.5 ms, the MX Keys asks for 20 to 25 ms with peripheral latency 20
   and the MX Master 3S for 7.5 to 11.25 ms with latency 44. The dongle grants the shortest of each.
   The Air75 V2 and the Mi Silent Mouse ask for nothing and stay at 7.5 ms; moved to 15 ms, the Air75
