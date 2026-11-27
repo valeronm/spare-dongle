@@ -3,7 +3,9 @@
 This page compares SpareDongle with the PC's own Bluetooth, then describes the link as the dongle
 uses it. The Air75 V2, the MX Keys and the MX Master 3S were tested.
 
-The dongle holds one keyboard and one mouse at a time, and the two can come from different makers.
+The dongle keeps up to four devices connected at once, keyboards and mice in any mix and from
+different makers. The PC hears one keyboard and one mouse: a device alone of its kind as soon as it
+connects, and otherwise the one last used, while the others stand by.
 
 - [Features](#features)
 - [Reliability](#reliability)
@@ -18,9 +20,9 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | | PC's Bluetooth | SpareDongle |  |
 |---|---|---|---|
 | **Devices** | | | |
-| Keyboards connected at once | as many as the PC pairs | one | 🔴 |
+| Keyboards connected at once | as many as the PC pairs | up to four, mice included; the one typed on last types, and another takes over with its next key press | 🔴 |
 | Keyboards stored | as many as the PC pairs | up to eight, mice included | 🔴 |
-| Mice | as many as the PC pairs | one, beside the keyboard | 🔴 |
+| Mice | as many as the PC pairs | up to four with the keyboards; the one moved last moves the pointer, and another takes over with its next click or movement | 🔴 |
 | Mouse wheel | high resolution with Logitech Options or Linux's HID++ driver[^hidpp-driver] | high resolution on Logitech mice | ⚪ |
 | **Keys** | | | |
 | Keyboard keys (6KRO) | yes | yes | ⚪ |
@@ -47,7 +49,7 @@ In the comparison tables, 🟢 marks a row where SpareDongle does better, ⚪ on
 | Noise on the keyboard's channels | no | no: the devices hop across every channel | ⚪ |
 | Noise map | no | no | ⚪ |
 | Latency | no | yes | 🟢 |
-| Events | no | connects, disconnects, pairings and refused pairings | 🟢 |
+| Events | no | connects, disconnects, pairings, refused pairings and which keyboard and mouse the PC hears | 🟢 |
 | **[Logitech HID++](unifying.md#hid)** | | | |
 | HID++ used by the dongle | no: left to software on the PC | brightness keys, battery and wheel resolution ([Reports](#reports)) | 🟢 |
 | HID++ passed to Logitech Options and Solaar | yes | no | 🔴 |
@@ -69,10 +71,14 @@ HID++ driver[^hidpp-driver] speaks HID++.
 
 ## Reliability
 
-The dongle connects to whichever stored device of each kind it hears first, and the others wait
-until that one disconnects. A device switched on reconnects within about a second. After the dongle
-restarts, the MX Keys can come back only at its next key press, which reaches the PC a second or
-two late.
+The dongle connects to stored devices as it hears them, up to four at a time, and a stored device
+heard with four connected waits until one goes. A device switched on reconnects within about a
+second. When the keyboard or mouse the PC hears disconnects, the standby device of its kind pressed
+or moved last takes its place, or with none used yet the one connected last. After the dongle
+restarts, the stored devices, up to the four most recently connected, show as not connected until
+they return, and the MX Keys can come back only at its next key press, which reaches the PC a second
+or two late. Pairing a new device with four connected drops the standby device used longest ago,
+never one the PC hears.
 
 ## Security
 
@@ -116,11 +122,14 @@ Firmware written to the dongle can read the bond keys it keeps in flash.
 The dongle is the Bluetooth LE central and each device a peripheral. As a HID over GATT host it
 reads each device's report map at every connection and translates a keyboard's keyboard, media and
 system reports and a mouse's pointer reports into the dongle's own USB reports. It holds each
-device in a slot for its kind, a keyboard or a mouse, taken from the device's advert.
+device in one of four slots, and a device returns to the slot it last held so its signal and history
+stay together. Per kind, the PC hears one device, and a press or movement on another of the kind
+takes over. A takeover releases only what the previous device of the same kind held, so switching
+keyboards leaves a held mouse button alone.
 
-Scanning, connecting, pairing and the GATT reads are in `src/ble.c`, the choice of device and the
-pairing policy in `src/btpolicy.c`, the report-map parse in `src/hidmap.c`, and HID++ in
-`src/hidpp.c` and `src/bluetooth_main.c`.
+Scanning, connecting, pairing and the GATT reads are in `src/ble.c`, the choice of device, the
+active device per kind and the pairing policy in `src/btpolicy.c`, the report-map parse in
+`src/hidmap.c`, and the forwarding and HID++ in `src/bluetooth_main.c` and `src/hidpp.c`.
 
 ### Scanning and connecting
 
@@ -137,14 +146,19 @@ What the code does not show:
   and the link fails with reason `0x3e`, at a 7.5 ms and a 30 ms connection interval alike.
 - After the dongle connects at 7.5 ms, the MX Keys asks for 20 to 25 ms with peripheral latency 20
   and the MX Master 3S for 7.5 to 11.25 ms with latency 44. The dongle grants the shortest of each.
+  The Air75 V2 and the Mi Silent Mouse ask for nothing and stay at 7.5 ms. With the controller's
+  default 7.5 ms connection event, two links at 7.5 ms took turns and a mouse sent half its reports;
+  `prj.conf` caps the event at 2.5 ms.
 - A key pressed on the MX Keys while it is disconnected is sent once the dongle has subscribed,
   late by the connection setup.
 - When the PC suspends, the dongle drops every link with reason `0x15`, as Linux does with its own
   Bluetooth. The Air75 V2's radio module ignores the HID Control Point's suspend, so losing its
   link is the only notice of a suspend it acts on.
-- The Air75 V2 went on advertising through a 13-minute suspend after its link was dropped, with
-  gaps of up to 4 s between the adverts a continuous scan heard. Once reconnected it stays silent
-  until a key is pressed.
+- After its link is dropped the Air75 V2 advertises for over 13 minutes, through a suspend and
+  whether or not anyone types on it, with gaps of up to 4 s between the adverts a continuous scan
+  heard. Once reconnected it stays silent until a key is pressed. An advert cannot tell a keyboard
+  in use from one looking for its host, so the dongle keeps every link and lets input decide which
+  device the PC hears.
 
 ### Pairing
 

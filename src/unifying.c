@@ -323,7 +323,7 @@ size_t unifying_pairing_rx(struct unifying_pairing *p, const struct unifying_rec
 		}
 		len = start(a, r, place, nonce, frame, now_ms, reply, event);
 		if (attempting(p)) {
-			pairwin_hold(&p->window, DEVICE_KIND_KEYBOARD, (uint32_t)now_ms);
+			pairwin_hold(&p->window, 0, (uint32_t)now_ms);
 		}
 		return len;
 	}
@@ -354,7 +354,7 @@ bool unifying_pairing_expired(struct unifying_pairing *p, uint64_t now_ms)
 {
 	if (attempting(p) && now_ms - p->attempt.last_ms > UNIFYING_PAIRING_TIMEOUT_MS) {
 		p->attempt = (struct unifying_attempt){0};
-		pairwin_end_attempt(&p->window, DEVICE_KIND_KEYBOARD);
+		pairwin_end_attempt(&p->window, 0);
 		return true;
 	}
 	return false;
@@ -702,16 +702,6 @@ static void take_hidpp_event(struct unifying_session *s, struct unifying_out *ou
 	hidpp_take_event(&s->hidpp, &out->hidpp_event);
 }
 
-static bool pressed(const struct report *r, size_t n)
-{
-	for (size_t i = 0; i < n; i++) {
-		if (r[i].kind == REPORT_KEYBOARD ? !reports_keys_empty(&r[i]) : r[i].usage != 0) {
-			return true;
-		}
-	}
-	return false;
-}
-
 static void activate(struct unifying_session *s, uint8_t place, struct unifying_out *out)
 {
 	if (s->active != UNIFYING_NO_PLACE && any_held(active_link(s))) {
@@ -772,7 +762,7 @@ void unifying_session_forget(struct unifying_session *s, uint8_t place, struct u
 
 		unifying_session_init(s, &r);
 		s->pairing.window = window;
-		out->window_closed = pairwin_end_attempt(&s->pairing.window, DEVICE_KIND_KEYBOARD);
+		out->window_closed = pairwin_end_attempt(&s->pairing.window, 0);
 	} else if (was_active) {
 		activate(s, first_place(&s->pairing, true), out);
 		s->heard = false;
@@ -855,7 +845,7 @@ static bool place_frame(struct unifying_session *s, uint8_t place, const struct 
 	out->invalid = l->refused != refused;
 	out->attack_started = !attack && now_ms < l->attack_until_ms;
 	if (place != s->active) {
-		if (!pressed(typed, n) && s->heard && !s->silent) {
+		if (!reports_pressed(typed, n) && s->heard && !s->silent) {
 			return true;
 		}
 		take_over(s, place, out);

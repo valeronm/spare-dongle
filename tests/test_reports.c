@@ -386,6 +386,68 @@ static void test_release_all_lets_go_of_a_held_mouse_button(void)
 	CHECK_EQ(out.report.mouse.buttons, 0);
 }
 
+static void test_releasing_a_keyboard_keeps_a_mouse_button_held(void)
+{
+	struct report consumer = {.kind = REPORT_CONSUMER, .usage = 0x00e9};
+	struct report system = {.kind = REPORT_SYSTEM, .usage = 0x0081};
+	struct report_entry out;
+
+	before();
+	send_key(0x09);
+	reports_update(&r, &consumer, REPORT_UNSTAMPED);
+	reports_update(&r, &system, REPORT_UNSTAMPED);
+	move(1, 0, 0);
+	drain();
+	CHECK_EQ(reports_release_device(&r, DEVICE_KIND_KEYBOARD, false),
+		 1u << REPORT_IFACE_KEYBOARD | 1u << REPORT_IFACE_EXTRA);
+	CHECK(reports_peek(&r, REPORT_IFACE_KEYBOARD, &out));
+	CHECK_EQ(out.report.boot[2], 0x00);
+	CHECK(reports_peek(&r, REPORT_IFACE_EXTRA, &out));
+	CHECK_EQ(out.report.kind, REPORT_USB_CONSUMER);
+	CHECK_EQ(out.report.usage, 0);
+	reports_pop(&r, REPORT_IFACE_EXTRA);
+	CHECK(reports_peek(&r, REPORT_IFACE_EXTRA, &out));
+	CHECK_EQ(out.report.kind, REPORT_USB_SYSTEM);
+	CHECK_EQ(out.report.usage, 0);
+	CHECK(!reports_peek(&r, REPORT_IFACE_MOUSE, &out));
+	CHECK(reports_any_held(&r));
+}
+
+static void test_releasing_a_mouse_keeps_a_key_held(void)
+{
+	struct report consumer = {.kind = REPORT_CONSUMER, .usage = 0x00e9};
+	struct report_entry out;
+
+	before();
+	send_key(0x09);
+	reports_update(&r, &consumer, REPORT_UNSTAMPED);
+	move(1, 0, 0);
+	drain();
+	CHECK_EQ(reports_release_device(&r, DEVICE_KIND_MOUSE, false), 1u << REPORT_IFACE_MOUSE);
+	CHECK(reports_peek(&r, REPORT_IFACE_MOUSE, &out));
+	CHECK_EQ(out.report.mouse.buttons, 0);
+	CHECK(!reports_peek(&r, REPORT_IFACE_KEYBOARD, &out));
+	CHECK(!reports_peek(&r, REPORT_IFACE_EXTRA, &out));
+	CHECK(reports_any_held(&r));
+}
+
+static void test_releasing_a_mouse_lets_go_of_the_consumer_usage_it_holds(void)
+{
+	struct report consumer = {.kind = REPORT_CONSUMER, .usage = 0x00e9};
+	struct report_entry out;
+
+	before();
+	reports_update(&r, &consumer, REPORT_UNSTAMPED);
+	move(1, 0, 0);
+	drain();
+	CHECK_EQ(reports_release_device(&r, DEVICE_KIND_MOUSE, true),
+		 1u << REPORT_IFACE_MOUSE | 1u << REPORT_IFACE_EXTRA);
+	CHECK(reports_peek(&r, REPORT_IFACE_EXTRA, &out));
+	CHECK_EQ(out.report.kind, REPORT_USB_CONSUMER);
+	CHECK_EQ(out.report.usage, 0);
+	CHECK(!reports_any_held(&r));
+}
+
 static void test_a_mouse_report_encodes_in_report_protocol(void)
 {
 	const struct report_usb r = {
@@ -727,8 +789,32 @@ static void test_buttons_held_when_a_mouse_connects_are_muted_until_released(voi
 	CHECK_EQ(r.mouse.buttons, 0x02);
 }
 
+static void a_press_is_any_held_input_or_movement(void)
+{
+	struct report r[2] = {{.kind = REPORT_KEYBOARD}, {.kind = REPORT_CONSUMER}};
+
+	CHECK(!reports_pressed(r, 2));
+	r[1].usage = 0xe9;
+	CHECK(reports_pressed(r, 2));
+	r[1].usage = 0;
+	r[0].keys[0] = 0x04;
+	CHECK(reports_pressed(r, 2));
+
+	struct report m = {.kind = REPORT_MOUSE};
+
+	CHECK(!reports_pressed(&m, 1));
+	m.mouse.y = -1;
+	CHECK(reports_pressed(&m, 1));
+	m.mouse = (struct report_mouse){.buttons = 1};
+	CHECK(reports_pressed(&m, 1));
+	m.mouse = (struct report_mouse){.pan = 1};
+	CHECK(reports_pressed(&m, 1));
+	CHECK(!reports_pressed(&m, 0));
+}
+
 int main(void)
 {
+	RUN(a_press_is_any_held_input_or_movement);
 	RUN(test_buttons_held_when_a_mouse_connects_are_muted_until_released);
 	RUN(test_a_seventh_key_goes_to_the_nkro_report);
 	RUN(test_a_freed_slot_waits_for_a_new_key);
@@ -760,6 +846,9 @@ int main(void)
 	RUN(test_merged_motion_saturates);
 	RUN(test_going_live_sends_the_buttons_without_motion);
 	RUN(test_release_all_lets_go_of_a_held_mouse_button);
+	RUN(test_releasing_a_keyboard_keeps_a_mouse_button_held);
+	RUN(test_releasing_a_mouse_keeps_a_key_held);
+	RUN(test_releasing_a_mouse_lets_go_of_the_consumer_usage_it_holds);
 	RUN(test_a_mouse_report_encodes_in_report_protocol);
 	RUN(test_a_mouse_report_encodes_in_boot_protocol);
 	RUN(test_a_boot_keyboard_report_encodes_as_its_eight_bytes);

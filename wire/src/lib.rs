@@ -7,7 +7,7 @@
 #![no_std]
 
 /// Bumped only when a layout that a release has shipped, or what a value in it means, changes.
-pub const VERSION: u8 = 6;
+pub const VERSION: u8 = 7;
 pub const REPORT_LEN: usize = 64;
 pub const HEADER_LEN: usize = 4;
 pub const CHUNK: usize = REPORT_LEN - HEADER_LEN;
@@ -19,13 +19,14 @@ pub const MINUTES_PER_PAGE: usize = 40;
 pub const EVENTS_PER_PAGE: usize = 32;
 pub const NAME_MAX: usize = 24;
 /// The most slots any protocol has; a slot is a numbered place for one device.
-pub const SLOTS: usize = 2;
+pub const SLOTS: usize = 4;
 pub const NO_SLOT: u8 = u8::MAX;
 /// Marks a signal as absent: no receiver reports a signal this low.
 pub const NO_RSSI: i8 = i8::MIN;
 pub const NO_BATTERY: u8 = u8::MAX;
 pub const SLOT_STORED: u8 = 0x01;
 pub const SLOT_READY: u8 = 0x02;
+pub const SLOT_STANDBY: u8 = 0x04;
 /// The other pairing bits are unset without it.
 pub const PAIRING_KNOWN: u8 = 0x01;
 /// LE Secure Connections, not legacy pairing.
@@ -318,6 +319,7 @@ pub enum EventType {
     KeyboardForgotten,
     UnifyingActive,
     BtNotForgotten,
+    BtActive,
 }
 
 codes!(EventType {
@@ -350,6 +352,7 @@ codes!(EventType {
     KeyboardForgotten,
     UnifyingActive,
     BtNotForgotten,
+    BtActive,
 });
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -476,6 +479,9 @@ pub struct Slot {
     pub stored: bool,
     /// The device's link is up now.
     pub ready: bool,
+    /// Its device is connected but the PC does not hear it, another device of its kind being
+    /// active.
+    pub standby: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -715,6 +721,10 @@ pub enum Detail {
     BtNotForgotten {
         addr: [u8; EVENT_ADDR_LEN],
     },
+    /// A Bluetooth device replaced another as the one of its kind whose input reaches the PC.
+    BtActive {
+        addr: [u8; EVENT_ADDR_LEN],
+    },
 }
 
 /// Seconds since the last input as an event records them; a negative `elapsed_ms` means none
@@ -773,6 +783,24 @@ impl Detail {
             D::KeyboardForgotten { .. } => T::KeyboardForgotten,
             D::UnifyingActive { .. } => T::UnifyingActive,
             D::BtNotForgotten { .. } => T::BtNotForgotten,
+            D::BtActive { .. } => T::BtActive,
+        }
+    }
+
+    /// The address of the device the event is about, for the events that carry one.
+    pub fn addr(&self) -> Option<[u8; EVENT_ADDR_LEN]> {
+        use Detail as D;
+        match *self {
+            D::BtConnected { addr }
+            | D::BtPaired { addr, .. }
+            | D::BtBondLost { addr }
+            | D::BtForgotten { addr, .. }
+            | D::BtPasskeyAwaited { addr }
+            | D::KeyboardForgotten { addr }
+            | D::UnifyingActive { addr }
+            | D::BtNotForgotten { addr }
+            | D::BtActive { addr } => Some(addr),
+            _ => None,
         }
     }
 
@@ -834,7 +862,8 @@ impl Detail {
             | D::BtPasskeyAwaited { addr }
             | D::KeyboardForgotten { addr }
             | D::UnifyingActive { addr }
-            | D::BtNotForgotten { addr } => {
+            | D::BtNotForgotten { addr }
+            | D::BtActive { addr } => {
                 let (a, b, value) = pack_addr(&addr);
                 (a, b, 0, value)
             }
@@ -968,6 +997,9 @@ impl Detail {
                 addr: unpack_addr(e),
             },
             T::BtNotForgotten => D::BtNotForgotten {
+                addr: unpack_addr(e),
+            },
+            T::BtActive => D::BtActive {
                 addr: unpack_addr(e),
             },
         })
@@ -1284,7 +1316,9 @@ impl Status {
         w.u8(self.slot_count);
         for s in self.slots.iter().take(self.slot_count.into()) {
             w.u8(s.kind);
-            w.u8(if s.stored { SLOT_STORED } else { 0 } | if s.ready { SLOT_READY } else { 0 });
+            w.u8(if s.stored { SLOT_STORED } else { 0 }
+                | if s.ready { SLOT_READY } else { 0 }
+                | if s.standby { SLOT_STANDBY } else { 0 });
         }
         w.u8(self.slot);
         w.u8(self.last_rssi as u8);
@@ -1333,6 +1367,7 @@ impl Status {
                     kind,
                     stored: flags & SLOT_STORED != 0,
                     ready: flags & SLOT_READY != 0,
+                    standby: flags & SLOT_STANDBY != 0,
                 };
             }
         }

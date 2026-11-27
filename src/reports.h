@@ -137,6 +137,9 @@ struct report reports_held_keys(uint8_t modifiers, const uint8_t slots[REPORT_KE
 bool reports_key_held(const struct report *r, uint8_t usage);
 bool reports_keys_empty(const struct report *r);
 
+/* Whether any report holds a key, a consumer or system usage, a mouse button or movement. */
+bool reports_pressed(const struct report *r, size_t n);
+
 /*
  * Returns one bit per enum report_iface whose report changed, mouse motion counting as a change,
  * whether or not it was queued. A keyboard report's held keys are split into the boot report and
@@ -145,6 +148,12 @@ bool reports_keys_empty(const struct report *r);
  * consumer or system usage the USB report descriptors do not declare is sent as released.
  */
 unsigned reports_update(struct reports *r, const struct report *next, struct report_stamp stamp);
+/* Returns the interfaces whose report changed. */
+unsigned reports_release(struct reports *r, enum report_kind kind);
+/* Releases the report kinds a device of this kind sends, and returns the interfaces whose report
+ * changed. A mouse's diverted buttons send consumer usages into the report a keyboard's media keys
+ * share, so a mouse releases it only when holds_consumer is set. */
+unsigned reports_release_device(struct reports *r, enum device_kind kind, bool holds_consumer);
 void reports_release_all(struct reports *r);
 /* Returns true while the host sees any key, modifier or media usage down. */
 bool reports_any_held(const struct reports *r);

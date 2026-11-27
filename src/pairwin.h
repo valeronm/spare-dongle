@@ -9,7 +9,7 @@
 
 struct pairwin {
 	bool open;
-	enum device_kind holder;
+	uint8_t holder;
 	uint32_t opened_ms;
 	uint32_t length_ms;
 };
@@ -19,11 +19,11 @@ bool pairwin_is_open(const struct pairwin *w, uint32_t now_ms);
 void pairwin_close(struct pairwin *w);
 /* Keeps an open window open past its length until pairwin_close, or the holder's
  * pairwin_end_attempt; returns false and does nothing for a closed window. */
-bool pairwin_hold(struct pairwin *w, enum device_kind holder, uint32_t now_ms);
-/* DEVICE_NO_KIND for a window nothing holds open. */
-enum device_kind pairwin_holder(const struct pairwin *w);
+bool pairwin_hold(struct pairwin *w, uint8_t holder, uint32_t now_ms);
+/* DEVICE_NO_SLOT for a window nothing holds open. */
+uint8_t pairwin_holder(const struct pairwin *w);
 /* Closes the window if this holder holds it, and returns whether it did. */
-bool pairwin_end_attempt(struct pairwin *w, enum device_kind holder);
+bool pairwin_end_attempt(struct pairwin *w, uint8_t holder);
 /* DIAG_WINDOW_PAIRING while a holder pairs, otherwise open or closed. */
 enum diag_window pairwin_window(const struct pairwin *w, uint32_t now_ms);
 /* Returns true once when a window that was open has passed its length, and closes it. */

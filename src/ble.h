@@ -43,8 +43,9 @@ enum ble_stage {
 
 struct ble_event {
 	enum ble_event_type type;
-	/* The slot the event is about; unset for BLE_ADVERT. */
-	enum device_kind kind;
+	/* The slot the event is about; unset for BLE_ADVERT, and DEVICE_NO_SLOT for a BLE_FORGOTTEN
+	 * device no slot held. */
+	uint8_t slot;
 	union {
 		/* BLE_ADVERT: from a stored device or one offering the HID service. */
 		struct btpolicy_advert advert;
@@ -95,7 +96,7 @@ int ble_start(void);
 int ble_scan(enum btpolicy_scan mode);
 /* Every call that returns 0 ends in one BLE_DISCONNECTED for the slot, after a BLE_FAILED when a
  * stage failed. */
-int ble_connect(enum device_kind kind, const uint8_t addr[BTPOLICY_ADDR_LEN],
+int ble_connect(uint8_t slot, const uint8_t addr[BTPOLICY_ADDR_LEN],
 		const char *advertised_name, bool clicks);
 /* While on, a keyboard able to take a passkey is asked for this six-digit one as it pairs, and a
  * device connected with clicks is told it pairs with a Bolt receiver and asked for its low
@@ -107,23 +108,23 @@ uint8_t ble_stored(uint8_t addrs[][BTPOLICY_ADDR_LEN], uint8_t cap);
 /* Deletes the device's bond through store_run, disconnecting it first if it is connected, and
  * reports BLE_FORGOTTEN; the device's adverts are dropped until then. Returns -ENOMEM while too
  * many deletes wait. */
-int ble_forget(enum device_kind kind, const uint8_t addr[BTPOLICY_ADDR_LEN], uint8_t tag);
+int ble_forget(uint8_t slot, const uint8_t addr[BTPOLICY_ADDR_LEN], uint8_t tag);
 bool ble_take_event(struct ble_event *ev, k_timeout_t wait);
 /* Copies the report map read at the slot's connection and returns its length, 0 before its
  * BLE_MAP_READ. */
-size_t ble_copy_map(enum device_kind kind, uint8_t *out, size_t cap);
+size_t ble_copy_map(uint8_t slot, uint8_t *out, size_t cap);
 /* The name of the slot's device, the advertised one until its own is read; empty if it gave
  * none. */
-void ble_copy_name(enum device_kind kind, char out[BLE_NAME_MAX + 1]);
-void ble_disconnect(enum device_kind kind);
+void ble_copy_name(uint8_t slot, char out[BLE_NAME_MAX + 1]);
+void ble_disconnect(uint8_t slot);
 /* Disconnects as a host that is powering off does. */
-void ble_power_off(enum device_kind kind);
+void ble_power_off(uint8_t slot);
 /* Writes the slot's output report with this ID, data excluding the ID; fails until the device's
  * reports are discovered and while an earlier write to that report is still being sent. */
-int ble_write_report(enum device_kind kind, uint8_t report_id, const uint8_t *data, uint8_t len);
+int ble_write_report(uint8_t slot, uint8_t report_id, const uint8_t *data, uint8_t len);
 /* Reads the slot's signal from the controller; fails with -ENOTCONN without a device and -ENODATA
  * when the controller has no reading yet. */
-int ble_rssi(enum device_kind kind, int8_t *dbm);
+int ble_rssi(uint8_t slot, int8_t *dbm);
 /* Whether the bond with the device was made by LE Secure Connections, not legacy pairing; false
  * for an address without a bond. */
 bool ble_bond_secure(const uint8_t addr[BTPOLICY_ADDR_LEN]);

@@ -240,7 +240,8 @@ static void test_devices_match_fixture(void)
 	list.entries[1].flags = BTLIST_BOLT;
 	secure_addr = list.entries[1].addr;
 	CHECK_EQ(encode_devices(got, &list,
-				(const uint8_t *const[]){list.entries[0].addr, list.entries[1].addr},
+				(const uint8_t *const[DEVICE_SLOTS]){list.entries[0].addr,
+								 list.entries[1].addr},
 				is_secure),
 		 want_len);
 	CHECK_MEM(got, want, want_len);
@@ -256,7 +257,8 @@ static void test_a_device_ready_in_no_slot_is_sent_with_none(void)
 	btlist_paired(&list, keyboard, DEVICE_KIND_KEYBOARD, true, false, "");
 	btlist_paired(&list, mouse, DEVICE_KIND_MOUSE, false, false, "");
 	secure_addr = mouse;
-	CHECK_EQ(encode_devices(got, &list, (const uint8_t *const[]){keyboard, NULL}, is_secure),
+	CHECK_EQ(encode_devices(got, &list, (const uint8_t *const[DEVICE_SLOTS]){keyboard},
+				is_secure),
 		 1 + 2 * DIAG_DEVICE_LEN);
 	CHECK_EQ(got[1 + BTPOLICY_ADDR_LEN + 2], DEVICE_NO_SLOT);
 	CHECK_EQ(got[1 + DIAG_DEVICE_LEN + BTPOLICY_ADDR_LEN + 2], 0);

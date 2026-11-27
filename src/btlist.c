@@ -125,7 +125,7 @@ bool btlist_remove(struct btlist *l, const uint8_t *addr)
 
 const struct btlist_entry *btlist_entry(const struct btlist *l, const uint8_t *addr)
 {
-	uint8_t at = find(l, addr);
+	uint8_t at = addr ? find(l, addr) : NOT_LISTED;
 
 	return at == NOT_LISTED ? NULL : &l->entries[at];
 }
@@ -133,21 +133,6 @@ const struct btlist_entry *btlist_entry(const struct btlist *l, const uint8_t *a
 bool btlist_has(const struct btlist *l, const uint8_t *addr)
 {
 	return btlist_entry(l, addr) != NULL;
-}
-
-bool btlist_has_kind(const struct btlist *l, enum device_kind kind)
-{
-	return btlist_latest(l, kind) != NULL;
-}
-
-const struct btlist_entry *btlist_latest(const struct btlist *l, enum device_kind kind)
-{
-	for (uint8_t i = 0; i < l->count; i++) {
-		if (l->entries[i].kind == kind) {
-			return &l->entries[i];
-		}
-	}
-	return NULL;
 }
 
 enum device_kind btlist_kind(const struct btlist *l, const uint8_t *addr)

@@ -434,14 +434,14 @@ pub(crate) mod tests {
 
     #[test]
     fn a_dongle_in_this_protocol_connects_with_its_status() {
-        let (_, status) = dongle_in_protocol(6).checked().unwrap();
+        let (_, status) = dongle_in_protocol(7).checked().unwrap();
         assert_eq!(status.channel, 26);
     }
 
     #[test]
     fn a_dongle_in_another_protocol_is_refused_on_connect() {
-        let err = dongle_in_protocol(5).checked().err().unwrap().to_string();
-        assert!(err.starts_with("the dongle speaks diagnostic protocol 5, this tool 6;"));
+        let err = dongle_in_protocol(6).checked().err().unwrap().to_string();
+        assert!(err.starts_with("the dongle speaks diagnostic protocol 6, this tool 7;"));
     }
 
     #[test]

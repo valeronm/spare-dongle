@@ -23,7 +23,7 @@ K_MSGQ_DEFINE(ble_events, sizeof(struct ble_event), 16, 4);
 
 #define UUID_LOGITECH 0xfd72
 
-BUILD_ASSERT(CONFIG_BT_MAX_CONN == DEVICE_KINDS);
+BUILD_ASSERT(CONFIG_BT_MAX_CONN == DEVICE_SLOTS);
 BUILD_ASSERT(CONFIG_BT_MAX_PAIRED == BTPOLICY_STORED_MAX);
 BUILD_ASSERT(BTPOLICY_APPEARANCE_KEYBOARD == BT_APPEARANCE_HID_KEYBOARD);
 BUILD_ASSERT(BTPOLICY_APPEARANCE_MOUSE == BT_APPEARANCE_HID_MOUSE);
@@ -53,7 +53,7 @@ struct link {
 	bool bolt_mode;
 };
 
-static struct link links[DEVICE_KINDS];
+static struct link links[DEVICE_SLOTS];
 /* A new device's advert that lacked the HID service or a kind, kept for its scan response. */
 static struct btpolicy_advert pending;
 static bool pending_set;
@@ -61,16 +61,16 @@ static enum btpolicy_scan scan_mode;
 static uint32_t passkey;
 static bool offering;
 
-static enum device_kind kind_of(const struct link *l)
+static uint8_t slot_of_link(const struct link *l)
 {
-	return (enum device_kind)(l - links);
+	return (uint8_t)(l - links);
 }
 
 static struct link *link_of_conn(const struct bt_conn *conn)
 {
-	for (int k = 0; k < DEVICE_KINDS; k++) {
-		if (links[k].conn == conn) {
-			return &links[k];
+	for (int s = 0; s < DEVICE_SLOTS; s++) {
+		if (links[s].conn == conn) {
+			return &links[s];
 		}
 	}
 	return NULL;
@@ -86,7 +86,7 @@ static void put_event(const struct ble_event *ev)
 
 static void emit(struct link *l, struct ble_event ev)
 {
-	ev.kind = kind_of(l);
+	ev.slot = slot_of_link(l);
 	put_event(&ev);
 }
 
@@ -116,7 +116,7 @@ static void fail(struct link *l, enum ble_stage stage, int error)
 	}
 	l->failed = true;
 	emit_failed(l, stage, error);
-	ble_disconnect(kind_of(l));
+	ble_disconnect(slot_of_link(l));
 }
 
 static void next_discovery(void);
@@ -145,9 +145,9 @@ static uint8_t on_report(struct bt_hogp *h, struct bt_hogp_rep_info *rep, uint8_
 	return BT_GATT_ITER_CONTINUE;
 }
 
-/* Each subscription holds an ATT buffer until the device answers, and all are sent at once, with
- * the battery discovery's first request behind them. */
-BUILD_ASSERT(CONFIG_BT_ATT_TX_COUNT >= CONFIG_BT_HOGP_REPORTS_MAX + 1);
+/* Each subscription holds an ATT buffer until the device answers, and one device's subscriptions
+ * are all sent at once, with the battery discovery's first request behind them. */
+BUILD_ASSERT(CONFIG_BT_ATT_TX_COUNT >= CONFIG_BT_HOGP_REPORTS_MAX / DEVICE_SLOTS + 1);
 
 static void subscribe(struct link *l)
 {
@@ -295,7 +295,7 @@ static void use_battery(struct link *l, struct bt_gatt_dm *dm)
 		err = bt_bas_subscribe_battery_level(&l->bas, emit_battery);
 	}
 	if (err) {
-		printk("bluetooth %s battery unread: %d\n", device_kind_name(kind_of(l)), err);
+		printk("bluetooth link %u battery unread: %d\n", slot_of_link(l), err);
 	}
 }
 
@@ -326,8 +326,7 @@ static void on_battery_error(struct bt_conn *conn, int err, void *context)
 	ARG_UNUSED(conn);
 	ARG_UNUSED(context);
 	if (l) {
-		printk("bluetooth %s battery discovery failed: %d\n",
-		       device_kind_name(kind_of(l)), err);
+		printk("bluetooth link %u battery discovery failed: %d\n", slot_of_link(l), err);
 	}
 	next_discovery();
 }
@@ -358,10 +357,10 @@ static void next_discovery(void)
 		enum discovery what;
 		int err;
 
-		for (int k = 0; k < DEVICE_KINDS; k++) {
-			if (links[k].wanted != DISCOVERY_NONE &&
-			    (!l || links[k].wanted < l->wanted)) {
-				l = &links[k];
+		for (int s = 0; s < DEVICE_SLOTS; s++) {
+			if (links[s].wanted != DISCOVERY_NONE &&
+			    (!l || links[s].wanted < l->wanted)) {
+				l = &links[s];
 			}
 		}
 		if (!l) {
@@ -379,8 +378,8 @@ static void next_discovery(void)
 		if (what == DISCOVERY_HID) {
 			fail(l, BLE_STAGE_DISCOVERY, err);
 		} else {
-			printk("bluetooth %s battery discovery not started: %d\n",
-			       device_kind_name(kind_of(l)), err);
+			printk("bluetooth link %u battery discovery not started: %d\n",
+			       slot_of_link(l), err);
 		}
 	}
 }
@@ -443,9 +442,9 @@ static void print_params(struct link *l)
 	struct bt_conn_info info;
 
 	if (bt_conn_get_info(l->conn, &info) == 0) {
-		printk("bluetooth %s link: interval %u us, latency %u, timeout %u ms\n",
-		       device_kind_name(kind_of(l)), info.le.interval_us,
-		       info.le.latency, info.le.timeout * 10u);
+		printk("bluetooth link %u: interval %u us, latency %u, timeout %u ms\n",
+		       slot_of_link(l), info.le.interval_us, info.le.latency,
+		       info.le.timeout * 10u);
 	}
 }
 
@@ -472,8 +471,8 @@ static void on_bolt_mode_written(struct bt_conn *conn, uint8_t err,
 
 	ARG_UNUSED(conn);
 	if (err) {
-		printk("bluetooth %s Bolt mode not written: att error %u\n",
-		       device_kind_name(kind_of(l)), err);
+		printk("bluetooth link %u Bolt mode not written: att error %u\n", slot_of_link(l),
+		       err);
 	}
 	l->bolt_mode = !err;
 	request_security(l);
@@ -485,7 +484,7 @@ static uint8_t on_bolt_mode_found(struct bt_conn *conn, const struct bt_gatt_att
 	struct link *l = CONTAINER_OF(params, struct link, mode_discover);
 
 	if (!attr) {
-		printk("bluetooth %s has no Bolt mode\n", device_kind_name(kind_of(l)));
+		printk("bluetooth link %u has no Bolt mode\n", slot_of_link(l));
 		request_security(l);
 		return BT_GATT_ITER_STOP;
 	}
@@ -670,7 +669,7 @@ static void forget_due(struct k_work *work)
 
 static K_WORK_DEFINE(forget_work, forget_due);
 
-int ble_forget(enum device_kind kind, const uint8_t addr[BTPOLICY_ADDR_LEN], uint8_t tag)
+int ble_forget(uint8_t slot, const uint8_t addr[BTPOLICY_ADDR_LEN], uint8_t tag)
 {
 	k_spinlock_key_t key = k_spin_lock(&forgets_lock);
 
@@ -678,7 +677,7 @@ int ble_forget(enum device_kind kind, const uint8_t addr[BTPOLICY_ADDR_LEN], uin
 		if (!forgets[i].due) {
 			forgets[i].due = true;
 			forgets[i].ev = (struct ble_event){
-				.type = BLE_FORGOTTEN, .kind = kind, .forgotten = {.tag = tag}};
+				.type = BLE_FORGOTTEN, .slot = slot, .forgotten = {.tag = tag}};
 			memcpy(forgets[i].ev.forgotten.addr, addr, BTPOLICY_ADDR_LEN);
 			k_spin_unlock(&forgets_lock, key);
 			store_run(&forget_work);
@@ -780,10 +779,10 @@ int ble_scan(enum btpolicy_scan mode)
 #define SETUP_CONN_PARAM                                                                           \
 	BT_LE_CONN_PARAM(SHORTEST_INTERVAL, SHORTEST_INTERVAL, 0, BT_GAP_MS_TO_CONN_TIMEOUT(4000))
 
-int ble_connect(enum device_kind kind, const uint8_t addr[BTPOLICY_ADDR_LEN],
+int ble_connect(uint8_t slot, const uint8_t addr[BTPOLICY_ADDR_LEN],
 		const char *advertised_name, bool clicks)
 {
-	struct link *l = &links[kind];
+	struct link *l = &links[slot];
 	bt_addr_le_t peer;
 	int err;
 
@@ -950,9 +949,9 @@ int ble_start(void)
 	if (!err) {
 		err = bt_conn_auth_info_cb_register(&pairing_callbacks);
 	}
-	for (int k = 0; !err && k < DEVICE_KINDS; k++) {
-		bt_hogp_init(&links[k].hogp, &hogp_params);
-		bt_bas_client_init(&links[k].bas);
+	for (int s = 0; !err && s < DEVICE_SLOTS; s++) {
+		bt_hogp_init(&links[s].hogp, &hogp_params);
+		bt_bas_client_init(&links[s].bas);
 	}
 	if (!err) {
 		int survey_err = start_survey();
@@ -969,50 +968,58 @@ bool ble_take_event(struct ble_event *ev, k_timeout_t wait)
 	return k_msgq_get(&ble_events, ev, wait) == 0;
 }
 
-size_t ble_copy_map(enum device_kind kind, uint8_t *out, size_t cap)
+size_t ble_copy_map(uint8_t slot, uint8_t *out, size_t cap)
 {
 	size_t len;
 
 	k_sched_lock();
-	len = MIN(links[kind].map_len, cap);
-	memcpy(out, links[kind].map, len);
+	len = MIN(links[slot].map_len, cap);
+	memcpy(out, links[slot].map, len);
 	k_sched_unlock();
 	return len;
 }
 
-void ble_copy_name(enum device_kind kind, char out[BLE_NAME_MAX + 1])
+void ble_copy_name(uint8_t slot, char out[BLE_NAME_MAX + 1])
 {
 	k_sched_lock();
-	memcpy(out, links[kind].name, sizeof(links[kind].name));
+	memcpy(out, links[slot].name, sizeof(links[slot].name));
 	k_sched_unlock();
 }
 
-static void disconnect(enum device_kind kind, uint8_t reason)
+/* The receive thread releases a link's connection when it ends; NULL without one. */
+static struct bt_conn *link_conn(struct link *l)
 {
-	struct link *l = &links[kind];
 	struct bt_conn *conn = NULL;
 
-	/* The receive thread releases the connection when it ends. */
 	k_sched_lock();
-	l->failed = true;
 	if (l->conn) {
 		conn = bt_conn_ref(l->conn);
 	}
 	k_sched_unlock();
+	return conn;
+}
+
+static void disconnect(uint8_t slot, uint8_t reason)
+{
+	struct link *l = &links[slot];
+	struct bt_conn *conn;
+
+	l->failed = true;
+	conn = link_conn(l);
 	if (conn) {
 		bt_conn_disconnect(conn, reason);
 		bt_conn_unref(conn);
 	}
 }
 
-void ble_disconnect(enum device_kind kind)
+void ble_disconnect(uint8_t slot)
 {
-	disconnect(kind, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+	disconnect(slot, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 }
 
-void ble_power_off(enum device_kind kind)
+void ble_power_off(uint8_t slot)
 {
-	disconnect(kind, BT_HCI_ERR_REMOTE_POWER_OFF);
+	disconnect(slot, BT_HCI_ERR_REMOTE_POWER_OFF);
 }
 
 static void on_written(struct bt_hogp *h, struct bt_hogp_rep_info *rep, uint8_t err)
@@ -1022,9 +1029,9 @@ static void on_written(struct bt_hogp *h, struct bt_hogp_rep_info *rep, uint8_t 
 	ARG_UNUSED(err);
 }
 
-int ble_write_report(enum device_kind kind, uint8_t report_id, const uint8_t *data, uint8_t len)
+int ble_write_report(uint8_t slot, uint8_t report_id, const uint8_t *data, uint8_t len)
 {
-	struct bt_hogp *hogp = &links[kind].hogp;
+	struct bt_hogp *hogp = &links[slot].hogp;
 	struct bt_hogp_rep_info *rep;
 
 	if (!bt_hogp_ready_check(hogp)) {
@@ -1048,9 +1055,9 @@ bool ble_bond_secure(const uint8_t addr[BTPOLICY_ADDR_LEN])
 	return keys && (keys->flags & BT_KEYS_SC);
 }
 
-int ble_rssi(enum device_kind kind, int8_t *dbm)
+int ble_rssi(uint8_t slot, int8_t *dbm)
 {
-	struct bt_conn *conn = links[kind].conn;
+	struct bt_conn *conn = link_conn(&links[slot]);
 	struct bt_hci_cp_read_rssi *cp;
 	struct net_buf *buf;
 	struct net_buf *rsp;
@@ -1058,7 +1065,12 @@ int ble_rssi(enum device_kind kind, int8_t *dbm)
 	int8_t rssi;
 	int err;
 
-	if (!conn || bt_hci_get_conn_handle(conn, &handle)) {
+	if (!conn) {
+		return -ENOTCONN;
+	}
+	err = bt_hci_get_conn_handle(conn, &handle);
+	bt_conn_unref(conn);
+	if (err) {
 		return -ENOTCONN;
 	}
 	buf = bt_hci_cmd_alloc(K_MSEC(10));

@@ -89,6 +89,31 @@ bool reports_keys_empty(const struct report *r)
 	return true;
 }
 
+bool reports_pressed(const struct report *r, size_t n)
+{
+	for (size_t i = 0; i < n; i++) {
+		switch (r[i].kind) {
+		case REPORT_KEYBOARD:
+			if (!reports_keys_empty(&r[i])) {
+				return true;
+			}
+			break;
+		case REPORT_MOUSE:
+			if (r[i].mouse.buttons || r[i].mouse.x || r[i].mouse.y || r[i].mouse.wheel ||
+			    r[i].mouse.pan) {
+				return true;
+			}
+			break;
+		default:
+			if (r[i].usage != 0) {
+				return true;
+			}
+			break;
+		}
+	}
+	return false;
+}
+
 static struct report_usb to_usb(const struct report *r)
 {
 	switch (r->kind) {
@@ -252,12 +277,34 @@ unsigned reports_update(struct reports *r, const struct report *next, struct rep
 	return queue(r, &out, stamp);
 }
 
+unsigned reports_release(struct reports *r, enum report_kind kind)
+{
+	const struct report released = {.kind = kind};
+
+	return reports_update(r, &released, REPORT_UNSTAMPED);
+}
+
+unsigned reports_release_device(struct reports *r, enum device_kind kind, bool holds_consumer)
+{
+	unsigned changed;
+
+	if (kind == DEVICE_KIND_MOUSE) {
+		changed = reports_release(r, REPORT_MOUSE);
+		if (holds_consumer) {
+			changed |= reports_release(r, REPORT_CONSUMER);
+		}
+		return changed;
+	}
+	changed = reports_release(r, REPORT_KEYBOARD);
+	changed |= reports_release(r, REPORT_CONSUMER);
+	changed |= reports_release(r, REPORT_SYSTEM);
+	return changed;
+}
+
 void reports_release_all(struct reports *r)
 {
 	for (int kind = 0; kind < REPORT_KINDS; kind++) {
-		struct report released = {.kind = kind};
-
-		reports_update(r, &released, REPORT_UNSTAMPED);
+		reports_release(r, kind);
 	}
 }
 

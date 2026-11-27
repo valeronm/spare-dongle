@@ -35,7 +35,7 @@ static enum btpair_state btpair_state(const struct btpair *p, uint32_t now_ms)
 	if (!pairwin_is_open(&p->window, now_ms)) {
 		return BTPAIR_CLOSED;
 	}
-	if (pairwin_holder(&p->window) != DEVICE_NO_KIND) {
+	if (pairwin_holder(&p->window) != DEVICE_NO_SLOT) {
 		return BTPAIR_PASSKEY;
 	}
 	return has_pick(p) ? BTPAIR_PICKED : BTPAIR_PICKING;
@@ -46,24 +46,23 @@ bool btpair_is_open(const struct btpair *p, uint32_t now_ms)
 	return btpair_state(p, now_ms) != BTPAIR_CLOSED;
 }
 
-enum btpolicy_want btpair_wants(struct btpair *p, const struct btpolicy *policy,
-				const struct btpolicy_advert *a, uint32_t now_ms)
+struct btpolicy_choice btpair_wants(struct btpair *p, const struct btpolicy *policy,
+				    const struct btpolicy_advert *a, uint32_t now_ms)
 {
 	enum btpair_state state = btpair_state(p, now_ms);
-	enum btpolicy_want want =
-		btpolicy_wants(policy, a, state != BTPAIR_CLOSED, now_ms);
+	struct btpolicy_choice choice = btpolicy_wants(policy, a, state != BTPAIR_CLOSED, now_ms);
 
-	if (a->stored || want == BTPOLICY_IGNORE) {
-		return want;
+	if (a->stored || choice.want == BTPOLICY_IGNORE) {
+		return choice;
 	}
 	if (state == BTPAIR_PICKING) {
 		btseen_heard(&p->seen, a, now_ms);
-		return BTPOLICY_IGNORE;
+		return BTPOLICY_CHOICE_IGNORE;
 	}
 	if (memcmp(p->picked.addr, a->addr, BTPOLICY_ADDR_LEN) != 0) {
-		return BTPOLICY_IGNORE;
+		return BTPOLICY_CHOICE_IGNORE;
 	}
-	return want;
+	return choice;
 }
 
 size_t btpair_heard(const struct btpair *p, uint32_t now_ms, struct diag_heard out[BTSEEN_MAX])
@@ -82,10 +81,10 @@ bool btpair_pick(struct btpair *p, const uint8_t addr[BTPOLICY_ADDR_LEN], uint32
 	return true;
 }
 
-bool btpair_passkey_awaited(struct btpair *p, enum device_kind kind, uint32_t passkey, bool clicked,
+bool btpair_passkey_awaited(struct btpair *p, uint8_t slot, uint32_t passkey, bool clicked,
 			    const char *name, uint32_t now_ms)
 {
-	if (!pairwin_hold(&p->window, kind, now_ms)) {
+	if (!pairwin_hold(&p->window, slot, now_ms)) {
 		return false;
 	}
 	p->passkey.value = passkey;
@@ -112,28 +111,28 @@ static uint8_t entered(uint8_t n, enum btpolicy_keypress keypress)
 	}
 }
 
-bool btpair_keypress(struct btpair *p, enum device_kind kind, enum btpolicy_keypress keypress)
+bool btpair_keypress(struct btpair *p, uint8_t slot, enum btpolicy_keypress keypress)
 {
-	if (pairwin_holder(&p->window) != kind || !p->passkey.clicked) {
+	if (pairwin_holder(&p->window) != slot || !p->passkey.clicked) {
 		return false;
 	}
 	p->passkey.entered = entered(p->passkey.entered, keypress);
 	return true;
 }
 
-void btpair_paired(struct btpair *p, struct btpolicy *policy, enum device_kind kind)
+void btpair_paired(struct btpair *p, struct btpolicy *policy, uint8_t slot)
 {
 	pairwin_close(&p->window);
-	btpolicy_paired(policy, kind);
+	btpolicy_paired(policy, slot);
 }
 
-bool btpair_attempt_failed(struct btpair *p, enum device_kind kind, bool refused, uint32_t now_ms)
+bool btpair_attempt_failed(struct btpair *p, uint8_t slot, bool refused, uint32_t now_ms)
 {
 	if (refused && pairwin_is_open(&p->window, now_ms)) {
 		pairwin_close(&p->window);
 		return true;
 	}
-	return pairwin_end_attempt(&p->window, kind);
+	return pairwin_end_attempt(&p->window, slot);
 }
 
 void btpair_status(const struct btpair *p, uint32_t now_ms, struct diag_status *st)

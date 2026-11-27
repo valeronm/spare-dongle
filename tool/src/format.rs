@@ -490,16 +490,25 @@ pub fn slot_state(s: &Status, slot: &Slot) -> &'static str {
     health_name(slot_health(s, slot))
 }
 
+pub fn slot_connection(slot: &Slot) -> &'static str {
+    health_name(connection_health(slot))
+}
+
 /// A radio that failed to start overrides every slot's own state.
 pub fn slot_health(s: &Status, slot: &Slot) -> LinkHealth {
     if s.radio_failed {
         LinkHealth::RadioFailed
-    } else if slot.connected {
-        LinkHealth::Connected
-    } else if slot.stored {
-        LinkHealth::Waiting
     } else {
-        LinkHealth::NotPaired
+        connection_health(slot)
+    }
+}
+
+fn connection_health(slot: &Slot) -> LinkHealth {
+    match (slot.connected, slot.standby) {
+        (true, false) => LinkHealth::Connected,
+        (true, true) => LinkHealth::Standby,
+        (false, _) if slot.stored => LinkHealth::Waiting,
+        (false, _) => LinkHealth::NotPaired,
     }
 }
 
@@ -519,6 +528,7 @@ fn health_name(health: LinkHealth) -> &'static str {
         LinkHealth::RadioFailed => "the radio failed to start",
         LinkHealth::NotPaired => "not paired",
         LinkHealth::Waiting => "not connected",
+        LinkHealth::Standby => "standby",
         LinkHealth::Connected => "connected",
     }
 }
@@ -529,6 +539,7 @@ pub enum LinkHealth {
     RadioFailed,
     NotPaired,
     Waiting,
+    Standby,
     Connected,
 }
 
@@ -752,11 +763,15 @@ fn event_address(addr: &[u8; EVENT_ADDR_LEN]) -> String {
     address(addr.iter().rev().copied())
 }
 
+fn stored_device<'a>(
+    addr: &[u8; EVENT_ADDR_LEN],
+    stored: &'a [StoredDevice],
+) -> Option<&'a StoredDevice> {
+    stored.iter().find(|d| d.addr[1..] == addr[..])
+}
+
 fn stored_name(addr: &[u8; EVENT_ADDR_LEN], stored: &[StoredDevice]) -> Option<String> {
-    stored
-        .iter()
-        .find(|d| d.addr[1..] == addr[..])
-        .and_then(|d| d.name.clone())
+    stored_device(addr, stored).and_then(|d| d.name.clone())
 }
 
 /// A NuPhy event's address lacks the first byte of the keyboard's ID.
@@ -780,14 +795,20 @@ fn event_device(
     format!("{device}, address {last:02x}")
 }
 
-fn event_kind(e: &Event, s: &Status) -> &'static str {
-    e.slot.map_or("device", |slot| s.kind_name(slot))
+/// A Bluetooth slot's kind is that of the device it holds now, not of the one an older event is
+/// about.
+fn event_kind(e: &Event, s: &Status, stored: &[StoredDevice]) -> &'static str {
+    let addr = e.detail.ok().and_then(|d| d.addr());
+    match addr.and_then(|addr| stored_device(&addr, stored)) {
+        Some(d) => d.kind.name(),
+        None => e.slot.map_or("device", |slot| s.kind_name(slot)),
+    }
 }
 
 /// `s` is the status the event's slot is looked up in.
 pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String {
     let protocol = s.protocol();
-    let kind = event_kind(e, s);
+    let kind = event_kind(e, s, stored);
     let device = |addr: &[u8; EVENT_ADDR_LEN]| event_device(addr, stored, protocol);
     match e.detail {
         Ok(Detail::Boot { reset_cause }) => {
@@ -927,6 +948,7 @@ pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String 
             "could not forget {kind} {}: deleting its pairing failed",
             device(&addr)
         ),
+        Ok(Detail::BtActive { addr }) => format!("active {kind} {}", device(&addr)),
         Ok(Detail::BtForgotten { addr, cause }) => {
             let slot_kind = e.slot.and_then(|slot| s.slot(slot)).map(|slot| slot.kind);
             let why = match (Forgotten::from_code(cause), slot_kind) {
@@ -1033,8 +1055,8 @@ mod tests {
     #[test]
     fn a_flash_of_firmware_in_a_newer_protocol_says_to_update_the_tool() {
         assert_eq!(
-            flashed(read_status(&status_in_protocol(7)).unwrap()),
-            "flashed; the dongle speaks diagnostic protocol 7, this tool 6; install the \
+            flashed(read_status(&status_in_protocol(8)).unwrap()),
+            "flashed; the dongle speaks diagnostic protocol 8, this tool 7; install the \
              spare-dongle tool from the firmware's release"
         );
     }
@@ -1096,6 +1118,10 @@ mod tests {
             "could not forget keyboard EB:BB:49:A6:9A:D9: deleting its pairing failed"
         );
         assert_eq!(
+            describe_event(&at(EventType::BtActive, 0), &bt, &[]),
+            "active keyboard EB:BB:49:A6:9A:D9"
+        );
+        assert_eq!(
             describe_event(&at(EventType::BtForgotten, 7), &bt, &[]),
             "forgot keyboard EB:BB:49:A6:9A:D9, cause 7"
         );
@@ -1117,6 +1143,28 @@ mod tests {
         assert_eq!(
             describe_event(&at(EventType::BtBondLost), &bt, &stored),
             "keyboard MX Keys lost its pairing; forget it and pair again"
+        );
+    }
+
+    #[test]
+    fn names_an_event_by_the_stored_device_kind_not_the_slot_now() {
+        let bt = status_of(Protocol::Bluetooth);
+        let stored = [StoredDevice {
+            addr: [1, 0xd9, 0x9a, 0xa6, 0x49, 0xbb, 0xeb],
+            kind: DeviceKind::Mouse,
+            name: Some("MX Master 3S".into()),
+            slot: None,
+            pairing: None,
+        }];
+        let at = |kind| event(kind, 0xeb, 0xbb, 0, 0x49a6_9ad9);
+        assert_eq!(bt.kind_name(0), "keyboard");
+        assert_eq!(
+            describe_event(&at(EventType::BtActive), &bt, &stored),
+            "active mouse MX Master 3S"
+        );
+        assert_eq!(
+            describe_event(&at(EventType::BtConnected), &bt, &[]),
+            "keyboard EB:BB:49:A6:9A:D9 connected"
         );
     }
 
@@ -1914,6 +1962,17 @@ mod tests {
         }
         assert_eq!(state_name(&s), "not paired");
         assert!(matches!(link_health(&s), LinkHealth::NotPaired));
+    }
+
+    #[test]
+    fn a_connected_slot_on_standby_is_named_so() {
+        let s = status_of(Protocol::Bluetooth);
+        let mut slot = s.slots[0];
+        slot.connected = true;
+        slot.standby = true;
+        assert_eq!(slot_state(&s, &slot), "standby");
+        slot.standby = false;
+        assert_eq!(slot_state(&s, &slot), "connected");
     }
 
     #[test]

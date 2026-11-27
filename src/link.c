@@ -57,7 +57,7 @@ static uint8_t own_slot_channel(const struct link *l)
 static void go_idle(struct link *l, uint32_t now_ms, struct link_out *out)
 {
 	/* A keyboard holds the window only while it pairs. */
-	out->window_closed |= pairwin_end_attempt(&l->window, DEVICE_KIND_KEYBOARD);
+	out->window_closed |= pairwin_end_attempt(&l->window, 0);
 	l->state = LINK_STATE_IDLE;
 	l->suspends_sent = 0;
 	l->slot_start_ms = now_ms;
@@ -111,7 +111,7 @@ void link_forget(struct link *l, uint32_t now_ms, struct link_out *out)
 	l->host_leds = kept.host_leds;
 	l->host_suspended = kept.host_suspended;
 	l->window = kept.window;
-	out->window_closed |= pairwin_end_attempt(&l->window, DEVICE_KIND_KEYBOARD);
+	out->window_closed |= pairwin_end_attempt(&l->window, 0);
 }
 
 void link_record_of(const struct link *l, struct link_record *out)
@@ -148,7 +148,7 @@ static void on_pairing_message(struct link *l, const struct nuphy_msg *m, uint32
 	}
 	if (m->kind == NUPHY_PAIR_REQUEST) {
 		if (l->state == LINK_STATE_IDLE &&
-		    pairwin_hold(&l->window, DEVICE_KIND_KEYBOARD, now_ms)) {
+		    pairwin_hold(&l->window, 0, now_ms)) {
 			memcpy(l->requester_id, m->ids.keyboard, NUPHY_ID_LEN);
 			l->last_rx_ms = now_ms;
 			if (next_offer_ready(l, now_ms)) {

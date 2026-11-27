@@ -84,7 +84,7 @@ static void test_the_holders_attempt_ending_closes_the_window_without_running_ou
 	pairwin_hold(&w, DEVICE_KIND_KEYBOARD, 0);
 	CHECK(pairwin_end_attempt(&w, DEVICE_KIND_KEYBOARD));
 	CHECK(!pairwin_is_open(&w, 1));
-	CHECK_EQ(pairwin_holder(&w), DEVICE_NO_KIND);
+	CHECK_EQ(pairwin_holder(&w), DEVICE_NO_SLOT);
 	CHECK(!pairwin_ran_out(&w, DIAG_PAIR_WINDOW_MS));
 	CHECK(!pairwin_end_attempt(&w, DEVICE_KIND_KEYBOARD));
 }
@@ -109,7 +109,7 @@ static void test_closing_ends_a_held_window(void)
 	pairwin_hold(&w, DEVICE_KIND_KEYBOARD, 0);
 	pairwin_close(&w);
 	CHECK(!pairwin_is_open(&w, 1));
-	CHECK_EQ(pairwin_holder(&w), DEVICE_NO_KIND);
+	CHECK_EQ(pairwin_holder(&w), DEVICE_NO_SLOT);
 }
 
 static void test_opening_again_drops_the_hold(void)
@@ -119,7 +119,7 @@ static void test_opening_again_drops_the_hold(void)
 	pairwin_open(&w, DIAG_PAIR_WINDOW_MS, 0);
 	pairwin_hold(&w, DEVICE_KIND_KEYBOARD, 0);
 	pairwin_open(&w, DIAG_PAIR_WINDOW_MS, 1000);
-	CHECK_EQ(pairwin_holder(&w), DEVICE_NO_KIND);
+	CHECK_EQ(pairwin_holder(&w), DEVICE_NO_SLOT);
 	CHECK(!pairwin_is_open(&w, 1000 + DIAG_PAIR_WINDOW_MS));
 }
 
@@ -129,7 +129,7 @@ static void test_holding_a_closed_window_leaves_it_closed(void)
 
 	CHECK(!pairwin_hold(&w, DEVICE_KIND_KEYBOARD, 0));
 	CHECK(!pairwin_is_open(&w, 0));
-	CHECK_EQ(pairwin_holder(&w), DEVICE_NO_KIND);
+	CHECK_EQ(pairwin_holder(&w), DEVICE_NO_SLOT);
 	pairwin_open(&w, DIAG_PAIR_WINDOW_MS, 0);
 	CHECK(!pairwin_hold(&w, DEVICE_KIND_KEYBOARD, DIAG_PAIR_WINDOW_MS));
 	CHECK(!pairwin_is_open(&w, DIAG_PAIR_WINDOW_MS));

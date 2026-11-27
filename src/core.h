@@ -30,7 +30,7 @@ struct core_loop {
 	void (*radio_resumed)(void);
 	/* At most DEVICE_SLOTS. */
 	uint8_t slot_count;
-	/* Fills the kind, stored and ready of each of the slot_count slots. */
+	/* Fills the kind, stored, ready and standby of each of the slot_count slots. */
 	void (*slots)(struct diag_slot *out);
 	/* Fills the protocol's link-wide fields and the slot's signal, last packet and name. */
 	void (*fill_status)(struct diag_status *st, uint8_t slot);
@@ -75,6 +75,9 @@ void core_count_dropped(void);
  * report the dongle makes up. */
 bool core_submit(uint8_t slot, const struct report *r, const uint32_t *received_us);
 void core_release_keys(void);
+/* Releases what the host sees of this device kind's reports without waking it or counting as
+ * input. */
+void core_release_device(enum device_kind kind, bool holds_consumer);
 uint32_t core_usb_retries(void);
 /* Returns true once after each host LED change; *leds always receives the current LEDs. */
 bool core_take_leds(uint8_t *leds);

@@ -139,10 +139,10 @@ fn a_protocol_answers_only_its_commands() {
 fn minutes() -> [Minute; 2] {
     [
         Minute {
-            packets: [7, 300],
+            packets: [7, 300, 0, 0],
             usb_retries: 1,
-            gaps: [9, 3],
-            link_losses: [9, 0],
+            gaps: [9, 3, 0, 0],
+            link_losses: [9, 0, 0, 0],
             rssi: [
                 Rssi {
                     min: -1,
@@ -154,6 +154,8 @@ fn minutes() -> [Minute; 2] {
                     avg: -70,
                     max: -60,
                 },
+                Rssi::default(),
+                Rssi::default(),
             ],
             noise: NoiseRecord {
                 peak: -41,
@@ -163,7 +165,7 @@ fn minutes() -> [Minute; 2] {
             ..Minute::default()
         },
         Minute {
-            link_losses: [0, 1],
+            link_losses: [0, 1, 0, 0],
             ..Minute::default()
         },
     ]
@@ -298,6 +300,24 @@ fn watch_and_devices_survive_a_round_trip() {
 }
 
 #[test]
+fn a_standby_slot_sets_its_flag_bit() {
+    let want = fixture("status-slot1.hex");
+    let mut status = Status::decode(&want).unwrap();
+    assert!(!status.slots[1].standby);
+    status.slots[1].standby = true;
+    let mut out = [0; PAYLOAD_MAX];
+    let n = status.encode(&mut out);
+    let changed: Vec<u8> = want
+        .iter()
+        .zip(&out[..n])
+        .map(|(w, o)| w ^ o)
+        .filter(|&x| x != 0)
+        .collect();
+    assert_eq!(changed, [0x04]);
+    assert_eq!(Status::decode(&out[..n]).unwrap(), status);
+}
+
+#[test]
 fn a_charging_byte_of_no_state_goes_out_as_unknown() {
     let mut status = Status::decode(&fixture("status.hex")).unwrap();
     status.battery = Battery {
@@ -419,6 +439,7 @@ fn every_detail() -> Vec<Detail> {
         Detail::KeyboardForgotten { addr },
         Detail::UnifyingActive { addr },
         Detail::BtNotForgotten { addr },
+        Detail::BtActive { addr },
     ]
 }
 
@@ -433,6 +454,14 @@ fn every_detail_reads_back_from_its_event() {
         let e = d.event(1);
         assert_eq!((e.r#type, e.slot), (d.event_type() as u8, 1), "{d:?}");
         assert_eq!(Detail::of(&e), Ok(d));
+    }
+}
+
+#[test]
+fn every_detail_with_an_address_field_gives_its_address() {
+    for d in every_detail() {
+        let carries = format!("{d:?}").contains("addr:");
+        assert_eq!(d.addr(), carries.then_some([1, 2, 3, 4, 5, 6]), "{d:?}");
     }
 }
 

@@ -26,7 +26,7 @@ each device's signal over time, its latency through the dongle, and the dongle's
 |---|---|---|
 | NuPhy 2.4G, QMK keyboards | [🟢 full](docs/nuphy.md) | [❌ no protection](docs/nuphy.md#security) |
 | Logi Bolt | [🟡 partial](docs/bolt.md): Bolt mice, in Bluetooth mode | [🟢 safe even during pairing](docs/bolt.md#security) |
-| Bluetooth LE | [🟡 partial](docs/bluetooth.md): one keyboard and one mouse at a time | [🔴 to 🟢, by how the device paired](docs/bluetooth.md#security) |
+| Bluetooth LE | [🟡 partial](docs/bluetooth.md): up to four devices at once | [🔴 to 🟢, by how the device paired](docs/bluetooth.md#security) |
 | Logitech Unifying | [🟡 partial](docs/unifying.md): up to six keyboards, one at a time | [🔴 weak at any time](docs/unifying.md#security) |
 | NuPhy 2.4G, NuPhyIO keyboards | 🔴 none yet | ❌ no protection |
 | Bluetooth Classic | ❌ not supported: the nRF52840 has no Classic radio | 🔴 to 🟢, by how the device paired |
@@ -125,14 +125,15 @@ low power while pairing. If the link gets worse after the Wi-Fi around you chang
 **Unifying:** switch the keyboard off and on. On a keyboard with Easy-Switch keys, such as the MX
 Keys, first hold an Easy-Switch key until it blinks fast.
 
-**Bluetooth:** the dongle connects one keyboard and one mouse at a time, or either alone. Run
+**Bluetooth:** the dongle keeps up to four keyboards and mice connected at once, and the PC hears
+one keyboard and one mouse: the only one of its kind connected, or else the one last used. Run
 `spare-dongle pair` and put the keyboard or mouse in Bluetooth pairing mode. The tool lists the
 devices it hears in pairing mode, each keeping its number; type the number of yours. If the device
 asks for a passkey, the tool prints six digits to type on the keyboard and press Enter, or for a
 Logi Bolt mouse ten clicks. A keyboard with no passkey step, such as the Air75 V2, and most mice
-pair without one. Running `pair` again after a failed attempt gives a new passkey.
-Opening pairing keeps the connected devices, and a device that pairs takes the place of the
-connected one of its kind.
+pair without one. Running `pair` again after a failed attempt gives a new passkey. Opening pairing
+keeps the connected devices, and a device that pairs with four connected takes the place of the
+standby one used longest ago.
 [docs/tool.md](docs/tool.md#bluetooth-mode) covers the stored devices.
 
 ## LED

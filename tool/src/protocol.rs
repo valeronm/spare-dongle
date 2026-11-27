@@ -203,6 +203,9 @@ pub struct Slot {
     pub stored: bool,
     /// Whether its device is connected and ready.
     pub connected: bool,
+    /// Whether its device is connected but the PC does not hear it, another device of its kind
+    /// being active.
+    pub standby: bool,
 }
 
 impl Slot {
@@ -519,6 +522,7 @@ pub fn read_status(payload: &[u8]) -> Result<Result<Status, VersionMismatch>> {
                 kind: read_kind(s.kind)?,
                 stored: s.stored,
                 connected: s.ready,
+                standby: s.standby,
             })
         })
         .collect::<Result<_>>()?;
@@ -1215,6 +1219,7 @@ pub(crate) mod tests {
                     kind: DeviceKind::Keyboard,
                     stored: true,
                     connected: true,
+                    standby: false,
                 }],
                 device: SlotStatus {
                     slot: 0,
@@ -1310,11 +1315,13 @@ pub(crate) mod tests {
                         kind: DeviceKind::Keyboard,
                         stored: true,
                         connected: false,
+                        standby: false,
                     },
                     Slot {
                         kind: DeviceKind::Mouse,
                         stored: true,
                         connected: true,
+                        standby: false,
                     },
                 ],
                 device: SlotStatus {
@@ -1380,6 +1387,7 @@ pub(crate) mod tests {
             kind,
             stored,
             connected,
+            standby: false,
         }
     }
 
@@ -1608,8 +1616,8 @@ pub(crate) mod tests {
     #[test]
     fn an_older_dongle_is_told_to_take_this_tools_firmware() {
         assert_eq!(
-            refusal(5),
-            "the dongle speaks diagnostic protocol 5, this tool 6; flash the firmware from this \
+            refusal(6),
+            "the dongle speaks diagnostic protocol 6, this tool 7; flash the firmware from this \
              tool's release with `spare-dongle flash`"
         );
     }
@@ -1617,8 +1625,8 @@ pub(crate) mod tests {
     #[test]
     fn a_newer_dongle_is_told_to_take_its_releases_tool() {
         assert_eq!(
-            refusal(7),
-            "the dongle speaks diagnostic protocol 7, this tool 6; install the spare-dongle tool \
+            refusal(8),
+            "the dongle speaks diagnostic protocol 8, this tool 7; install the spare-dongle tool \
              from the firmware's release"
         );
     }

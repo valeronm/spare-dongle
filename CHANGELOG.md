@@ -12,8 +12,15 @@
   so two devices' boxes fit side by side in a narrower terminal.
 - In Bluetooth mode a keyboard that reconnects on its own while the PC sleeps no longer wakes it;
   a key press or mouse movement does.
+- In Bluetooth mode up to four stored devices stay connected at once, and the PC hears one keyboard
+  and one mouse: the only one of its kind connected, or else the one last used.
+- `status` and the live view mark a connected device the PC does not hear as standby, the live view
+  dimmed, and the events list each switch from one device to another.
+- A Bluetooth mouse keeps its full report rate beside a keyboard or mouse that asks for no
+  connection interval, such as the Air75 V2, where it moved in jerks.
 - A Bluetooth mouse whose report flags disagree with its report types, such as the Mi Silent Mouse,
   connects instead of dropping its link after every setup.
+- The diagnostic protocol is now 7, so the 0.7.0 tool and earlier can only `flash` new firmware.
 
 ## [0.7.0] - 2026-11-26
 

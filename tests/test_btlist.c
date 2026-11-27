@@ -177,45 +177,6 @@ static void a_bond_without_an_entry_is_listed_as_a_keyboard(void)
 	CHECK_EQ(btlist_kind(&l, mouse), DEVICE_KIND_KEYBOARD);
 }
 
-static void a_kind_is_stored_once_a_device_of_it_is_listed(void)
-{
-	struct btlist l = {0};
-
-	CHECK(!btlist_has_kind(&l, DEVICE_KIND_KEYBOARD));
-	btlist_paired(&l, mouse, DEVICE_KIND_MOUSE, false, false, "");
-	CHECK(btlist_has_kind(&l, DEVICE_KIND_MOUSE));
-	CHECK(!btlist_has_kind(&l, DEVICE_KIND_KEYBOARD));
-	btlist_paired(&l, mx, DEVICE_KIND_KEYBOARD, true, false, "");
-	CHECK(btlist_has_kind(&l, DEVICE_KIND_KEYBOARD));
-	btlist_remove(&l, mouse);
-	CHECK(!btlist_has_kind(&l, DEVICE_KIND_MOUSE));
-}
-
-static bool latest_is(const struct btlist *l, enum device_kind kind, const uint8_t *addr,
-		      const char *name)
-{
-	const struct btlist_entry *e = btlist_latest(l, kind);
-
-	return e != NULL && is(e, addr, name);
-}
-
-static void the_latest_of_a_kind_is_the_most_recently_connected(void)
-{
-	struct btlist l = {0};
-
-	CHECK(btlist_latest(&l, DEVICE_KIND_KEYBOARD) == NULL);
-	btlist_paired(&l, mouse, DEVICE_KIND_MOUSE, false, false, "");
-	btlist_connected(&l, mouse, "MX Master 3S");
-	btlist_paired(&l, air, DEVICE_KIND_KEYBOARD, false, false, "");
-	btlist_connected(&l, air, "Air75");
-	btlist_paired(&l, mx, DEVICE_KIND_KEYBOARD, true, false, "");
-	btlist_connected(&l, mx, "MX Keys");
-	CHECK(latest_is(&l, DEVICE_KIND_KEYBOARD, mx, "MX Keys"));
-	btlist_connected(&l, air, "Air75");
-	CHECK(latest_is(&l, DEVICE_KIND_KEYBOARD, air, "Air75"));
-	CHECK(latest_is(&l, DEVICE_KIND_MOUSE, mouse, "MX Master 3S"));
-}
-
 static void eight_devices_are_stored(void)
 {
 	struct btlist l = {0};
@@ -243,6 +204,15 @@ static void an_entry_is_found_by_its_address(void)
 	CHECK(btlist_entry(&l, old) == NULL);
 }
 
+static void no_address_is_not_in_the_list(void)
+{
+	struct btlist l = {0};
+
+	btlist_connected(&l, mx, "MX Keys");
+	CHECK(btlist_entry(&l, NULL) == NULL);
+	CHECK(!btlist_has(&l, NULL));
+}
+
 int main(void)
 {
 	RUN(a_connecting_keyboard_moves_to_the_front_with_its_name);
@@ -253,13 +223,12 @@ int main(void)
 	RUN(reconciling_drops_entries_without_a_bond_and_adds_bonds_without_an_entry);
 	RUN(a_full_list_takes_no_more_devices);
 	RUN(only_a_listed_keyboard_is_in_the_list);
-	RUN(the_latest_of_a_kind_is_the_most_recently_connected);
 	RUN(eight_devices_are_stored);
 	RUN(pairing_records_the_kind);
 	RUN(pairing_in_bolt_mode_reports_it);
 	RUN(a_bond_without_an_entry_is_listed_as_a_keyboard);
-	RUN(a_kind_is_stored_once_a_device_of_it_is_listed);
 	RUN(an_entry_is_found_by_its_address);
+	RUN(no_address_is_not_in_the_list);
 	RUN(pairing_records_the_name_the_device_gave);
 	RUN(pairing_with_no_name_keeps_the_stored_one);
 	return TEST_EXIT();

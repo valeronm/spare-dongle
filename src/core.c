@@ -160,6 +160,15 @@ void core_release_keys(void)
 	unlock_reports(ALL_IFACES);
 }
 
+void core_release_device(enum device_kind kind, bool holds_consumer)
+{
+	unsigned changed;
+
+	lock_reports();
+	changed = reports_release_device(&reports, kind, holds_consumer);
+	unlock_reports(changed);
+}
+
 uint32_t core_usb_retries(void)
 {
 	return (uint32_t)atomic_get(&usb_retries);

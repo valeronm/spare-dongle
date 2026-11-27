@@ -118,11 +118,7 @@ fn slot_rows(s: &Status, slot: &Slot, d: &SlotStatus) -> Vec<(&'static str, Stri
         _ => (slot.kind.name(), String::new()),
     };
     let device = if slot.holds_device() {
-        let state = if slot.connected {
-            "connected"
-        } else {
-            "not connected"
-        };
+        let state = format::slot_connection(slot);
         let name = joined(&name_parts(
             format::shown_name(d.name.as_deref()),
             d.pairing.is_some_and(|p| p.bolt),
@@ -806,6 +802,16 @@ mod tests {
         );
         let link = lines.iter().find(|l| l.starts_with("link")).unwrap();
         assert!(!link.contains("channel"), "{link}");
+    }
+
+    #[test]
+    fn a_connected_bluetooth_keyboard_on_standby_is_shown_so() {
+        let mut s = status_of(Protocol::Bluetooth);
+        s.slots[0].connected = true;
+        s.slots[0].standby = true;
+        let lines = lines(&s);
+        let keyboard = lines.iter().find(|l| l.starts_with("keyboard")).unwrap();
+        assert!(keyboard.ends_with(", standby"), "{keyboard}");
     }
 
     #[test]

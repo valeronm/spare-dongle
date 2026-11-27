@@ -155,9 +155,18 @@ fn status_row(label: &str, spans: impl IntoIterator<Item = Span<'static>>) -> Li
     Line::from_iter(std::iter::once(Span::raw(status_label(label))).chain(spans))
 }
 
+fn link_style(health: LinkHealth) -> Style {
+    let style = Style::new().fg(link_color(health));
+    if health == LinkHealth::Standby {
+        style.add_modifier(Modifier::DIM)
+    } else {
+        style
+    }
+}
+
 fn link_color(health: LinkHealth) -> Color {
     match health {
-        LinkHealth::Connected => Color::Green,
+        LinkHealth::Connected | LinkHealth::Standby => Color::Green,
         LinkHealth::Waiting => Color::Yellow,
         LinkHealth::NotPaired | LinkHealth::RadioFailed => Color::Red,
     }
@@ -165,7 +174,7 @@ fn link_color(health: LinkHealth) -> Color {
 
 fn link_icon(health: LinkHealth) -> char {
     match health {
-        LinkHealth::Connected => '●',
+        LinkHealth::Connected | LinkHealth::Standby => '●',
         LinkHealth::Waiting => '○',
         LinkHealth::NotPaired => '·',
         LinkHealth::RadioFailed => '⚠',
@@ -1478,13 +1487,14 @@ fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<
     let Some(s) = status else {
         return Vec::new();
     };
-    let (state, health) = match device.and_then(|d| s.slot(d.slot)) {
+    let slot = device.and_then(|d| s.slot(d.slot));
+    let (state, health) = match slot {
         Some(slot) => (slot_state(s, slot), slot_health(s, slot)),
         None => (state_name(s), link_health(s)),
     };
     let mut link = vec![Span::styled(
         format!("{} {state}", link_icon(health)),
-        Style::new().fg(link_color(health)),
+        link_style(health),
     )];
     if let Some(d) = device
         && let Some(dbm) = d.signal.filter(|_| s.connected(d.slot))
@@ -3807,6 +3817,29 @@ mod tests {
             inside_box(&rows[DEVICE_TITLE_ROW + 1]),
             "link      ● connected   -58 dBm"
         );
+    }
+
+    #[test]
+    fn a_standby_device_is_dimmed_beside_the_active_one() {
+        let link = |active: bool| {
+            let mut s = status_of(Protocol::Bluetooth);
+            s.slots[0].connected = true;
+            s.slots[0].standby = !active;
+            s.device.signal = None;
+            let terminal = status_box(&s);
+            let state = if active { "connected" } else { "standby" };
+            cell_at(
+                &terminal,
+                DEVICE_TITLE_ROW as u16 + 1,
+                &format!("● {state}"),
+            )
+        };
+        let standby = link(false);
+        assert_eq!(standby.fg, Color::Green);
+        assert!(standby.modifier.contains(Modifier::DIM));
+        let active = link(true);
+        assert_eq!(active.fg, Color::Green);
+        assert!(!active.modifier.contains(Modifier::DIM));
     }
 
     #[test]

@@ -36,7 +36,7 @@ static void start(void)
 
 static enum btpolicy_want wants(const struct btpolicy_advert *a, uint32_t now_ms)
 {
-	return btpair_wants(&pair, &policy, a, now_ms);
+	return btpair_wants(&pair, &policy, a, now_ms).want;
 }
 
 static struct diag_status status(uint32_t now_ms)
@@ -159,16 +159,16 @@ static void a_clicked_passkey_holds_the_window_and_counts_the_clicks(void)
 
 	start();
 	pick(&mouse, 0);
-	CHECK(btpair_passkey_awaited(&pair, DEVICE_KIND_MOUSE, 623, true, "MX Master 3S", 100));
-	CHECK(btpair_keypress(&pair, DEVICE_KIND_MOUSE, BTPOLICY_KEY_ENTERED));
-	CHECK(!btpair_keypress(&pair, DEVICE_KIND_KEYBOARD, BTPOLICY_KEY_ENTERED));
+	CHECK(btpair_passkey_awaited(&pair, 0, 623, true, "MX Master 3S", 100));
+	CHECK(btpair_keypress(&pair, 0, BTPOLICY_KEY_ENTERED));
+	CHECK(!btpair_keypress(&pair, 1, BTPOLICY_KEY_ENTERED));
 	st = status(10 * DIAG_PICK_WINDOW_MS);
 	CHECK_EQ(st.pairing_window, DIAG_WINDOW_PASSKEY_CLICKED);
 	CHECK_EQ(st.passkey, 623);
 	CHECK_EQ(st.passkey_entered, 1);
 	CHECK(named(st.pairing_name, "MX Master 3S"));
-	CHECK(!btpair_attempt_failed(&pair, DEVICE_KIND_KEYBOARD, false, 10 * DIAG_PICK_WINDOW_MS));
-	CHECK(btpair_attempt_failed(&pair, DEVICE_KIND_MOUSE, false, 10 * DIAG_PICK_WINDOW_MS));
+	CHECK(!btpair_attempt_failed(&pair, 1, false, 10 * DIAG_PICK_WINDOW_MS));
+	CHECK(btpair_attempt_failed(&pair, 0, false, 10 * DIAG_PICK_WINDOW_MS));
 	CHECK_EQ(status(10 * DIAG_PICK_WINDOW_MS).pairing_window, DIAG_WINDOW_CLOSED);
 }
 
@@ -179,7 +179,7 @@ static void the_pick_holds_while_the_picked_device_waits_for_its_passkey(void)
 
 	start();
 	pick(&keyboard, 0);
-	btpair_passkey_awaited(&pair, DEVICE_KIND_KEYBOARD, 123456, false, "MX Keys", 0);
+	btpair_passkey_awaited(&pair, 0, 123456, false, "MX Keys", 0);
 	CHECK_EQ(wants(&mouse, 0), BTPOLICY_IGNORE);
 }
 
@@ -190,8 +190,8 @@ static void a_typed_passkey_counts_no_keypresses(void)
 
 	start();
 	pick(&keyboard, 0);
-	CHECK(btpair_passkey_awaited(&pair, DEVICE_KIND_KEYBOARD, 123456, false, "MX Keys", 0));
-	CHECK(!btpair_keypress(&pair, DEVICE_KIND_KEYBOARD, BTPOLICY_KEY_ENTERED));
+	CHECK(btpair_passkey_awaited(&pair, 0, 123456, false, "MX Keys", 0));
+	CHECK(!btpair_keypress(&pair, 0, BTPOLICY_KEY_ENTERED));
 	st = status(0);
 	CHECK_EQ(st.pairing_window, DIAG_WINDOW_PASSKEY_AWAITED);
 	CHECK_EQ(st.passkey, 123456);
@@ -201,7 +201,7 @@ static void a_typed_passkey_counts_no_keypresses(void)
 static void a_passkey_in_a_closed_window_is_not_held(void)
 {
 	start();
-	CHECK(!btpair_passkey_awaited(&pair, DEVICE_KIND_KEYBOARD, 123456, false, "MX Keys", 0));
+	CHECK(!btpair_passkey_awaited(&pair, 0, 123456, false, "MX Keys", 0));
 	CHECK_EQ(status(0).pairing_window, DIAG_WINDOW_CLOSED);
 }
 
@@ -211,9 +211,9 @@ static uint8_t entered_after(const enum btpolicy_keypress *presses, size_t n)
 
 	start();
 	pick(&mouse, 0);
-	btpair_passkey_awaited(&pair, DEVICE_KIND_MOUSE, 623, true, "", 0);
+	btpair_passkey_awaited(&pair, 0, 623, true, "", 0);
 	for (size_t i = 0; i < n; i++) {
-		btpair_keypress(&pair, DEVICE_KIND_MOUSE, presses[i]);
+		btpair_keypress(&pair, 0, presses[i]);
 	}
 	return status(0).passkey_entered;
 }
@@ -252,10 +252,10 @@ static void a_kept_pairing_closes_the_window(void)
 
 	start();
 	pick(&keyboard, 0);
-	btpolicy_connecting(&policy, &keyboard);
-	btpair_paired(&pair, &policy, DEVICE_KIND_KEYBOARD);
+	btpolicy_connecting(&policy, 0, &keyboard);
+	btpair_paired(&pair, &policy, 0);
 	CHECK_EQ(status(0).pairing_window, DIAG_WINDOW_CLOSED);
-	CHECK_EQ(btpolicy_security_failed(&policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_KEY_MISSING),
+	CHECK_EQ(btpolicy_security_failed(&policy, 0, BTPOLICY_FAILURE_KEY_MISSING),
 		 BTPOLICY_BOND_LOST);
 }
 
@@ -265,12 +265,12 @@ static void a_refusal_closes_the_window(void)
 
 	start();
 	pick(&keyboard, 0);
-	btpolicy_connecting(&policy, &keyboard);
-	btpolicy_security_failed(&policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_REFUSAL);
-	CHECK(btpair_attempt_failed(&pair, DEVICE_KIND_KEYBOARD, true, 0));
+	btpolicy_connecting(&policy, 0, &keyboard);
+	btpolicy_security_failed(&policy, 0, BTPOLICY_FAILURE_REFUSAL);
+	CHECK(btpair_attempt_failed(&pair, 0, true, 0));
 	CHECK_EQ(status(0).pairing_window, DIAG_WINDOW_CLOSED);
-	CHECK(!btpair_attempt_failed(&pair, DEVICE_KIND_KEYBOARD, true, 0));
-	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 100, false);
+	CHECK(!btpair_attempt_failed(&pair, 0, true, 0));
+	btpolicy_disconnected(&policy, 0, 100, false);
 	CHECK_EQ(wants(&keyboard, 100), BTPOLICY_IGNORE);
 	pick(&keyboard, 200);
 	CHECK_EQ(wants(&keyboard, 200), BTPOLICY_CONNECT);
@@ -282,10 +282,10 @@ static void a_pairing_cut_short_by_a_lost_link_is_not_a_refusal(void)
 
 	start();
 	pick(&keyboard, 0);
-	btpolicy_connecting(&policy, &keyboard);
-	btpolicy_security_failed(&policy, DEVICE_KIND_KEYBOARD, BTPOLICY_FAILURE_LINK);
-	CHECK(!btpair_attempt_failed(&pair, DEVICE_KIND_KEYBOARD, false, 100));
-	btpolicy_disconnected(&policy, DEVICE_KIND_KEYBOARD, 100, false);
+	btpolicy_connecting(&policy, 0, &keyboard);
+	btpolicy_security_failed(&policy, 0, BTPOLICY_FAILURE_LINK);
+	CHECK(!btpair_attempt_failed(&pair, 0, false, 100));
+	btpolicy_disconnected(&policy, 0, 100, false);
 	CHECK_EQ(wants(&keyboard, 100), BTPOLICY_CONNECT);
 }
 
