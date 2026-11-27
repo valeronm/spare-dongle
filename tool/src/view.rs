@@ -21,11 +21,11 @@ use crate::device::{self, Device, Lost, Transport};
 use crate::format::{
     ChannelRole, KEYBOARD_PAIRING, LinkHealth, NOISE_QUESTION, TITLE_SEPARATOR, Tone,
     action_question, battery, bootloader_and_softdevice, bucket_label, channel_role, counted_share,
-    describe_event, device_at, device_lines, forget_question, heard_lines, last_packet, latency,
-    link_health, name_parts, noise_level, noise_ruler, pairing, pairing_how, pairing_picked,
-    passkey_prompt, protocol_security, reset_by, sentence, share, slot_health, slot_state,
-    state_name, status_label, switch_question, uptime, usb_state, version, waiting_device,
-    waits_for_passkey, wall_clock, watch_role, watch_summary,
+    describe_event, device_at, device_lines, forget_question, heard_lines, latency, link_health,
+    name_parts, noise_level, noise_ruler, pairing, pairing_how, pairing_picked, passkey_prompt,
+    protocol_security, reset_by, sentence, share, slot_health, slot_state, state_name,
+    status_label, switch_question, uptime, usb_state, version, waiting_device, waits_for_passkey,
+    wall_clock, watch_role, watch_summary,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -40,7 +40,7 @@ const EVENT_ROWS: usize = 8;
 const CHART_MIN_ROWS: u16 = 5;
 const TIME_AXIS_ROWS: u16 = 1;
 /// The narrowest a slot's status box and chart draw uncut.
-const PANEL_MIN_WIDTH: u16 = 58;
+const PANEL_MIN_WIDTH: u16 = 49;
 const SEPARATOR: &str = "   ";
 /// A link that averaged -70 dBm had no gaps, and gaps followed packets at -78 dBm or weaker.
 const SIGNAL_GOOD_DBM: i8 = -70;
@@ -1487,18 +1487,12 @@ fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<
         Style::new().fg(link_color(health)),
     )];
     if let Some(d) = device
-        && s.signal_shown(d)
+        && let Some(dbm) = d.signal.filter(|_| s.connected(d.slot))
     {
-        if let Some(dbm) = d.signal.filter(|_| s.connected(d.slot)) {
-            link.extend([
-                Span::raw(SEPARATOR),
-                Span::styled(format!("{dbm} dBm"), Style::new().fg(signal_color(dbm))),
-            ]);
-        }
-        link.push(Span::raw(format!(
-            "{SEPARATOR}{}",
-            last_packet(d.last_packet_ms)
-        )));
+        link.extend([
+            Span::raw(SEPARATOR),
+            Span::styled(format!("{dbm} dBm"), Style::new().fg(signal_color(dbm))),
+        ]);
     }
     let mut rows = vec![status_row("link", link)];
     if let Some(p) = device.and_then(|d| d.pairing) {
@@ -2492,11 +2486,16 @@ mod tests {
     #[test]
     fn a_slot_panel_is_as_wide_as_the_view_needs_for_one_slot() {
         let mouse = app_with(closed(mouse_status()));
-        let mut lost = status_of(Protocol::Nuphy);
-        lost.slots[0].connected = false;
-        lost.device.last_packet_ms = Some(3_599_000);
+        let mut failed = status_of(Protocol::Nuphy);
+        failed.radio_failed = true;
+        let mut slow = status_of(Protocol::Nuphy);
+        slow.device.latency = Some(crate::protocol::Latency {
+            average_us: 999_900,
+            max_us: 999_900,
+        });
         let needed = [
-            app_with(closed(lost)),
+            app_with(closed(failed)),
+            app_with(closed(slow)),
             app_with(closed(status_of(Protocol::Nuphy))),
             app_with(closed(status_of(Protocol::Unifying))),
             app_with(closed(status_of(Protocol::Bluetooth))),
@@ -2537,10 +2536,7 @@ mod tests {
         let link = &rows[DEVICE_TITLE_ROW + 1];
         let (keyboard, mouse) = link.split_at(link.find("││").unwrap() + 3);
         assert_eq!(inside_box(keyboard), "link      ○ not connected");
-        assert_eq!(
-            inside_box(mouse),
-            "link      ● connected   -60 dBm   last packet 250 ms ago"
-        );
+        assert_eq!(inside_box(mouse), "link      ● connected   -60 dBm");
         let security = &rows[DEVICE_TITLE_ROW + 2];
         let (keyboard, mouse) = security.split_at(security.find("││").unwrap() + 3);
         assert_eq!(inside_box(keyboard), "");
@@ -3766,10 +3762,7 @@ mod tests {
             "{}",
             rows[4]
         );
-        assert_eq!(
-            inside_box(&rows[5]),
-            "link      ● connected   -71 dBm   last packet 12 ms ago"
-        );
+        assert_eq!(inside_box(&rows[5]), "link      ● connected   -71 dBm");
         assert_eq!(inside_box(&rows[6]), "security  no protection");
         assert_eq!(inside_box(&rows[7]), "latency   0.9 ms average, 4.2 ms max");
         assert!(rows[8].starts_with('└'), "{}", rows[8]);
@@ -3804,29 +3797,27 @@ mod tests {
     }
 
     #[test]
-    fn a_connected_bluetooth_status_box_shows_the_signal_and_last_packet() {
+    fn a_connected_bluetooth_status_box_shows_the_signal() {
         let mut s = status_of(Protocol::Bluetooth);
         s.slots[0].connected = true;
         s.device.signal = Some(-58);
-        s.device.last_packet_ms = Some(400);
         let rows = screen(&status_box(&s));
         assert!(rows[1].starts_with("│dongle"), "{}", rows[1]);
         assert_eq!(
             inside_box(&rows[DEVICE_TITLE_ROW + 1]),
-            "link      ● connected   -58 dBm   last packet 400 ms ago"
+            "link      ● connected   -58 dBm"
         );
     }
 
     #[test]
-    fn a_device_not_connected_shows_its_last_packet_without_a_signal() {
+    fn a_device_not_connected_shows_no_signal() {
         let mut s = status_of(Protocol::Nuphy);
         s.slots[0].connected = false;
         s.device.signal = Some(-85);
-        s.device.last_packet_ms = Some(45_000);
         let rows = screen(&status_box(&s));
         assert_eq!(
             inside_box(&rows[CHANNELS_LINK_ROW]),
-            "link      ○ not connected   last packet 45 s ago"
+            "link      ○ not connected"
         );
     }
 
@@ -3834,7 +3825,6 @@ mod tests {
     fn a_slot_with_nothing_paired_shows_no_signal() {
         let mut s = unpaired(Protocol::Nuphy);
         s.device.signal = Some(-73);
-        s.device.last_packet_ms = Some(45_000);
         let rows = screen(&status_box(&s));
         assert_eq!(
             inside_box(&rows[CHANNELS_LINK_ROW]),
@@ -3843,14 +3833,13 @@ mod tests {
     }
 
     #[test]
-    fn a_status_box_with_no_reading_shows_no_signal_level() {
+    fn a_status_box_with_no_reading_shows_only_the_state() {
         let mut s = status_of(Protocol::Nuphy);
         s.device.signal = None;
-        s.device.last_packet_ms = None;
         let rows = screen(&status_box(&s));
         assert_eq!(
             inside_box(&rows[CHANNELS_LINK_ROW]),
-            "link      ● connected   no packet since boot"
+            "link      ● connected"
         );
     }
 
