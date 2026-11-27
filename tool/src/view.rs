@@ -29,9 +29,9 @@ use crate::format::{
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
-    Action, BUSY_DBM, Counter, Event, HeardDevice, Minute, NOISE_BUCKETS, NoiseChannel, Pairing,
-    PairingWindow, Protocol, Slot, SlotStatus, Status, Step, StoredDevice, Watch, shown_slots,
-    step_channel,
+    Action, BUSY_DBM, Counter, DeviceKind, Event, HeardDevice, Minute, NOISE_BUCKETS, NoiseChannel,
+    Pairing, PairingWindow, Protocol, Slot, SlotStatus, Status, Step, StoredDevice, Watch,
+    shown_slots, step_channel,
 };
 
 const POLL_EVERY: Duration = Duration::from_secs(1);
@@ -40,7 +40,7 @@ const EVENT_ROWS: usize = 8;
 const CHART_MIN_ROWS: u16 = 5;
 const TIME_AXIS_ROWS: u16 = 1;
 /// The narrowest a slot's status box and chart draw uncut.
-const PANEL_MIN_WIDTH: u16 = 56;
+const PANEL_MIN_WIDTH: u16 = 58;
 const SEPARATOR: &str = "   ";
 /// A link that averaged -70 dBm had no gaps, and gaps followed packets at -78 dBm or weaker.
 const SIGNAL_GOOD_DBM: i8 = -70;
@@ -160,6 +160,23 @@ fn link_color(health: LinkHealth) -> Color {
         LinkHealth::Connected => Color::Green,
         LinkHealth::Waiting => Color::Yellow,
         LinkHealth::NotPaired | LinkHealth::RadioFailed => Color::Red,
+    }
+}
+
+fn link_icon(health: LinkHealth) -> char {
+    match health {
+        LinkHealth::Connected => '●',
+        LinkHealth::Waiting => '○',
+        LinkHealth::NotPaired => '·',
+        LinkHealth::RadioFailed => '⚠',
+    }
+}
+
+/// No mouse symbol renders at one cell in every terminal font.
+fn kind_icon(kind: DeviceKind) -> Option<char> {
+    match kind {
+        DeviceKind::Keyboard => Some('⌨'),
+        DeviceKind::Mouse => None,
     }
 }
 
@@ -1362,7 +1379,12 @@ fn toned(text: String, tone: Tone) -> Span<'static> {
 }
 
 fn device_title(s: &Status, d: &SlotStatus) -> Line<'static> {
-    let mut parts = vec![(s.kind_name(d.slot).to_string(), Tone::Plain)];
+    let kind = s.kind_name(d.slot);
+    let kind = match s.slot(d.slot).and_then(|slot| kind_icon(slot.kind)) {
+        Some(icon) => format!("{icon} {kind}"),
+        None => kind.to_string(),
+    };
+    let mut parts = vec![(kind, Tone::Plain)];
     if let Some(name) = &d.name {
         parts.push((TITLE_SEPARATOR.into(), Tone::Plain));
         parts.extend(name_parts(name, d.pairing.is_some_and(|p| p.bolt)));
@@ -1413,7 +1435,10 @@ fn dongle_lines(status: Option<&Status>) -> Vec<Line<'static>> {
     };
     if let Some(label) = pairing {
         dongle.push(Span::raw(SEPARATOR));
-        dongle.push(Span::styled(label, Style::new().fg(Color::Cyan)));
+        dongle.push(Span::styled(
+            format!("◉ {label}"),
+            Style::new().fg(Color::Cyan),
+        ));
     }
     let mut rows = vec![status_row("dongle", dongle)];
     if s.protocol().has_esb() {
@@ -1434,7 +1459,10 @@ fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<
         Some(slot) => (slot_state(s, slot), slot_health(s, slot)),
         None => (state_name(s), link_health(s)),
     };
-    let mut link = vec![Span::styled(state, Style::new().fg(link_color(health)))];
+    let mut link = vec![Span::styled(
+        format!("{} {state}", link_icon(health)),
+        Style::new().fg(link_color(health)),
+    )];
     if let Some(d) = device
         && s.signal_shown(d)
     {
@@ -2382,7 +2410,7 @@ mod tests {
         app
     }
 
-    const KEYBOARD_TITLE: &str = "┌ keyboard · MX Keys ─";
+    const KEYBOARD_TITLE: &str = "┌ ⌨ keyboard · MX Keys ─";
     const MOUSE_TITLE: &str = "┌ mouse · MX Master 3S ─";
     /// In Bluetooth mode, under the dongle box's dongle row.
     const DEVICE_TITLE_ROW: usize = 3;
@@ -2485,10 +2513,10 @@ mod tests {
         let rows = drawn_at(&mut app, 2 * PANEL_MIN_WIDTH, 30);
         let link = &rows[DEVICE_TITLE_ROW + 1];
         let (keyboard, mouse) = link.split_at(link.find("││").unwrap() + 3);
-        assert_eq!(inside_box(keyboard), "link      not connected");
+        assert_eq!(inside_box(keyboard), "link      ○ not connected");
         assert_eq!(
             inside_box(mouse),
-            "link      connected   -60 dBm   last packet 250 ms ago"
+            "link      ● connected   -60 dBm   last packet 250 ms ago"
         );
         let security = &rows[DEVICE_TITLE_ROW + 2];
         let (keyboard, mouse) = security.split_at(security.find("││").unwrap() + 3);
@@ -2870,9 +2898,9 @@ mod tests {
     #[test]
     fn the_status_shows_pairing_open_in_either_mode() {
         let dongle_row = |s: &Status| dongle_lines(Some(s))[0].to_string();
-        assert!(dongle_row(&status_of(Protocol::Unifying)).ends_with("   pairing open"));
+        assert!(dongle_row(&status_of(Protocol::Unifying)).ends_with("   ◉ pairing open"));
         let mut s = status_of(Protocol::Nuphy);
-        assert!(dongle_row(&s).ends_with("   pairing open"));
+        assert!(dongle_row(&s).ends_with("   ◉ pairing open"));
         s.pairing_window = PairingWindow::Closed;
         assert!(!dongle_row(&s).contains("pairing"));
     }
@@ -2884,7 +2912,7 @@ mod tests {
         assert!(
             dongle_lines(Some(&s))[0]
                 .to_string()
-                .ends_with("   a keyboard is pairing")
+                .ends_with("   ◉ a keyboard is pairing")
         );
         let mut app = app_with(s);
         assert_eq!(boxed(&mut app)[..2], ["Pairing", "A keyboard is pairing"]);
@@ -2897,13 +2925,13 @@ mod tests {
         assert!(
             dongle_lines(Some(&s))[0]
                 .to_string()
-                .ends_with("   keyboard waits for the passkey")
+                .ends_with("   ◉ keyboard waits for the passkey")
         );
         s.pairing_window = awaited(42, Some("MX Keys"));
         assert!(
             dongle_lines(Some(&s))[0]
                 .to_string()
-                .ends_with("   MX Keys waits for the passkey")
+                .ends_with("   ◉ MX Keys waits for the passkey")
         );
     }
 
@@ -3701,7 +3729,7 @@ mod tests {
         assert_eq!(
             inside_box(&rows[1]),
             format!(
-                "dongle    usb live   up {}   pairing open",
+                "dongle    usb live   up {}   ◉ pairing open",
                 uptime(s.uptime_ms)
             )
         );
@@ -3711,13 +3739,13 @@ mod tests {
         );
         assert!(rows[3].starts_with('└'), "{}", rows[3]);
         assert!(
-            rows[4].starts_with("┌ keyboard · MX Keys · 85%, charging ─"),
+            rows[4].starts_with("┌ ⌨ keyboard · MX Keys · 85%, charging ─"),
             "{}",
             rows[4]
         );
         assert_eq!(
             inside_box(&rows[5]),
-            "link      connected   -71 dBm   last packet 12 ms ago"
+            "link      ● connected   -71 dBm   last packet 12 ms ago"
         );
         assert_eq!(inside_box(&rows[6]), "security  no protection");
         assert_eq!(inside_box(&rows[7]), "latency   0.9 ms average, 4.2 ms max");
@@ -3762,7 +3790,7 @@ mod tests {
         assert!(rows[1].starts_with("│dongle"), "{}", rows[1]);
         assert_eq!(
             inside_box(&rows[DEVICE_TITLE_ROW + 1]),
-            "link      connected   -58 dBm   last packet 400 ms ago"
+            "link      ● connected   -58 dBm   last packet 400 ms ago"
         );
     }
 
@@ -3775,7 +3803,7 @@ mod tests {
         let rows = screen(&status_box(&s));
         assert_eq!(
             inside_box(&rows[CHANNELS_LINK_ROW]),
-            "link      not connected   last packet 45 s ago"
+            "link      ○ not connected   last packet 45 s ago"
         );
     }
 
@@ -3785,7 +3813,10 @@ mod tests {
         s.device.signal = Some(-73);
         s.device.last_packet_ms = Some(45_000);
         let rows = screen(&status_box(&s));
-        assert_eq!(inside_box(&rows[CHANNELS_LINK_ROW]), "link      not paired");
+        assert_eq!(
+            inside_box(&rows[CHANNELS_LINK_ROW]),
+            "link      · not paired"
+        );
     }
 
     #[test]
@@ -3796,7 +3827,7 @@ mod tests {
         let rows = screen(&status_box(&s));
         assert_eq!(
             inside_box(&rows[CHANNELS_LINK_ROW]),
-            "link      connected   no packet since boot"
+            "link      ● connected   no packet since boot"
         );
     }
 
@@ -3815,7 +3846,7 @@ mod tests {
         );
         let title = &rows[CHANNELS_DEVICE_TITLE_ROW];
         assert!(
-            title.starts_with("┌ keyboard · MX Keys · 85%, charging ─"),
+            title.starts_with("┌ ⌨ keyboard · MX Keys · 85%, charging ─"),
             "{title}"
         );
     }
@@ -3844,7 +3875,7 @@ mod tests {
         unnamed.device.battery = None;
         let rows = screen(&status_box(&unnamed));
         let title = &rows[CHANNELS_DEVICE_TITLE_ROW];
-        assert!(title.starts_with("┌ keyboard ─"), "{title}");
+        assert!(title.starts_with("┌ ⌨ keyboard ─"), "{title}");
     }
 
     #[test]
@@ -3892,14 +3923,14 @@ mod tests {
     fn the_link_state_and_signal_are_colored_by_how_good_they_are() {
         const LINK: u16 = CHANNELS_LINK_ROW as u16;
         let terminal = status_box(&status_of(Protocol::Nuphy));
-        assert_eq!(cell_at(&terminal, LINK, "connected").fg, Color::Green);
+        assert_eq!(cell_at(&terminal, LINK, "● connected").fg, Color::Green);
         assert_eq!(cell_at(&terminal, LINK, "-71 dBm").fg, Color::Yellow);
         let mut weak = status_of(Protocol::Nuphy);
         weak.device.signal = Some(-80);
         assert_eq!(cell_at(&status_box(&weak), LINK, "-80 dBm").fg, Color::Red);
-        assert_eq!(cell_at(&terminal, 1, "pairing open").fg, Color::Cyan);
+        assert_eq!(cell_at(&terminal, 1, "◉ pairing open").fg, Color::Cyan);
         let terminal = status_box(&unpaired(Protocol::Unifying));
-        assert_eq!(cell_at(&terminal, LINK, "not paired").fg, Color::Red);
+        assert_eq!(cell_at(&terminal, LINK, "· not paired").fg, Color::Red);
     }
 
     fn strip_names(protocol: Option<Protocol>) -> String {
