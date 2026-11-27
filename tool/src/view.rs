@@ -642,16 +642,22 @@ enum Key {
     Info,
 }
 
+/// The key that steps each kind's panel, in the panels' order from left to right.
+const PANEL_KEYS: [(char, DeviceKind, &str); 2] = [
+    ('k', DeviceKind::Keyboard, "keyboard"),
+    ('m', DeviceKind::Mouse, "mouse"),
+];
+
 fn action_keys(protocol: Protocol) -> Vec<(char, &'static str, Key)> {
     const NOISE: (char, &str, Key) = ('n', "noise", Key::Ask(Prompt::Noise));
-    const MOVES: (char, &str, Key) = ('m', "moves", Key::Moves);
+    const MOVES: (char, &str, Key) = ('c', "channels", Key::Moves);
     const REBOOT: (char, &str, Key) = ('r', "reboot", Key::Ask(Prompt::Action(Action::Reboot)));
     const BOOTLOADER: (char, &str, Key) = (
         'b',
         "bootloader",
         Key::Ask(Prompt::Action(Action::Bootloader)),
     );
-    const CLEAR: (char, &str, Key) = ('c', "clear", Key::Ask(Prompt::Action(Action::Clear)));
+    const CLEAR: (char, &str, Key) = ('x', "clear", Key::Ask(Prompt::Action(Action::Clear)));
     const DEVICES: (char, &str, Key) = ('d', "devices", Key::Devices);
     const INFO: (char, &str, Key) = ('i', "info", Key::Info);
     let channels = protocol.has_esb();
@@ -715,8 +721,11 @@ fn error_text(e: &anyhow::Error) -> String {
 struct Session<T: Transport> {
     device: Device<T>,
     history: History,
-    /// The place in `history.slots` of the leftmost panel drawn.
-    first_panel: usize,
+    /// The slot each kind's key stepped its panel to; a kind missing here follows the one the PC
+    /// hears.
+    stepped: Vec<(DeviceKind, u8)>,
+    /// The kind whose panel shows while only one fits.
+    one_kind: DeviceKind,
     /// The last refresh's error, while the dongle answers but its reply failed.
     refresh_error: Option<String>,
     pane: Pane,
@@ -780,8 +789,8 @@ struct Drawn {
     event_rows: usize,
     /// `None` while the history chart is not on screen.
     plot_width: Option<usize>,
-    /// Whether some shown slot's panel was left out.
-    cycling: bool,
+    /// Whether a keyboard's or a mouse's panel was left out for want of width.
+    one_panel: bool,
 }
 
 pub fn run(serial: Option<String>) -> Result<()> {
@@ -857,26 +866,106 @@ impl App {
     }
 }
 
+/// One kind's panel: the slot it shows and, while its kind has more than one device, its place
+/// among them counted from 1 and their count.
+#[derive(Clone, Copy)]
+struct Panel<'a> {
+    history: &'a SlotHistory,
+    place: Option<(usize, usize)>,
+}
+
 impl<T: Transport> Session<T> {
-    /// The shown slots whose panels the view draws at `width`, left to right.
-    fn panels(&self, width: u16) -> Vec<&SlotHistory> {
-        let slots = &self.history.slots;
-        let drawn = panels_fitting(width).min(slots.len());
-        (0..drawn)
-            .map(|i| &slots[(self.first_panel + i) % slots.len()])
+    /// The shown slots holding a `kind`, in the order its key steps through them: the one the PC
+    /// hears, then those on standby, then those not connected.
+    fn of_kind(&self, kind: DeviceKind) -> Vec<&SlotHistory> {
+        let status = &self.history.status;
+        let mut slots: Vec<(&SlotHistory, LinkHealth)> = self
+            .history
+            .slots
+            .iter()
+            .filter_map(|h| {
+                let slot = status.slot(h.device.slot)?;
+                (slot.kind == kind).then(|| (h, slot_health(status, slot)))
+            })
+            .collect();
+        slots.sort_by_key(|(_, health)| std::cmp::Reverse(*health));
+        slots.into_iter().map(|(h, _)| h).collect()
+    }
+
+    /// `of_kind`, and the place in it of the slot `kind`'s panel shows: the one its key stepped to
+    /// while that is still shown, and otherwise the first.
+    fn place(&self, kind: DeviceKind) -> (Vec<&SlotHistory>, usize) {
+        let slots = self.of_kind(kind);
+        let stepped = self
+            .stepped
+            .iter()
+            .find(|(k, _)| *k == kind)
+            .map(|(_, slot)| *slot);
+        let at = slots
+            .iter()
+            .position(|h| Some(h.device.slot) == stepped)
+            .unwrap_or(0);
+        (slots, at)
+    }
+
+    fn panel(&self, kind: DeviceKind) -> Option<Panel<'_>> {
+        let (slots, at) = self.place(kind);
+        Some(Panel {
+            history: slots.get(at)?,
+            place: (slots.len() > 1).then_some((at + 1, slots.len())),
+        })
+    }
+
+    /// One panel per kind that has a device, in `PANEL_KEYS` order.
+    fn kind_panels(&self) -> Vec<Panel<'_>> {
+        PANEL_KEYS
+            .iter()
+            .filter_map(|(_, kind, _)| self.panel(*kind))
             .collect()
     }
 
-    /// Whether `width` leaves out some shown slot's panel.
-    fn cycling(&self, width: u16) -> bool {
-        panels_fitting(width) < self.history.slots.len()
+    /// The panels the view draws at `width`, left to right.
+    fn panels(&self, width: u16) -> Vec<Panel<'_>> {
+        let all = self.kind_panels();
+        if all.len() <= panels_fitting(width) {
+            return all;
+        }
+        self.panel(self.one_kind)
+            .or_else(|| all.into_iter().next())
+            .into_iter()
+            .collect()
+    }
+
+    /// Whether `width` leaves out some kind's panel.
+    fn one_panel(&self, width: u16) -> bool {
+        self.kind_panels().len() > panels_fitting(width)
+    }
+
+    /// Whether `kind`'s key has anything to do at `width`.
+    fn steps(&self, kind: DeviceKind, width: u16) -> bool {
+        let count = self.of_kind(kind).len();
+        count > 1 || (count == 1 && self.one_panel(width))
+    }
+
+    /// Brings `kind`'s panel into view while only one panel fits, and otherwise steps it to the
+    /// next of `of_kind`, following the one the PC hears again once it wraps.
+    fn step_panel(&mut self, kind: DeviceKind, one_panel: bool) {
+        if one_panel && self.one_kind != kind {
+            self.one_kind = kind;
+            return;
+        }
+        let (slots, at) = self.place(kind);
+        let next = slots.get(at + 1).map(|h| h.device.slot);
+        self.stepped.retain(|(k, _)| *k != kind);
+        self.stepped.extend(next.map(|slot| (kind, slot)));
     }
 
     fn new(device: Device<T>, status: Status) -> Self {
         Session {
             device,
             history: History::new(status),
-            first_panel: 0,
+            stepped: Vec::new(),
+            one_kind: DeviceKind::Keyboard,
             refresh_error: None,
             pane: Pane::History,
             overlay: None,
@@ -924,8 +1013,8 @@ impl<T: Transport> Session<T> {
             KeyCode::Char('q') => return Some(Outcome::Quit),
             KeyCode::Char('[') => self.step(Step::Down),
             KeyCode::Char(']') => self.step(Step::Up),
-            KeyCode::Char('o') if drawn.cycling => {
-                self.first_panel = (self.first_panel + 1) % history.slots.len();
+            KeyCode::Char(c) if let Some((_, kind, _)) = PANEL_KEYS.iter().find(|p| p.0 == c) => {
+                self.step_panel(*kind, drawn.one_panel);
             }
             KeyCode::Char(c)
                 if let Pane::Devices(devices) = &self.pane
@@ -1197,8 +1286,11 @@ impl<T: Transport> Session<T> {
             .into_iter()
             .map(|(key, label, _)| (key.to_string(), label))
             .collect();
-        if self.cycling(u16::try_from(width).unwrap_or(u16::MAX)) {
-            hints.push(("o".into(), "device"));
+        let width_cells = u16::try_from(width).unwrap_or(u16::MAX);
+        for (key, kind, does) in PANEL_KEYS {
+            if self.steps(kind, width_cells) {
+                hints.push((key.into(), does));
+            }
         }
         if self.protocol().has_esb() {
             hints.push(("[/]".into(), "channel"));
@@ -1282,7 +1374,7 @@ impl<T: Transport> App<T> {
             Constraint::Length(help.len() as u16),
         ])
         .areas(f.area());
-        let mut panels: Vec<Option<&SlotHistory>> = session
+        let mut panels: Vec<Option<Panel>> = session
             .map_or(Vec::new(), |s| s.panels(width))
             .into_iter()
             .map(Some)
@@ -1290,18 +1382,19 @@ impl<T: Transport> App<T> {
         if panels.is_empty() {
             panels.push(None);
         }
-        let cycling = session.is_some_and(|s| s.cycling(width));
+        let one_panel = session.is_some_and(|s| s.one_panel(width));
         f.render_widget(
             Paragraph::new(dongle_rows)
                 .block(Block::bordered().title(padded(dongle_title(status)))),
             dongle,
         );
         let columns = Layout::horizontal(vec![Constraint::Fill(1); panels.len()]);
-        for (area, slot) in columns.split(top).iter().zip(&panels) {
-            let device = slot.map(|h| &h.device);
+        for (area, panel) in columns.split(top).iter().zip(&panels) {
+            let device = panel.map(|p| &p.history.device);
             let mut block = Block::bordered();
             if let Some((s, d)) = status.zip(device) {
-                block = block.title(padded(device_title(s, d)));
+                let place = panel.and_then(|p| p.place);
+                block = block.title(padded(device_title(s, d, place)));
             }
             f.render_widget(
                 Paragraph::new(slot_lines(status, device)).block(block),
@@ -1318,14 +1411,14 @@ impl<T: Transport> App<T> {
                 None
             }
             Some((Pane::Devices(devices), history)) => {
-                draw_devices(f, middle, devices, history.status.protocol());
+                draw_devices(f, middle, devices, &history.status);
                 None
             }
             Some((Pane::History, _)) | None => columns
                 .split(middle)
                 .iter()
                 .zip(&panels)
-                .map(|(area, slot)| draw_history(f, *area, history, *slot))
+                .map(|(area, panel)| draw_history(f, *area, history, panel.map(|p| p.history)))
                 .min(),
         };
         let event_rows = draw_events(f, bottom, history);
@@ -1336,7 +1429,7 @@ impl<T: Transport> App<T> {
         self.drawn = Drawn {
             event_rows,
             plot_width,
-            cycling,
+            one_panel,
         };
     }
 }
@@ -1400,15 +1493,20 @@ fn toned(text: String, tone: Tone) -> Span<'static> {
         Tone::Plain => Span::raw(text),
         Tone::Pairing(p) => Span::styled(text, Style::new().fg(pairing_color(p))),
         Tone::Bolt => Span::styled(text, Style::new().fg(BOLT_COLOR)),
+        Tone::Standby => Span::styled(text, Style::new().add_modifier(Modifier::DIM)),
     }
 }
 
-fn device_title(s: &Status, d: &SlotStatus) -> Line<'static> {
+/// `place` is the panel's place among the devices of its kind and their count.
+fn device_title(s: &Status, d: &SlotStatus, place: Option<(usize, usize)>) -> Line<'static> {
     let kind = s.kind_name(d.slot);
-    let kind = match s.slot(d.slot).and_then(|slot| kind_icon(slot.kind)) {
+    let mut kind = match s.slot(d.slot).and_then(|slot| kind_icon(slot.kind)) {
         Some(icon) => format!("{icon} {kind}"),
         None => kind.to_string(),
     };
+    if let Some((at, of)) = place {
+        kind.push_str(&format!(" {at} of {of}"));
+    }
     let mut parts = vec![(kind, Tone::Plain)];
     if let Some(name) = &d.name {
         parts.push((TITLE_SEPARATOR.into(), Tone::Plain));
@@ -1748,9 +1846,9 @@ fn draw_moves(f: &mut Frame, area: Rect, w: &Watch, s: &Status) {
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn draw_devices(f: &mut Frame, area: Rect, devices: &[StoredDevice], protocol: Protocol) {
+fn draw_devices(f: &mut Frame, area: Rect, devices: &[StoredDevice], status: &Status) {
     let block = Block::bordered().title(padded("stored devices; a device's number forgets it"));
-    let lines: Vec<Line> = device_lines(devices, protocol)
+    let lines: Vec<Line> = device_lines(devices, status.protocol(), &status.slots)
         .into_iter()
         .map(|l| toned_line(l.parts()))
         .collect();
@@ -2055,12 +2153,12 @@ mod tests {
 
     const UNIFYING_HINTS: [&str; 11] = [
         "n noise",
-        "m moves",
+        "c channels",
         "a pair",
         "p protocol",
         "r reboot",
         "b bootloader",
-        "c clear",
+        "x clear",
         "←/→ history",
         "↑/↓ events",
         "esc back",
@@ -2073,7 +2171,7 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "n noise  m moves  a pair  p protocol  r reboot  b bootloader  c clear",
+                "n noise  c channels  a pair  p protocol  r reboot  b bootloader  x clear",
                 "←/→ history  ↑/↓ events  esc back  q quit",
             ]
         );
@@ -2087,7 +2185,7 @@ mod tests {
             "p protocol",
             "r reboot",
             "b bootloader",
-            "c clear",
+            "x clear",
             "←/→ history",
             "↑/↓ events",
             "esc back",
@@ -2122,11 +2220,11 @@ mod tests {
         let rows = screen(&drawn(&mut app));
         assert_eq!(
             rows[22].trim_end(),
-            "n noise  m moves  a pair  d devices  p protocol  r reboot  b bootloader  c clear"
+            "n noise  c channels  a pair  d devices  p protocol  r reboot  b bootloader"
         );
         assert_eq!(
             rows[23].trim_end(),
-            "i info  [/] channel  ←/→ history  ↑/↓ events  esc back  q quit"
+            "x clear  i info  [/] channel  ←/→ history  ↑/↓ events  esc back  q quit"
         );
         let text = rows.join("\n");
         for part in ["SpareDongle", "signal dBm", "events"] {
@@ -2234,7 +2332,7 @@ mod tests {
         );
         assert_eq!(
             rows[22].trim_end(),
-            "n noise  m moves  a pair  d devices  p protocol  r reboot  b bootloader  c clear  i info"
+            "n noise  c channels  a pair  d devices  p protocol  r reboot  b bootloader  x clear  i info"
         );
         assert_eq!(
             rows[23].trim_end(),
@@ -2256,13 +2354,13 @@ mod tests {
         assert_eq!(session(&mut app).protocol(), Protocol::Nuphy);
         let hints = [
             "n noise",
-            "m moves",
+            "c channels",
             "a pair",
             "d devices",
             "p protocol",
             "r reboot",
             "b bootloader",
-            "c clear",
+            "x clear",
             "i info",
             "[/] channel",
             "←/→ history",
@@ -2283,7 +2381,7 @@ mod tests {
             "p protocol",
             "r reboot",
             "b bootloader",
-            "c clear",
+            "x clear",
             "i info",
             "←/→ history",
             "↑/↓ events",
@@ -2469,7 +2567,7 @@ mod tests {
         let boxes = [
             (dongle_title(Some(&h.status)).to_string(), dongle),
             (
-                device_title(&h.status, device).to_string(),
+                device_title(&h.status, device, None).to_string(),
                 texts(&slot_lines(Some(&h.status), Some(device))),
             ),
         ];
@@ -2518,7 +2616,7 @@ mod tests {
     }
 
     #[test]
-    fn slots_sit_side_by_side_in_slot_order_when_the_width_fits_them() {
+    fn the_keyboard_and_the_mouse_sit_side_by_side_when_the_width_fits_them() {
         let mut app = keyboard_and_mouse();
         let width = 2 * PANEL_MIN_WIDTH;
         let rows = drawn_at(&mut app, width, 30);
@@ -2536,7 +2634,8 @@ mod tests {
             "{rows:#?}"
         );
         assert_eq!(rows.iter().filter(|r| r.contains("┌ events")).count(), 1);
-        assert!(!footer_at(&app, width).contains("o device"));
+        let footer = footer_at(&app, width);
+        assert!(!steps_panels(&footer), "{footer}");
     }
 
     #[test]
@@ -2572,32 +2671,179 @@ mod tests {
         assert_eq!(colored(false, false), Color::Red);
     }
 
-    #[test]
-    fn a_view_too_narrow_for_every_slot_shows_one_and_o_cycles_through_them() {
+    /// `keyboard_and_mouse` with the Air75 V2 connected and heard in slot 2 and the Mi Silent Mouse
+    /// on standby in slot 3.
+    fn two_of_each() -> App<Fake> {
         let mut app = keyboard_and_mouse();
-        let width = 2 * PANEL_MIN_WIDTH - 1;
-        let rows = drawn_at(&mut app, width, 30);
-        assert!(rows[DEVICE_TITLE_ROW].contains(KEYBOARD_TITLE), "{rows:#?}");
-        assert!(!rows[DEVICE_TITLE_ROW].contains(MOUSE_TITLE), "{rows:#?}");
-        assert!(rows[CHART_ROW].starts_with("┌ signal dBm"), "{rows:#?}");
-        assert!(footer_at(&app, width).contains("o device"));
-        press(&mut app, 'o');
-        let rows = drawn_at(&mut app, width, 30);
-        assert!(rows[DEVICE_TITLE_ROW].contains(MOUSE_TITLE), "{rows:#?}");
-        assert!(rows[CHART_ROW].starts_with("┌ signal dBm"), "{rows:#?}");
-        press(&mut app, 'o');
-        let rows = drawn_at(&mut app, width, 30);
-        assert!(rows[DEVICE_TITLE_ROW].contains(KEYBOARD_TITLE), "{rows:#?}");
+        let h = history(&mut app);
+        h.status.slots.truncate(2);
+        for (kind, standby) in [(DeviceKind::Keyboard, false), (DeviceKind::Mouse, true)] {
+            h.status.slots.push(Slot {
+                kind,
+                stored: true,
+                connected: true,
+                standby,
+            });
+        }
+        for (slot, name) in [(2, "Air75 V2"), (3, "Mi Silent Mouse")] {
+            let mut device = h.slots[1].device.clone();
+            device.slot = slot;
+            device.name = Some(name.into());
+            h.slots.push(SlotHistory {
+                device,
+                minutes: Vec::new(),
+            });
+        }
+        app
+    }
+
+    /// Titles matched by name alone, since with two of a kind they carry a position.
+    const AIR75_TITLE: &str = " · Air75 V2 ─";
+    const MI_TITLE: &str = " · Mi Silent Mouse ─";
+    const MX_KEYS_TITLE: &str = " · MX Keys ─";
+    const MX_MASTER_TITLE: &str = " · MX Master 3S ─";
+
+    fn steps_panels(footer: &str) -> bool {
+        footer.contains("k keyboard") && footer.contains("m mouse")
+    }
+
+    fn titles(app: &mut App<Fake>, width: u16) -> String {
+        drawn_at(app, width, 30)[DEVICE_TITLE_ROW].clone()
+    }
+
+    fn wide(app: &mut App<Fake>) -> String {
+        titles(app, 4 * PANEL_MIN_WIDTH)
     }
 
     #[test]
-    fn a_view_of_one_slot_has_no_o() {
+    fn the_panels_show_the_keyboard_and_the_mouse_the_pc_hears() {
+        let mut app = two_of_each();
+        let row = wide(&mut app);
+        let keyboard = row.find(AIR75_TITLE);
+        let mouse = row.find(MX_MASTER_TITLE);
+        assert!(keyboard.zip(mouse).is_some_and(|(k, m)| k < m), "{row}");
+        assert!(
+            !row.contains(MX_KEYS_TITLE) && !row.contains(MI_TITLE),
+            "{row}"
+        );
+    }
+
+    #[test]
+    fn the_keyboard_panel_sits_left_whatever_its_slot() {
+        let mut app = keyboard_and_mouse();
+        let h = history(&mut app);
+        h.status.slots.swap(0, 1);
+        h.status.slots[1].connected = true;
+        let [first, second] = &mut h.slots[..] else {
+            panic!("two slots")
+        };
+        std::mem::swap(&mut first.device.name, &mut second.device.name);
+        let row = wide(&mut app);
+        let keyboard = row.find(KEYBOARD_TITLE);
+        let mouse = row.find(MOUSE_TITLE);
+        assert!(keyboard.zip(mouse).is_some_and(|(k, m)| k < m), "{row}");
+    }
+
+    #[test]
+    fn k_and_m_step_their_own_panel_and_wrap_back_to_the_heard_device() {
+        let mut app = two_of_each();
+        press(&mut app, 'k');
+        let row = wide(&mut app);
+        assert!(
+            row.contains(MX_KEYS_TITLE) && row.contains(MX_MASTER_TITLE),
+            "{row}"
+        );
+        press(&mut app, 'm');
+        let row = wide(&mut app);
+        assert!(
+            row.contains(MX_KEYS_TITLE) && row.contains(MI_TITLE),
+            "{row}"
+        );
+        press(&mut app, 'k');
+        press(&mut app, 'm');
+        let row = wide(&mut app);
+        assert!(
+            row.contains(AIR75_TITLE) && row.contains(MX_MASTER_TITLE),
+            "{row}"
+        );
+    }
+
+    #[test]
+    fn an_unstepped_panel_follows_a_takeover_and_a_stepped_one_stays() {
+        let mut app = two_of_each();
+        press(&mut app, 'm');
+        let h = history(&mut app);
+        h.status.slots[0].connected = true;
+        h.status.slots[2].standby = true;
+        h.status.slots[1].standby = true;
+        h.status.slots[3].standby = false;
+        let row = wide(&mut app);
+        assert!(
+            row.contains(MX_KEYS_TITLE) && row.contains(MI_TITLE),
+            "{row}"
+        );
+        history(&mut app).status.slots[1].standby = false;
+        history(&mut app).status.slots[3].standby = true;
+        let row = wide(&mut app);
+        assert!(row.contains(MI_TITLE), "{row}");
+    }
+
+    #[test]
+    fn a_view_too_narrow_for_both_shows_one_panel_and_k_and_m_pick_and_step_it() {
+        let mut app = two_of_each();
+        let width = 2 * PANEL_MIN_WIDTH - 1;
+        let row = titles(&mut app, width);
+        assert!(
+            row.contains(AIR75_TITLE) && !row.contains(MX_MASTER_TITLE),
+            "{row}"
+        );
+        let footer = footer_at(&app, width);
+        assert!(steps_panels(&footer), "{footer}");
+        press(&mut app, 'm');
+        let row = titles(&mut app, width);
+        assert!(
+            row.contains(MX_MASTER_TITLE) && !row.contains(AIR75_TITLE),
+            "{row}"
+        );
+        press(&mut app, 'm');
+        assert!(titles(&mut app, width).contains(MI_TITLE));
+        press(&mut app, 'k');
+        assert!(titles(&mut app, width).contains(AIR75_TITLE));
+    }
+
+    #[test]
+    fn k_and_m_show_in_the_footer_only_with_a_device_to_step_to() {
+        let width = 4 * PANEL_MIN_WIDTH;
+        let footer = footer_at(&two_of_each(), width);
+        assert!(steps_panels(&footer), "{footer}");
+        let mut app = keyboard_and_mouse();
+        let footer = footer_at(&app, width);
+        assert!(!steps_panels(&footer), "{footer}");
+        let rows = drawn_at(&mut app, width, 30);
+        press(&mut app, 'k');
+        press(&mut app, 'm');
+        assert_eq!(drawn_at(&mut app, width, 30), rows);
         let mut app = app_with(status_of(Protocol::Bluetooth));
         let rows = drawn_at(&mut app, 80, 24);
-        assert!(!footer_at(&app, 80).contains("o device"));
+        let footer = footer_at(&app, 80);
+        assert!(!steps_panels(&footer), "{footer}");
         assert!(rows[CHART_ROW].starts_with("┌ signal dBm"), "{rows:#?}");
-        press(&mut app, 'o');
-        assert_eq!(drawn_at(&mut app, 80, 24), rows);
+    }
+
+    #[test]
+    fn a_panel_title_counts_its_place_among_devices_of_its_kind() {
+        let mut app = two_of_each();
+        let row = wide(&mut app);
+        assert!(row.contains("┌ ⌨ keyboard 1 of 2 · Air75 V2 ─"), "{row}");
+        assert!(row.contains("┌ mouse 1 of 2 · MX Master 3S ─"), "{row}");
+        press(&mut app, 'k');
+        let row = wide(&mut app);
+        assert!(row.contains("┌ ⌨ keyboard 2 of 2 · MX Keys ─"), "{row}");
+        let row = wide(&mut keyboard_and_mouse());
+        assert!(
+            row.contains(KEYBOARD_TITLE) && row.contains(MOUSE_TITLE),
+            "{row}"
+        );
     }
 
     /// A Bluetooth dongle answering for whichever slot is asked, with `stored` its slot table and
@@ -3108,9 +3354,9 @@ mod tests {
     #[test]
     fn keys_act_as_usual_under_the_pairing_box_and_a_question_covers_it() {
         let mut app = app_with(status_of(Protocol::Nuphy));
-        press(&mut app, 'c');
-        assert_eq!(boxed(&mut app)[0], "Confirm");
         press(&mut app, 'x');
+        assert_eq!(boxed(&mut app)[0], "Confirm");
+        press(&mut app, 'z');
         assert_eq!(boxed(&mut app)[0], "Pairing open");
     }
 
@@ -3531,7 +3777,7 @@ mod tests {
     #[test]
     fn the_moves_key_shows_the_noise_the_dongle_moves_by() {
         let (mut app, asked) = app_watching(crate::protocol::tests::fixture("watch.hex"));
-        press(&mut app, 'm');
+        press(&mut app, 'c');
         assert_eq!(asked.get(), 1);
         let text = drawn_text(&mut app);
         assert!(text.contains("noise at -75 dBm or louder counts"), "{text}");
@@ -3563,7 +3809,7 @@ mod tests {
     #[test]
     fn each_channel_ends_in_the_color_of_its_loudest_band() {
         let (mut app, _) = app_watching(crate::protocol::tests::fixture("watch.hex"));
-        press(&mut app, 'm');
+        press(&mut app, 'c');
         let terminal = drawn(&mut app);
         assert_eq!(channel_fg(&terminal, 2, 78), Color::DarkGray);
         assert_eq!(channel_fg(&terminal, 41, 78), Color::Red);
@@ -3573,7 +3819,7 @@ mod tests {
     fn the_moves_pane_marks_the_home_it_reports_as_current() {
         let (mut app, _) = app_watching(crate::protocol::tests::fixture("watch.hex"));
         session(&mut app).history.status.channel = 2;
-        press(&mut app, 'm');
+        press(&mut app, 'c');
         let terminal = drawn(&mut app);
         assert_eq!(
             channel_fg(&terminal, 41, 3),
@@ -3588,7 +3834,7 @@ mod tests {
         let status = session(&mut app).history.status.clone();
         app.refresh(Ok(status.clone()));
         assert_eq!(asked.get(), 0);
-        press(&mut app, 'm');
+        press(&mut app, 'c');
         app.refresh(Ok(status));
         assert_eq!(asked.get(), 2);
     }
@@ -3596,7 +3842,7 @@ mod tests {
     #[test]
     fn esc_brings_back_the_history_from_the_moves() {
         let (mut app, _) = app_watching(crate::protocol::tests::fixture("watch.hex"));
-        press(&mut app, 'm');
+        press(&mut app, 'c');
         app.handle(KeyCode::Esc);
         drawn_text(&mut app);
         assert!(app.drawn.plot_width.is_some());
@@ -3611,7 +3857,7 @@ mod tests {
             ),
             status_of(Protocol::Nuphy),
         );
-        press(&mut app, 'm');
+        press(&mut app, 'c');
         assert!(matches!(session(&mut app).pane, Pane::History));
         assert_eq!(boxed(&mut app)[0], "Failed");
     }

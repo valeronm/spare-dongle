@@ -326,8 +326,8 @@ pub fn follow_pairing<T: Transport>(
     Ok(())
 }
 
-pub fn devices<T: Transport>(dev: &mut Device<T>, protocol: Protocol) -> Result<()> {
-    for line in format::device_lines(&dev.devices()?, protocol) {
+pub fn devices<T: Transport>(dev: &mut Device<T>, s: &Status) -> Result<()> {
+    for line in format::device_lines(&dev.devices()?, s.protocol(), &s.slots) {
         println!("{line}");
     }
     Ok(())

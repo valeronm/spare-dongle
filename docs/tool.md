@@ -16,10 +16,10 @@ types, and flashes its firmware. `spare-dongle --help` lists the commands and ea
 
 `spare-dongle` with no arguments shows the link state, signal and counter totals, a chart of the
 per-minute history and the latest events, refreshed as they change. Its footer lists the keys: the
-arrow keys scroll the chart and the events, `n` takes a noise map and `m` shows the noise that
-decides the next channel move, each in place of the chart until `esc`. The view can also open
-pairing, step the link to the keyboard's next or previous channel, switch the protocol, restart the
-dongle into its firmware or its bootloader, and clear the history.
+arrow keys scroll the chart and the events, `n` takes a noise map and `c` shows the noise on each
+channel that decides the next channel move, each in place of the chart until `esc`. The view can
+also open pairing, step the link to the keyboard's next or previous channel, switch the protocol,
+restart the dongle into its firmware or its bootloader, and clear the history.
 
 ## Reading the dongle
 
@@ -59,14 +59,18 @@ Unifying keyboard's channels are fixed by its firmware, so the command exists on
 
 ## Devices
 
-The dongle reports each device it holds in a numbered slot: NuPhy has one, the keyboard, and so
-does Unifying, whose slot is the stored keyboard it types from, and Bluetooth has four, each
-holding a keyboard or a mouse. `status`, `history` and the live view show every slot that has a
-device paired or connected, each with its own name, signal and counters, and `status` also its last
-packet; the channel, noise, USB and the other link-wide counters are shared. The live view shows the
-shared state in one dongle box, and below it each slot's box and chart, side by side when the
-terminal is wide enough, and otherwise `o` steps through them. Event lines name the device they are
-about.
+The dongle reports each device it holds in a numbered slot: NuPhy has one, the keyboard, and so does
+Unifying, whose slot is the stored keyboard it types from, and Bluetooth has four, each holding a
+keyboard or a mouse. `status`, `history` and the live view show every slot that has a device paired
+or connected, each with its own name, signal and counters, and `status` also its last packet; the
+channel, noise, USB and the other link-wide counters are shared. The live view shows the shared
+state in one dongle box, and below it a keyboard's box and chart beside a mouse's, each showing the
+device of its kind the PC hears. `k` steps the keyboard's box to the next keyboard, standby ones
+first, then those not connected, and `m` does the same for mice; a box stepped away from the device
+the PC hears stays on its device until its key wraps back. With more than one device of a kind, its
+box's title gives its place among them, as `keyboard 1 of 2`, the first being the one the PC hears.
+A terminal too narrow for both shows one, and `k` or `m` brings up its kind's box before stepping
+it. Event lines name the device they are about.
 
 Each connected device's latency is the delay from a report's arrival at the dongle to the PC
 fetching it over USB, as its average and maximum since the last `clear`, or "no report yet" before
@@ -74,10 +78,10 @@ the first one. It leaves out the time on air and in the Bluetooth controller, wh
 cannot see. Reports the dongle makes up itself, such as the release when a device drops out, are
 not counted.
 
-`devices` lists the paired devices with their kind and the slot each is connected in, and
-`forget <n>` removes the one at that place in the list. In the live view `d` shows the list in place
-of the chart, and a device's number asks to forget it. A NuPhy dongle that forgets its keyboard
-stops taking its keys.
+`devices` lists the paired devices with their kind, marking those the PC hears as active and the
+others connected as standby, and `forget <n>` removes the one at that place in the list. In the live
+view `d` shows the list in place of the chart, and a device's number asks to forget it. A NuPhy
+dongle that forgets its keyboard stops taking its keys.
 
 ## Bluetooth mode
 

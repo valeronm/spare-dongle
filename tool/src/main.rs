@@ -168,7 +168,7 @@ fn main() -> Result<()> {
         }
         Cmd::Devices => {
             let (mut dev, s) = device::open(serial)?;
-            cli::devices(&mut dev, s.protocol())
+            cli::devices(&mut dev, &s)
         }
         Cmd::Forget { place, confirm } => {
             let (mut dev, s) = device::open(serial)?;

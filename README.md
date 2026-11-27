@@ -14,11 +14,12 @@ another PC with the dongle. Its tool shows each device's signal and losses, and 
 Unifying mode the radio noise.
 
 <p align="center">
-  <img src="docs/images/live-view.png" width="640" alt="The live view in Bluetooth mode, with a keyboard and a mouse connected">
+  <img src="docs/images/live-view.png" width="640" alt="The live view in Bluetooth mode, with two keyboards and two mice connected">
 </p>
 
-The `spare-dongle` live view, here in Bluetooth mode with a NuPhy Air75 V2 and an MX Master 3S:
-each device's signal over time, its latency through the dongle, and the dongle's events.
+The `spare-dongle` live view, here in Bluetooth mode with two keyboards and two mice connected,
+showing the MX Keys and the MX Master 3S the PC hears: each device's signal over time, its latency
+through the dongle, and the dongle's events.
 
 ## Protocols
 

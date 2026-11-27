@@ -89,23 +89,27 @@ pub enum Tone {
     Plain,
     Pairing(Pairing),
     Bolt,
+    Standby,
 }
 
 #[derive(Debug)]
 pub struct DeviceLine {
     columns: Vec<(String, Tone)>,
-    slot: Option<u8>,
+    /// Whether the device is on standby, or `None` while it is not connected.
+    standby: Option<bool>,
     pairing: Option<Pairing>,
 }
 
 impl DeviceLine {
     pub fn parts(&self) -> Vec<(String, Tone)> {
         let mut parts = self.columns.clone();
-        if let Some(slot) = self.slot {
-            parts.push((format!("  slot {slot}"), Tone::Plain));
+        match self.standby {
+            Some(true) => parts.push(("  standby".into(), Tone::Standby)),
+            Some(false) => parts.push(("  active".into(), Tone::Plain)),
+            None => {}
         }
         if let Some(p) = self.pairing {
-            let separator = if self.slot.is_some() { ", " } else { "  " };
+            let separator = if self.standby.is_some() { ", " } else { "  " };
             parts.extend([
                 (separator.into(), Tone::Plain),
                 (pairing(p), Tone::Pairing(p)),
@@ -152,12 +156,13 @@ fn numbered_lines<'a>(
         .collect()
 }
 
-/// One numbered line per stored device, in the order `forget` counts them.
-pub fn device_lines(list: &[StoredDevice], protocol: Protocol) -> Vec<DeviceLine> {
+/// One numbered line per stored device, in the order `forget` counts them, each connected one marked
+/// from its slot in `slots`.
+pub fn device_lines(list: &[StoredDevice], protocol: Protocol, slots: &[Slot]) -> Vec<DeviceLine> {
     if list.is_empty() {
         return vec![DeviceLine {
             columns: vec![("no device is stored".into(), Tone::Plain)],
-            slot: None,
+            standby: None,
             pairing: None,
         }];
     }
@@ -170,7 +175,14 @@ pub fn device_lines(list: &[StoredDevice], protocol: Protocol) -> Vec<DeviceLine
         .zip(list)
         .map(|(columns, d)| DeviceLine {
             columns,
-            slot: d.slot,
+            standby: d
+                .slot
+                .and_then(|n| slots.get(usize::from(n)))
+                .and_then(|slot| match connection_health(slot) {
+                    LinkHealth::Connected => Some(false),
+                    LinkHealth::Standby => Some(true),
+                    _ => None,
+                }),
             pairing: d.pairing,
         })
         .collect()
@@ -1317,18 +1329,34 @@ mod tests {
         );
     }
 
+    fn connected_slot(kind: DeviceKind, standby: bool) -> Slot {
+        Slot {
+            kind,
+            stored: true,
+            connected: true,
+            standby,
+        }
+    }
+
+    fn both_heard() -> [Slot; 2] {
+        [
+            connected_slot(DeviceKind::Keyboard, false),
+            connected_slot(DeviceKind::Mouse, false),
+        ]
+    }
+
     #[test]
-    fn stored_devices_are_numbered_with_their_kinds_and_slots() {
+    fn stored_devices_are_numbered_with_their_kinds_and_whether_the_pc_hears_them() {
         let list = crate::protocol::read_devices(&fixture("devices.hex")).unwrap();
         assert_eq!(
-            texts(device_lines(&list, Protocol::Bluetooth)),
+            texts(device_lines(&list, Protocol::Bluetooth, &both_heard())),
             [
-                "1  keyboard  MX Keys              EB:BB:49:A6:9A:D9  slot 0, legacy, passkey",
-                "2  mouse     MX Master 3S · Bolt  C8:F2:E0:11:3C:5A  slot 1, secure, passkey",
+                "1  keyboard  MX Keys              EB:BB:49:A6:9A:D9  active, legacy, passkey",
+                "2  mouse     MX Master 3S · Bolt  C8:F2:E0:11:3C:5A  active, secure, passkey",
             ]
         );
         assert_eq!(
-            device_lines(&list, Protocol::Bluetooth)[1].pairing,
+            device_lines(&list, Protocol::Bluetooth, &both_heard())[1].pairing,
             Some(Pairing {
                 secure: true,
                 passkey: true,
@@ -1340,7 +1368,7 @@ mod tests {
             ..list[1].clone()
         };
         assert_eq!(
-            texts(device_lines(&[stored], Protocol::Bluetooth)),
+            texts(device_lines(&[stored], Protocol::Bluetooth, &both_heard())),
             ["1  mouse  MX Master 3S · Bolt  C8:F2:E0:11:3C:5A  secure, passkey"]
         );
         let unnamed = StoredDevice {
@@ -1355,11 +1383,11 @@ mod tests {
             }),
         };
         assert_eq!(
-            texts(device_lines(&[unnamed], Protocol::Bluetooth)),
+            texts(device_lines(&[unnamed], Protocol::Bluetooth, &[])),
             ["1  keyboard  unnamed  D6:7D:3C:4B:A8:24  legacy, passkey"]
         );
         assert_eq!(
-            texts(device_lines(&[], Protocol::Bluetooth)),
+            texts(device_lines(&[], Protocol::Bluetooth, &[])),
             ["no device is stored"]
         );
     }
@@ -1384,6 +1412,28 @@ mod tests {
     }
 
     #[test]
+    fn a_standby_device_reads_as_standby_dimmed() {
+        let list = crate::protocol::read_devices(&fixture("devices.hex")).unwrap();
+        let slots = [
+            connected_slot(DeviceKind::Keyboard, true),
+            connected_slot(DeviceKind::Mouse, false),
+        ];
+        let lines = device_lines(&list, Protocol::Bluetooth, &slots);
+        assert!(
+            lines[0]
+                .parts()
+                .contains(&("  standby".to_string(), Tone::Standby))
+        );
+        assert_eq!(
+            texts(lines),
+            [
+                "1  keyboard  MX Keys              EB:BB:49:A6:9A:D9  standby, legacy, passkey",
+                "2  mouse     MX Master 3S · Bolt  C8:F2:E0:11:3C:5A  active, secure, passkey",
+            ]
+        );
+    }
+
+    #[test]
     fn an_esb_keyboard_is_listed_by_the_ids_its_status_shows() {
         let keyboard = |addr| StoredDevice {
             addr,
@@ -1395,16 +1445,18 @@ mod tests {
         assert_eq!(
             texts(device_lines(
                 &[keyboard([0x70, 0x15, 0xa3, 0x29, 0, 0, 0])],
-                Protocol::Nuphy
+                Protocol::Nuphy,
+                &[connected_slot(DeviceKind::Keyboard, false)]
             )),
-            ["1  keyboard  MX Keys  ID 7015a329  slot 0"]
+            ["1  keyboard  MX Keys  ID 7015a329  active"]
         );
         assert_eq!(
             texts(device_lines(
                 &[keyboard([0x70, 0x15, 0xb8, 0xbc, 0xd5, 0xb3, 0x07])],
-                Protocol::Unifying
+                Protocol::Unifying,
+                &[connected_slot(DeviceKind::Keyboard, false)]
             )),
-            ["1  keyboard  MX Keys  serial b8bcd5b3, WPID 7015, address 07  slot 0"]
+            ["1  keyboard  MX Keys  serial b8bcd5b3, WPID 7015, address 07  active"]
         );
     }
 
