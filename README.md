@@ -31,8 +31,7 @@ each device's signal over time, its latency through the dongle, and the dongle's
 | NuPhy 2.4G, NuPhyIO keyboards | 🔴 none yet | ❌ no protection |
 | Bluetooth Classic | ❌ not supported: the nRF52840 has no Classic radio | 🔴 to 🟢, by how the device paired |
 
-Support is compared with the original receiver, or for Bluetooth the PC's own. In Security, 🟢 is
-safe even during pairing, 🟡 weak only during pairing and 🔴 weak at any time.
+Support is compared with the original receiver, or for Bluetooth the PC's own.
 
 One firmware speaks NuPhy, Unifying and Bluetooth LE, but only one runs at a time, chosen by a
 setting the dongle keeps in flash. A new dongle runs Bluetooth. `spare-dongle protocol nuphy`,
