@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The dongle no longer restarts a few seconds after a Bluetooth device pairs.
 - A new dongle, or one after `spare-dongle reset`, runs Bluetooth instead of NuPhy, as does one
   updated from a release before 0.7.0 without ever running `spare-dongle protocol`.
 - The live view marks a device's link with a symbol before its state, open pairing with `◉` and a
