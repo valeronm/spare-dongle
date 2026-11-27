@@ -395,6 +395,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "diagclient",
+ "diagwire",
  "jni",
  "libc",
  "serde",
@@ -404,6 +405,9 @@ dependencies = [
 [[package]]
 name = "diagwire"
 version = "0.0.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "diagwire-ffi"

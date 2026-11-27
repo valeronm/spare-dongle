@@ -9,4 +9,5 @@ pub const TOOL: &str = tool_name!();
 
 pub mod device;
 pub mod protocol;
+pub mod report;
 pub mod words;

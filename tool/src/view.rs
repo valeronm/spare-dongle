@@ -19,13 +19,13 @@ use ratatui::{
 
 use crate::device::{self, Device, Lost, Transport};
 use crate::format::{
-    ChannelRole, KEYBOARD_PAIRING, LinkHealth, NOISE_QUESTION, TITLE_SEPARATOR, Tone,
-    action_question, battery, bootloader_and_softdevice, bucket_label, channel_role, counted_share,
-    describe_event, device_at, device_lines, forget_question, heard_lines, latency, link_health,
-    name_parts, noise_level, noise_ruler, pairing, pairing_how, pairing_picked, passkey_prompt,
-    protocol_security, reset_by, sentence, share, slot_health, slot_state, state_name,
-    status_label, switch_question, uptime, usb_state, version, waiting_device, waits_for_passkey,
-    wall_clock, watch_role, watch_summary,
+    ChannelRole, KEYBOARD_PAIRING, LinkHealth, NOISE_QUESTION, SignalQuality, TITLE_SEPARATOR,
+    Tone, action_question, battery, bootloader_and_softdevice, bucket_label, channel_role,
+    counted_share, describe_event, device_at, device_lines, forget_question, heard_lines, latency,
+    link_health, name_parts, noise_level, noise_ruler, pairing, pairing_how, pairing_picked,
+    passkey_prompt, protocol_security, reset_by, sentence, share, signal_quality, slot_health,
+    slot_state, state_name, status_label, switch_question, uptime, usb_state, version,
+    waiting_device, waits_for_passkey, wall_clock, watch_role, watch_summary,
 };
 use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
@@ -42,9 +42,6 @@ const TIME_AXIS_ROWS: u16 = 1;
 /// The narrowest a slot's status box and chart draw uncut.
 const PANEL_MIN_WIDTH: u16 = 49;
 const SEPARATOR: &str = "   ";
-/// A link that averaged -70 dBm had no gaps, and gaps followed packets at -78 dBm or weaker.
-const SIGNAL_GOOD_DBM: i8 = -70;
-const SIGNAL_WEAK_DBM: i8 = -78;
 const CLOCK: &str = "%H:%M:%S";
 
 /// Wide enough for a strip's name beside its scale at 100.00%.
@@ -190,10 +187,10 @@ fn kind_icon(kind: DeviceKind) -> Option<char> {
 }
 
 fn signal_color(dbm: i8) -> Color {
-    match dbm {
-        SIGNAL_GOOD_DBM.. => Color::Green,
-        SIGNAL_WEAK_DBM.. => Color::Yellow,
-        _ => Color::Red,
+    match signal_quality(dbm) {
+        SignalQuality::Good => Color::Green,
+        SignalQuality::Fair => Color::Yellow,
+        SignalQuality::Weak => Color::Red,
     }
 }
 
@@ -1510,7 +1507,12 @@ fn device_title(s: &Status, d: &SlotStatus, place: Option<(usize, usize)>) -> Li
     let mut parts = vec![(kind, Tone::Plain)];
     if let Some(name) = &d.name {
         parts.push((TITLE_SEPARATOR.into(), Tone::Plain));
-        parts.extend(name_parts(name, d.pairing.is_some_and(|p| p.bolt)));
+        parts.extend(name_parts(
+            name,
+            d.pairing.is_some_and(|p| p.bolt),
+            Tone::Plain,
+            Tone::Bolt,
+        ));
     }
     if let Some(b) = d.battery {
         parts.push((format!("{TITLE_SEPARATOR}{}", battery(b)), Tone::Plain));
@@ -1595,7 +1597,7 @@ fn slot_lines(status: Option<&Status>, device: Option<&SlotStatus>) -> Vec<Line<
         link_style(health),
     )];
     if let Some(d) = device
-        && let Some(dbm) = d.signal.filter(|_| s.connected(d.slot))
+        && let Some(dbm) = s.live_signal(d)
     {
         link.extend([
             Span::raw(SEPARATOR),
@@ -1905,8 +1907,8 @@ mod tests {
     use crate::format::pairing_open;
     use crate::protocol::REPORT_LEN;
     use crate::protocol::tests::{
-        FIXTURE_LINK, awaited, clicked, clicked_entered, mouse_status, nuphy, status_of,
-        status_running, unpaired,
+        FIXTURE_LINK, awaited, clicked, clicked_entered, keyboard_slot, mouse_status, nuphy,
+        status_of, status_running, unpaired,
     };
     use crate::protocol::{Command, Detail, ErrorCode, Noise, Pairing, Protocol, Rssi, SlotMinute};
     use chrono::TimeZone;
@@ -2522,19 +2524,7 @@ mod tests {
     fn keyboard_and_mouse() -> App<Fake> {
         let mouse = mouse_status();
         let mut s = mouse.clone();
-        s.device = SlotStatus {
-            slot: 0,
-            name: Some("MX Keys".into()),
-            signal: None,
-            last_packet_ms: None,
-            packets: 10,
-            gaps: None,
-            link_losses: None,
-            latency: None,
-            pairing: None,
-            battery: None,
-            link: None,
-        };
+        s.device = keyboard_slot();
         let mut app = app_with(s);
         history(&mut app).slots.push(SlotHistory {
             device: mouse.device,

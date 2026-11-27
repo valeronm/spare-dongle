@@ -1,6 +1,5 @@
 package io.github.valeronm.sparedongle
 
-import android.app.Activity
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -10,24 +9,39 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
-import android.view.View
-import android.view.WindowInsets
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TableLayout
-import android.widget.TableRow
-import android.widget.TextView
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
-import java.util.concurrent.TimeUnit
-import org.json.JSONObject
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+import io.github.valeronm.sparedongle.ui.Motion
+import io.github.valeronm.sparedongle.ui.DetailsScreen
+import io.github.valeronm.sparedongle.ui.MessageScreen
+import io.github.valeronm.sparedongle.ui.SpareDongleTheme
+import io.github.valeronm.sparedongle.ui.StatusScreen
 
-class StatusActivity : Activity() {
-    private enum class Permission { ASK, PENDING, GRANTED, DENIED }
+class StatusActivity : ComponentActivity() {
+    private enum class Permission { ASK, PENDING, DENIED }
 
     private lateinit var manager: UsbManager
-    private lateinit var message: TextView
-    private lateinit var table: TableLayout
+    private var ui by mutableStateOf<UiState?>(null)
+    private var screen by mutableStateOf(Screen.Status)
     private var session: Session? = null
     private var permission = Permission.ASK
     private var resumed = false
@@ -37,28 +51,25 @@ class StatusActivity : Activity() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 ACTION_PERMISSION -> if (permission == Permission.PENDING) {
-                    val device = findDevice()
-                    val granted = device != null && manager.hasPermission(device)
-                    permission = if (granted) Permission.GRANTED else Permission.DENIED
+                    permission = Permission.DENIED
                     connect()
                 }
-                UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
-                    attached()
-                    connect()
-                }
+                UsbManager.ACTION_USB_DEVICE_ATTACHED -> connect(attached())
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> if (findDevice() == null) {
                     stop()
-                    showMessage(getString(R.string.plug_in))
+                    show(MessageKind.PlugIn)
                 }
             }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         manager = getSystemService(UsbManager::class.java)
         // A request still pending when the state was saved answers a receiver that no longer exists.
-        permission = when (val saved = savedInstanceState?.getString(KEY_PERMISSION)?.let(Permission::valueOf)) {
+        val savedPermission = savedInstanceState?.getString(KEY_PERMISSION)
+        permission = when (val saved = Permission.entries.firstOrNull { it.name == savedPermission }) {
             null, Permission.PENDING -> Permission.ASK
             else -> saved
         }
@@ -69,25 +80,9 @@ class StatusActivity : Activity() {
         } else {
             null
         }
-        message = TextView(this)
-        table = TableLayout(this).apply { setColumnShrinkable(1, true) }
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val pad = (16 * resources.displayMetrics.density).toInt()
-            setPadding(pad, pad, pad, pad)
-            addView(message)
-            addView(table)
-        }
-        val content = ScrollView(this).apply { addView(column) }
-        // From API 35 the window is edge-to-edge, and the system bar insets the content receives include the action bar.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-            content.setOnApplyWindowInsetsListener { view, insets ->
-                val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-                insets
-            }
-        }
-        setContentView(content)
+        val savedScreen = savedInstanceState?.getString(KEY_SCREEN)
+        screen = Screen.entries.firstOrNull { it.name == savedScreen } ?: Screen.Status
+        setContent { SpareDongleTheme { Content(page(ui, screen), ::showScreen, ::askAgain, ::connect, ::shareReport) } }
         val filter = IntentFilter().apply {
             addAction(ACTION_PERMISSION)
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
@@ -100,6 +95,7 @@ class StatusActivity : Activity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString(KEY_PERMISSION, permission.name)
+        outState.putString(KEY_SCREEN, screen.name)
         attachedId?.let { outState.putInt(KEY_ATTACHED_ID, it) }
     }
 
@@ -117,8 +113,7 @@ class StatusActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) attached()
-        connect()
+        connect(if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) attached() else findDevice())
     }
 
     override fun onPause() {
@@ -131,31 +126,49 @@ class StatusActivity : Activity() {
         manager.deviceList.values.firstOrNull { it.vendorId == Dongle.VID && it.productId == Dongle.PID }
 
     // Both the attach intent and the attach broadcast report one plug-in, which a new device id marks.
-    private fun attached() {
-        val id = findDevice()?.deviceId ?: return
-        if (id == attachedId) return
-        attachedId = id
-        permission = Permission.ASK
+    private fun attached(): UsbDevice? {
+        val device = findDevice() ?: return null
+        if (device.deviceId != attachedId) {
+            attachedId = device.deviceId
+            permission = Permission.ASK
+        }
+        return device
     }
 
-    private fun connect() {
+    private fun connect(device: UsbDevice? = findDevice()) {
         if (!resumed || session != null) return
-        val device = findDevice() ?: return showMessage(getString(R.string.plug_in))
+        if (device == null) return show(MessageKind.PlugIn)
         if (!manager.hasPermission(device)) {
             when (permission) {
                 Permission.ASK -> {
                     permission = Permission.PENDING
                     val intent = Intent(ACTION_PERMISSION).setPackage(packageName)
                     manager.requestPermission(device, PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_IMMUTABLE))
-                    showMessage(getString(R.string.waiting))
+                    show(MessageKind.Waiting)
                 }
-                Permission.PENDING -> showMessage(getString(R.string.waiting))
-                Permission.GRANTED, Permission.DENIED -> showMessage(getString(R.string.access_denied))
+                Permission.PENDING -> show(MessageKind.Waiting)
+                Permission.DENIED -> show(MessageKind.Denied)
             }
             return
         }
-        val dongle = Dongle.open(manager, device) ?: return showMessage(getString(R.string.cannot_open))
-        session = Session(dongle)
+        session = Session({ Dongle.open(manager, device) }) { state ->
+            if (state is UiState.Message) stop()
+            update(state)
+        }
+    }
+
+    private fun askAgain() {
+        permission = Permission.ASK
+        connect()
+    }
+
+    private fun shareReport(onFailed: () -> Unit) {
+        val session = session ?: return onFailed()
+        session.readReport { text ->
+            if (text == null) return@readReport onFailed()
+            val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+            startActivity(Intent.createChooser(send, getString(R.string.share_report)))
+        }
     }
 
     private fun stop() {
@@ -163,88 +176,80 @@ class StatusActivity : Activity() {
         session = null
     }
 
-    private fun showMessage(text: String) {
-        table.removeAllViews()
-        table.visibility = View.GONE
-        message.text = text
-        message.visibility = View.VISIBLE
+    private fun show(kind: MessageKind) = update(UiState.Message(kind))
+
+    // The outgoing page of a transition still takes taps.
+    private fun showScreen(next: Screen) {
+        if (ui is UiState.Ready) screen = next
     }
 
-    private fun showRows(rows: List<Pair<String, String>>) {
-        message.visibility = View.GONE
-        table.visibility = View.VISIBLE
-        table.removeAllViews()
-        val gap = (16 * resources.displayMetrics.density).toInt()
-        for ((label, value) in rows) {
-            table.addView(TableRow(this).apply {
-                addView(TextView(this@StatusActivity).apply { text = label; setPadding(0, 0, gap, 0) })
-                addView(TextView(this@StatusActivity).apply { text = value })
-            })
-        }
-    }
-
-    private fun statusRows(dongle: JSONObject, status: JSONObject): List<Pair<String, String>> {
-        val details = dongle.getJSONArray("rows")
-        val firmware = (0 until details.length()).map(details::getJSONObject).first { it.getString("label") == "firmware" }
-        val rows = mutableListOf(
-            "firmware" to firmware.getString("value"),
-            "protocol" to status.getString("protocol"),
-            "link" to status.getJSONObject("link").getString("text"),
-            "usb" to status.getString("usb"),
-        )
-        val devices = status.getJSONArray("devices")
-        for (i in 0 until devices.length()) {
-            val d = devices.getJSONObject(i)
-            val state = d.getJSONObject("state").getString("text")
-            val name = d.optString("name").takeUnless { d.isNull("name") }
-            rows += d.getString("kind") to if (name != null) "$name, $state" else state
-            if (!d.isNull("signalText")) rows += "signal" to d.getString("signalText")
-            if (!d.isNull("batteryText")) rows += "battery" to d.getString("batteryText")
-        }
-        return rows
-    }
-
-    /** Owns a [Dongle] whose handle only its executor's thread touches. */
-    private inner class Session(private val dongle: Dongle) {
-        private val executor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
-        private var closed = false
-
-        init {
-            executor.scheduleWithFixedDelay(::poll, 0, 1, TimeUnit.SECONDS)
-        }
-
-        private fun poll() {
-            if (closed) return
-            try {
-                val snapshot = JSONObject(dongle.snapshotJson())
-                val rows = statusRows(snapshot.getJSONObject("dongle"), snapshot.getJSONObject("status"))
-                runOnUiThread { if (session === this) showRows(rows) }
-            } catch (e: Throwable) {
-                closeDongle()
-                runOnUiThread {
-                    if (session === this) {
-                        stop()
-                        showMessage(e.message ?: e.javaClass.simpleName)
-                    }
-                }
-            }
-        }
-
-        private fun closeDongle() {
-            if (closed) return
-            closed = true
-            dongle.close()
-        }
-
-        fun close() {
-            executor.execute(::closeDongle)
-            executor.shutdown()
-        }
+    private fun update(state: UiState) {
+        if (state is UiState.Message) screen = Screen.Status
+        ui = state
     }
 
     private companion object {
         const val ACTION_PERMISSION = "io.github.valeronm.sparedongle.USB_PERMISSION"
         const val KEY_PERMISSION = "permission"
         const val KEY_ATTACHED_ID = "attachedId"
+        const val KEY_SCREEN = "screen"
+    }
+}
+
+private sealed interface Page {
+    data object Blank : Page
+    data class Message(val kind: MessageKind) : Page
+    data class Status(val snapshot: Reading.Snapshot) : Page
+    data class Details(val snapshot: Reading.Snapshot) : Page
+}
+
+private fun page(ui: UiState?, screen: Screen): Page = when (ui) {
+    null -> Page.Blank
+    is UiState.Message -> Page.Message(ui.kind)
+    is UiState.Ready -> when (screen) {
+        Screen.Status -> Page.Status(ui.snapshot)
+        Screen.Details -> Page.Details(ui.snapshot)
+    }
+}
+
+private fun sharedAxis(forward: Boolean): ContentTransform {
+    val enter = tween<Float>(Motion.MEDIUM4, easing = Motion.EmphasizedDecelerate)
+    val slide = tween<IntOffset>(Motion.MEDIUM4, easing = Motion.EmphasizedDecelerate)
+    return (slideInHorizontally(slide) { if (forward) it / 10 else -it / 10 } + fadeIn(enter)) togetherWith
+        fadeOut(tween(Motion.SHORT4, easing = Motion.EmphasizedAccelerate))
+}
+
+private fun fade(): ContentTransform {
+    val spec = tween<Float>(Motion.MEDIUM2, easing = Motion.Standard)
+    return fadeIn(spec) togetherWith fadeOut(spec)
+}
+
+@Composable
+private fun Content(
+    page: Page,
+    onScreen: (Screen) -> Unit,
+    onAskAgain: () -> Unit,
+    onTryAgain: () -> Unit,
+    onShare: (onFailed: () -> Unit) -> Unit,
+) {
+    BackHandler(enabled = page is Page.Details) { onScreen(Screen.Status) }
+    AnimatedContent(
+        targetState = page,
+        contentKey = { it::class },
+        transitionSpec = {
+            when {
+                initialState is Page.Status && targetState is Page.Details -> sharedAxis(forward = true)
+                initialState is Page.Details && targetState is Page.Status -> sharedAxis(forward = false)
+                else -> fade()
+            }
+        },
+        label = "screen",
+    ) { shown ->
+        when (shown) {
+            Page.Blank -> Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+            is Page.Message -> MessageScreen(shown.kind, onAskAgain, onTryAgain)
+            is Page.Status -> StatusScreen(shown.snapshot.status, shown.snapshot.dongle, onDetails = { onScreen(Screen.Details) })
+            is Page.Details -> DetailsScreen(shown.snapshot.dongle, onBack = { onScreen(Screen.Status) }, onShare)
+        }
     }
 }

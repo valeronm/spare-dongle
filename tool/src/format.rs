@@ -2,17 +2,24 @@ use anyhow::Result;
 use chrono::{DateTime, Duration, Local};
 
 use crate::board::State;
+use crate::protocol::ProtocolInfo as _;
 use crate::protocol::{
-    Action, AskedParams, AwaitedPasskey, BUSY_DBM, Detail, DeviceKind, Divert, EVENT_ADDR_LEN,
-    Event, Forgotten, HeardDevice, Latency, Link, LinkParams, Moved, Noise, Pairing, Phy, Protocol,
-    STRONG_DBM, Slot, Status, StoredDevice, Up, VersionMismatch, Watch, Wheel, bucket_floor,
+    Action, AwaitedPasskey, BUSY_DBM, Detail, DeviceKind, Divert, EVENT_ADDR_LEN, Event, Forgotten,
+    HeardDevice, Link, LinkParams, Moved, Noise, Pairing, Protocol, STRONG_DBM, Slot, Status,
+    StoredDevice, Up, VersionMismatch, Watch, Wheel, bucket_floor,
 };
 pub use diagclient::words::*;
 
-pub const KEYBOARD_PAIRING: &str = "a keyboard is pairing";
-
 pub const NOISE_QUESTION: &str =
     "The keyboard stops for about 1.5 s while the noise is measured. Measure?";
+
+pub fn slot_state(s: &Status, slot: &Slot) -> &'static str {
+    health_name(slot_health(s, slot))
+}
+
+pub fn params_short(p: &LinkParams) -> String {
+    format!("{} ms · {}", interval_ms(p.interval), phy_text(p))
+}
 
 pub fn action_question(action: Action) -> &'static str {
     match action {
@@ -54,22 +61,6 @@ fn device_name(d: &StoredDevice) -> &str {
 /// The item a numbered list numbers `place`, counting from 1.
 pub fn device_at<T>(list: &[T], place: usize) -> Option<&T> {
     list.get(place.checked_sub(1)?)
-}
-
-/// Follows the name of a device that paired in Logi Bolt mode.
-const BOLT: &str = "Bolt";
-/// Between the parts of a device title, and before a name's Bolt mark.
-pub const TITLE_SEPARATOR: &str = " · ";
-/// The name with its Bolt mark, split where the mark starts.
-pub fn name_parts(name: &str, bolt: bool) -> Vec<(String, Tone)> {
-    let mut parts = vec![(name.to_string(), Tone::Plain)];
-    if bolt {
-        parts.extend([
-            (TITLE_SEPARATOR.into(), Tone::Plain),
-            (BOLT.into(), Tone::Bolt),
-        ]);
-    }
-    parts
 }
 
 pub fn joined(parts: &[(String, Tone)]) -> String {
@@ -128,7 +119,7 @@ fn numbered_lines<'a>(
     let width = |text: &str| text.chars().count();
     let rows: Vec<_> = rows
         .map(|(kind, name, bolt, last)| {
-            let name = name_parts(name, bolt);
+            let name = name_parts(name, bolt, Tone::Plain, Tone::Bolt);
             let w = name.iter().map(|(text, _)| width(text)).sum::<usize>();
             (kind, name, w, last)
         })
@@ -181,11 +172,6 @@ pub fn device_lines(list: &[StoredDevice], protocol: Protocol, slots: &[Slot]) -
         .collect()
 }
 
-/// What the dongle does once a device is picked.
-pub fn pairing_picked(name: Option<&str>) -> String {
-    format!("pairing {}", shown_name(name))
-}
-
 /// One numbered line per device heard in pairing mode, in the order a number picks them.
 pub fn heard_lines(heard: &[HeardDevice]) -> Vec<Vec<(String, Tone)>> {
     numbered_lines(heard.iter().map(|h| {
@@ -203,6 +189,13 @@ pub fn forget_question(d: &StoredDevice, protocol: Protocol) -> String {
         "Forget {} ({})? It has to be paired again to be used.",
         device_name(d),
         device_address(d, protocol)
+    )
+}
+
+pub fn switch_question(to: Protocol) -> String {
+    format!(
+        "Switch to {}? The dongle reboots and history starts over.",
+        to.name()
     )
 }
 
@@ -229,40 +222,6 @@ pub fn sentence(text: &str) -> String {
     chars.next().map_or_else(String::new, |first| {
         first.to_uppercase().chain(chars).collect()
     })
-}
-
-/// The passkey as entered: six digits, or one click per bit, the most significant first.
-pub fn passkey_entry(a: &AwaitedPasskey) -> String {
-    passkey_entries(a).join(" ")
-}
-
-/// The six digits as one entry, or one entry per click, each but the last with its comma.
-fn passkey_entries(a: &AwaitedPasskey) -> Vec<String> {
-    if !a.clicked {
-        return vec![format!("{:06}", a.passkey)];
-    }
-    (0..diagwire::CLICK_PASSKEY_BITS)
-        .rev()
-        .map(|bit| {
-            let side = if a.passkey >> bit & 1 == 1 {
-                "right"
-            } else {
-                "left"
-            };
-            if bit == 0 {
-                side.to_string()
-            } else {
-                format!("{side},")
-            }
-        })
-        .collect()
-}
-
-/// The device's advertised name, or a word for it where it gave none.
-pub fn waiting_device(a: &AwaitedPasskey) -> &str {
-    a.name
-        .as_deref()
-        .unwrap_or(if a.clicked { "device" } else { "keyboard" })
 }
 
 /// The words asking for the passkey a device waits for.
@@ -319,10 +278,6 @@ pub fn passkey_progress(a: &AwaitedPasskey) -> Option<String> {
             clicks
         }
     })
-}
-
-pub fn waits_for_passkey(who: &str) -> String {
-    format!("{who} waits for the passkey")
 }
 
 pub const PAIRING_CLOSED_UNPAIRED: &str = "pairing closed with no device paired";
@@ -450,143 +405,6 @@ pub fn noise_ruler(first: u8, count: u8) -> String {
 /// dBm above the -100 dBm floor, clamped at 0.
 pub fn noise_level(loudest: i8) -> u8 {
     u8::try_from(i16::from(loudest) + 100).unwrap_or(0)
-}
-
-pub fn pairing_offer(forced: Option<[u8; 3]>) -> String {
-    forced.map_or("picks channels by survey".into(), |f| {
-        format!("offers channels {} {} {}, set by hand", f[0], f[1], f[2])
-    })
-}
-
-pub fn paired(own: [u8; 3]) -> String {
-    format!("paired {} {} {}", own[0], own[1], own[2])
-}
-
-const STATUS_LABEL_WIDTH: usize = 10;
-
-pub fn status_label(label: &str) -> String {
-    format!("{:<STATUS_LABEL_WIDTH$}", format!("{label} "))
-}
-
-pub fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-pub fn unifying_kind(kind: u8) -> Option<&'static str> {
-    Some(match kind {
-        0x01 => "keyboard",
-        0x02 => "mouse",
-        0x03 => "numpad",
-        0x04 => "presenter",
-        0x07 => "remote",
-        0x08 => "trackball",
-        0x09 => "touchpad",
-        0x0a => "tablet",
-        0x0b => "gamepad",
-        0x0c => "joystick",
-        _ => return None,
-    })
-}
-
-/// The rating the protocol sets for every device it carries; Bluetooth rates each device by how
-/// it paired instead.
-pub fn protocol_security(protocol: Protocol) -> Option<&'static str> {
-    match protocol {
-        Protocol::Nuphy => Some("no protection"),
-        Protocol::Unifying => Some("weak at any time"),
-        Protocol::Bluetooth => None,
-    }
-}
-
-pub fn pairing(p: Pairing) -> String {
-    let method = if p.secure { "secure" } else { "legacy" };
-    let passkey = if p.passkey { "passkey" } else { "no passkey" };
-    format!("{method}, {passkey}")
-}
-
-fn decimal(whole: u32, thousandths: u32) -> String {
-    let rest = format!("{thousandths:03}");
-    match rest.trim_end_matches('0') {
-        "" => whole.to_string(),
-        r => format!("{whole}.{r}"),
-    }
-}
-
-fn interval_ms(units: u16) -> String {
-    let us = u32::from(units) * 1250;
-    decimal(us / 1000, us % 1000)
-}
-
-fn timeout_text(units: u16) -> String {
-    let ms = u32::from(units) * 10;
-    if ms < 1000 {
-        format!("{ms} ms")
-    } else {
-        format!("{} s", decimal(ms / 1000, ms % 1000))
-    }
-}
-
-fn phy_name(phy: Phy) -> &'static str {
-    match phy {
-        Phy::Le1M => "1M",
-        Phy::Le2M => "2M",
-        Phy::Coded => "Coded",
-    }
-}
-
-fn timing(interval: String, latency: u16, timeout: u16) -> String {
-    format!(
-        "{interval} ms, latency {latency}, timeout {}",
-        timeout_text(timeout)
-    )
-}
-
-fn phy_text(p: &LinkParams) -> String {
-    if p.tx_phy == p.rx_phy {
-        phy_name(p.tx_phy).to_string()
-    } else {
-        format!("{}/{}", phy_name(p.tx_phy), phy_name(p.rx_phy))
-    }
-}
-
-pub fn params_text(p: &LinkParams) -> String {
-    format!(
-        "{}, {}",
-        timing(interval_ms(p.interval), p.latency, p.timeout),
-        phy_text(p)
-    )
-}
-
-pub fn params_short(p: &LinkParams) -> String {
-    format!("{} ms · {}", interval_ms(p.interval), phy_text(p))
-}
-
-pub fn asked_text(a: Option<&AskedParams>) -> String {
-    let Some(a) = a else {
-        return "nothing".into();
-    };
-    let interval = if a.interval_min == a.interval_max {
-        interval_ms(a.interval_min)
-    } else {
-        format!(
-            "{}–{}",
-            interval_ms(a.interval_min),
-            interval_ms(a.interval_max)
-        )
-    };
-    timing(interval, a.latency, a.timeout)
-}
-
-/// In milliseconds to a tenth, rounded half up.
-pub fn latency(l: Option<Latency>) -> String {
-    let Some(l) = l else {
-        return "no report yet".into();
-    };
-    let tenths = |us: u32| {
-        let t = (u64::from(us) + 50) / 100;
-        format!("{}.{} ms", t / 10, t % 10)
-    };
-    format!("{} average, {} max", tenths(l.average_us), tenths(l.max_us))
 }
 
 /// Converts a dongle uptime into the local clock time it happened at.
@@ -909,6 +727,7 @@ pub fn describe_event(e: &Event, s: &Status, stored: &[StoredDevice]) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::{AskedParams, LinkParams, Phy};
 
     #[test]
     fn link_params_read_in_milliseconds_and_seconds() {

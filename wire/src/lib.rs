@@ -200,6 +200,11 @@ codes!(ErrorCode {
 });
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize),
+    serde(rename_all = "kebab-case")
+)]
 #[repr(u8)]
 pub enum Protocol {
     Nuphy = 1,
@@ -221,6 +226,11 @@ impl Protocol {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize),
+    serde(rename_all = "kebab-case")
+)]
 #[repr(u8)]
 pub enum DeviceKind {
     Keyboard,

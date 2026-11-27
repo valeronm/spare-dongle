@@ -17,9 +17,15 @@ pub struct VersionMismatch {
     pub dongle: u8,
 }
 
+impl VersionMismatch {
+    pub fn dongle_older(&self) -> bool {
+        self.dongle < VERSION
+    }
+}
+
 impl std::fmt::Display for VersionMismatch {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let fix = if self.dongle < VERSION {
+        let fix = if self.dongle_older() {
             concat!(
                 "flash the firmware from this tool's release with `",
                 tool_name!(),
@@ -111,7 +117,8 @@ impl ProtocolInfo for Protocol {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Counter {
     Packets,
     Invalid,
@@ -375,6 +382,52 @@ fn softdevice(fwid: u16, id: u32, version: u32) -> SoftDevice {
     }
 }
 
+/// Declares the enum and its `ALL` from one list.
+macro_rules! reset_causes {
+    ($($variant:ident),+ $(,)?) => {
+        /// The RESET_* bits of Zephyr's hwinfo, each variant's value its bit.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+        #[serde(rename_all = "kebab-case")]
+        pub enum ResetCause {
+            $($variant),+
+        }
+
+        impl ResetCause {
+            const ALL: [Self; [$(stringify!($variant)),+].len()] = [$(Self::$variant),+];
+        }
+    };
+}
+
+reset_causes!(
+    Pin,
+    Software,
+    Brownout,
+    PowerOn,
+    Watchdog,
+    Debug,
+    Security,
+    LowPowerWake,
+    CpuLockup,
+    Parity,
+    Pll,
+    Clock,
+    Hardware,
+    User,
+    Temperature,
+    Bootloader,
+    Flash,
+);
+
+impl ResetCause {
+    /// The causes `bits` sets, in bit order.
+    pub fn from_bits(bits: u32) -> Vec<Self> {
+        Self::ALL
+            .into_iter()
+            .filter(|&cause| bits & 1 << cause as u32 != 0)
+            .collect()
+    }
+}
+
 /// One status reply: the link-wide fields, the slot table and the asked slot's status.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Status {
@@ -469,9 +522,17 @@ impl Status {
         self.link.protocol()
     }
 
-    pub fn signal_shown(&self, device: &SlotStatus) -> bool {
-        self.slot(device.slot).is_some_and(Slot::holds_device)
-            && (self.protocol().has_esb() || device.signal.is_some())
+    /// A reading kept from before the device disconnected no longer describes the link.
+    pub fn live_signal(&self, device: &SlotStatus) -> Option<i8> {
+        device.signal.filter(|_| self.connected(device.slot))
+    }
+
+    pub fn minutes_held(&self) -> u32 {
+        self.minute_next.saturating_sub(self.minute_oldest)
+    }
+
+    pub fn events_held(&self) -> u32 {
+        self.events_total.saturating_sub(self.events_oldest)
     }
 
     pub fn slot(&self, slot: u8) -> Option<&Slot> {
@@ -1031,6 +1092,22 @@ pub mod testing {
         let mut s = read_status(&fixture("status-slot1.hex")).unwrap().unwrap();
         s.pairing_window = PairingWindow::Closed;
         s
+    }
+
+    pub fn keyboard_slot() -> SlotStatus {
+        SlotStatus {
+            slot: 0,
+            name: Some("MX Keys".into()),
+            signal: None,
+            last_packet_ms: None,
+            packets: 10,
+            gaps: None,
+            link_losses: None,
+            latency: None,
+            pairing: None,
+            battery: None,
+            link: None,
+        }
     }
 
     pub fn nuphy(s: &mut Status) -> &mut NuphyLink {

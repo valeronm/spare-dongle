@@ -24,16 +24,23 @@ pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_open(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_snapshotJson(
+pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_readingJson(
     env: JNIEnv,
     _: JClass,
     handle: jlong,
 ) -> jstring {
     let dev = unsafe { &mut *(handle as *mut Dongle) };
-    json_or_throw(env, || {
-        let s = dev.status()?;
-        Ok(serde_json::to_string(&view::snapshot(&s, &dev.shown(&s)?))?)
-    })
+    string_or_throw(env, || Ok(serde_json::to_string(&view::read(dev)?)?))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_reportText(
+    env: JNIEnv,
+    _: JClass,
+    handle: jlong,
+) -> jstring {
+    let dev = unsafe { &mut *(handle as *mut Dongle) };
+    string_or_throw(env, || view::report_text(dev))
 }
 
 #[unsafe(no_mangle)]
@@ -73,10 +80,10 @@ pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_close(
     drop(unsafe { Box::from_raw(handle as *mut Dongle) });
 }
 
-fn json_or_throw(mut env: JNIEnv, read: impl FnOnce() -> anyhow::Result<String>) -> jstring {
-    let json = catch_unwind(AssertUnwindSafe(read))
+fn string_or_throw(mut env: JNIEnv, read: impl FnOnce() -> anyhow::Result<String>) -> jstring {
+    let text = catch_unwind(AssertUnwindSafe(read))
         .unwrap_or_else(|_| Err(anyhow::anyhow!("the status reader failed")));
-    match json.and_then(|json| Ok(env.new_string(json)?)) {
+    match text.and_then(|text| Ok(env.new_string(text)?)) {
         Ok(s) => s.into_raw(),
         Err(e) => {
             if matches!(env.exception_check(), Ok(false)) {
