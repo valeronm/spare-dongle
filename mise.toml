@@ -5,6 +5,8 @@ ninja = "1.13"
 python = "3.14"
 uv = "0.13"
 shellcheck = "0.11"
+"cargo:cargo-ndk" = "4.1.2"
+java = "jetbrains-21.0.11-b1163.116"
 
 [env]
 NCS_ROOT = "{{ get_env(name='NCS_ROOT', default=env.HOME ~ '/ncs') }}"
@@ -54,6 +56,11 @@ run = [
 	"cargo clippy -p diagwire-ffi --profile ffi -- -D warnings",
 	"shellcheck tools/*.sh",
 ]
+
+[tasks.app]
+description = "Run the Android app's unit tests and lint, and build its debug APK"
+dir = "{{ config_root }}/android"
+run = "./gradlew testDebugUnitTest lint assembleDebug"
 
 [tasks.flash]
 description = "Flash the built firmware without asking for confirmation"

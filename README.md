@@ -157,14 +157,22 @@ shows and every command.
 The app in `android/` shows the dongle's status, refreshed every second, when the dongle is plugged
 into a phone through a USB OTG adapter, and Android offers to open it when the dongle is plugged in.
 It runs on arm64 phones with Android 8 or later. It is not released, so it is built from source and
-installed as a debug build. The build needs the Android SDK with the NDK, `cargo-ndk` and a full JDK
-on top of the Rust toolchain, since Gradle compiles the status reader in `android/rust` for the
-phone before packaging it.
+installed as a debug build.
+
+The app talks to the dongle through `android/rust`, a native library on top of the shared client
+crate the tool uses: it reads the status, switches the protocol and writes the report the app
+shares, with the rules the tool applies. Gradle compiles that library for the phone before
+packaging it, so the build needs the Android SDK with the NDK version `android/app/build.gradle.kts`
+names on top of the tools `mise install` provides.
+
+`mise run app` runs the app's unit tests and Android lint and builds the debug APK into
+`android/app/build/outputs/apk/debug`. Gradle's `installDebug` task in `android/`, or `adb install`
+with that APK, puts it on a phone with USB debugging on.
 
 ## Building from source
 
-- [mise](https://mise.jdx.dev), which installs Rust, CMake, Ninja, Python and uv at the versions in
-  `mise.toml`.
+- [mise](https://mise.jdx.dev), which installs Rust, cargo-ndk, a JDK, CMake, Ninja, Python and uv
+  at the versions in `mise.toml`.
 - A C compiler, for the tests.
 - On macOS, the Xcode command line tools and `dtc` (for example `brew install dtc`).
 
@@ -196,7 +204,8 @@ in it, and stops when one no longer applies. `mise run flash` flashes the image 
 
 `mise run test` runs the firmware modules' tests on the host and the tool's tests. It does not need
 the SDKs. `mise run lint` runs rustfmt, clippy and shellcheck. CI runs both on `main` and on pull
-requests.
+requests, and `mise run app` as well, so a change to the shared crates that breaks the
+[Android app](#android-app) fails there too.
 
 Each protocol page's On air section describes the link beyond what the code shows:
 [NuPhy](docs/nuphy.md#on-air), [Unifying](docs/unifying.md#on-air),
