@@ -6,6 +6,7 @@
   updated from a release before 0.7.0 without ever running `spare-dongle protocol`.
 - The live view marks a device's link with a symbol before its state, open pairing with `◉` and a
   keyboard's box with `⌨`.
+- The live view sets the terminal's title to SpareDongle, the protocol and the link's state.
 
 ## [0.7.0] - 2026-11-26
 

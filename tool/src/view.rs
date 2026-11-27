@@ -792,10 +792,19 @@ pub fn run(serial: Option<String>) -> Result<()> {
 impl App {
     fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         let mut last_poll: Option<Instant> = None;
+        let mut title = String::new();
         loop {
             if last_poll.is_none_or(|t| t.elapsed() >= self.poll_every()) {
                 self.poll();
                 last_poll = Some(Instant::now());
+            }
+            let now = terminal_title(self.connection.status());
+            if now != title {
+                ratatui::crossterm::execute!(
+                    std::io::stdout(),
+                    ratatui::crossterm::terminal::SetTitle(&now)
+                )?;
+                title = now;
             }
             terminal.draw(|f| self.draw(f))?;
             if !event::poll(Duration::from_millis(100))? {
@@ -1253,7 +1262,7 @@ impl<T: Transport> App<T> {
         let width = f.area().width;
         let (session, help) = self.connection.view(usize::from(width));
         let history = session.map(|s| &s.history);
-        let status = history.map(|h| &h.status);
+        let status = self.connection.status();
         let protocol = status.map(Status::protocol);
         let dongle_rows = dongle_lines(status);
         let [dongle, top, middle, bottom, footer] = Layout::vertical([
@@ -1354,6 +1363,13 @@ fn info_modal(s: &Status) -> Modal {
     }
 }
 
+fn terminal_title(status: Option<&Status>) -> String {
+    match status {
+        Some(s) => [crate::PRODUCT, s.protocol().name(), state_name(s)].join(TITLE_SEPARATOR),
+        None => [crate::PRODUCT, "disconnected"].join(TITLE_SEPARATOR),
+    }
+}
+
 fn dongle_title(status: Option<&Status>) -> Line<'static> {
     let mut title = Line::from(crate::PRODUCT);
     if let Some(s) = status {
@@ -1396,6 +1412,13 @@ fn device_title(s: &Status, d: &SlotStatus) -> Line<'static> {
 }
 
 impl<T: Transport> Connection<T> {
+    fn status(&self) -> Option<&Status> {
+        match self {
+            Connection::Connected(session) => Some(&session.history.status),
+            Connection::Disconnected(_) => None,
+        }
+    }
+
     fn view(&self, width: usize) -> (Option<&Session<T>>, Vec<Line<'static>>) {
         match self {
             Connection::Connected(session) => (Some(session), session.help(width)),
@@ -3917,6 +3940,19 @@ mod tests {
         assert_eq!(cell_at(&terminal, 2, "26").modifier, Modifier::REVERSED);
         assert_eq!(cell_at(&terminal, 2, "30").modifier, Modifier::BOLD);
         assert_eq!(cell_at(&terminal, 2, "16").modifier, Modifier::empty());
+    }
+
+    #[test]
+    fn the_terminal_title_names_the_protocol_and_the_link_state() {
+        assert_eq!(
+            terminal_title(Some(&status_of(Protocol::Nuphy))),
+            "SpareDongle · NuPhy · connected"
+        );
+        assert_eq!(
+            terminal_title(Some(&unpaired(Protocol::Bluetooth))),
+            "SpareDongle · Bluetooth · not paired"
+        );
+        assert_eq!(terminal_title(None), "SpareDongle · disconnected");
     }
 
     #[test]
