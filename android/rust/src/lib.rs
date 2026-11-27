@@ -5,7 +5,7 @@ mod view;
 use descriptor::{is_diagnostic, report_descriptor_length};
 use diagclient::device::Device;
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass};
+use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{JNI_FALSE, jboolean, jint, jlong, jstring};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -41,6 +41,23 @@ pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_reportText(
 ) -> jstring {
     let dev = unsafe { &mut *(handle as *mut Dongle) };
     string_or_throw(env, || view::report_text(dev))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_switchProtocol(
+    env: JNIEnv,
+    _: JClass,
+    handle: jlong,
+    code: JString,
+) -> jboolean {
+    let dev = unsafe { &mut *(handle as *mut Dongle) };
+    or_throw(env, JNI_FALSE, "the protocol switch failed", |env| {
+        let code: String = env.get_string(&code)?.into();
+        let want = view::protocol_named(&code)
+            .ok_or_else(|| anyhow::anyhow!("unknown protocol \"{code}\""))?;
+        let (_, rebooting) = dev.protocol(Some(want))?;
+        Ok(jboolean::from(rebooting))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -80,16 +97,27 @@ pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_close(
     drop(unsafe { Box::from_raw(handle as *mut Dongle) });
 }
 
-fn string_or_throw(mut env: JNIEnv, read: impl FnOnce() -> anyhow::Result<String>) -> jstring {
-    let text = catch_unwind(AssertUnwindSafe(read))
-        .unwrap_or_else(|_| Err(anyhow::anyhow!("the status reader failed")));
-    match text.and_then(|text| Ok(env.new_string(text)?)) {
-        Ok(s) => s.into_raw(),
-        Err(e) => {
-            if matches!(env.exception_check(), Ok(false)) {
-                let _ = env.throw_new("java/io/IOException", format!("{e:#}"));
-            }
-            std::ptr::null_mut()
+fn string_or_throw(env: JNIEnv, read: impl FnOnce() -> anyhow::Result<String>) -> jstring {
+    or_throw(
+        env,
+        std::ptr::null_mut(),
+        "the status reader failed",
+        |env| Ok(env.new_string(read()?)?.into_raw()),
+    )
+}
+
+fn or_throw<T>(
+    mut env: JNIEnv,
+    failed: T,
+    panicked: &str,
+    run: impl FnOnce(&mut JNIEnv) -> anyhow::Result<T>,
+) -> T {
+    let result = catch_unwind(AssertUnwindSafe(|| run(&mut env)))
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("{panicked}")));
+    result.unwrap_or_else(|e| {
+        if matches!(env.exception_check(), Ok(false)) {
+            let _ = env.throw_new("java/io/IOException", format!("{e:#}"));
         }
-    }
+        failed
+    })
 }

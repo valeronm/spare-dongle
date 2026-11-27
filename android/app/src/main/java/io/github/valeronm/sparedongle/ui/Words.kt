@@ -10,6 +10,7 @@ import io.github.valeronm.sparedongle.CounterKey
 import io.github.valeronm.sparedongle.DeviceKind
 import io.github.valeronm.sparedongle.History
 import io.github.valeronm.sparedongle.LinkCode
+import io.github.valeronm.sparedongle.Notice
 import io.github.valeronm.sparedongle.ProtocolCode
 import io.github.valeronm.sparedongle.R
 import io.github.valeronm.sparedongle.ResetCause
@@ -47,6 +48,12 @@ fun protocolName(code: ProtocolCode): String = stringResource(
         ProtocolCode.Bluetooth -> R.string.protocol_bluetooth
     },
 )
+
+@Composable
+fun noticeText(notice: Notice): String = when (notice) {
+    is Notice.Switched -> stringResource(R.string.switched_to, protocolName(notice.protocol))
+    Notice.SwitchFailed -> stringResource(R.string.switch_failed)
+}
 
 @Composable
 fun kindName(kind: DeviceKind): String = stringResource(

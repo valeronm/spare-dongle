@@ -20,6 +20,7 @@ sealed interface MessageKind {
     data object CannotOpen : MessageKind
     data class ReadFailed(val reason: String) : MessageKind
     data class Outdated(val mismatch: Reading.Mismatch) : MessageKind
+    data object NotBack : MessageKind
 }
 
 enum class Screen { Status, Details }
@@ -30,7 +31,7 @@ enum class Screen { Status, Details }
  *
  * [onState] runs on the main thread with each poll's [UiState.Ready], or once with a [UiState.Message] of
  * [MessageKind.CannotOpen], [MessageKind.ReadFailed] or [MessageKind.Outdated] after which polling stops; it never
- * runs after [close]. Call [readReport] and [close] on the main thread.
+ * runs after [close]. Call [readReport], [switchProtocol] and [close] on the main thread.
  */
 class Session(
     private val openDongle: () -> Dongle?,
@@ -38,7 +39,7 @@ class Session(
 ) : AutoCloseable {
     private val main = Handler(Looper.getMainLooper())
     private var open = true
-    private var reportPending = false
+    private val pending = mutableSetOf<Request>()
     private var dongle: Dongle? = null
     private val polling: ScheduledFuture<*> = executor.scheduleWithFixedDelay(::poll, 0, 1, TimeUnit.SECONDS)
 
@@ -71,18 +72,33 @@ class Session(
      * [onText] runs on the main thread with the report, or with null when it can't be read; never after [close].
      * A call while an earlier read is pending is ignored.
      */
-    fun readReport(onText: (String?) -> Unit) {
-        if (!open || reportPending) return
-        reportPending = true
+    fun readReport(onText: (String?) -> Unit) = request(Request.Report, Dongle::reportText, onText)
+
+    /**
+     * [onReboot] runs on the main thread when the dongle reboots to run [target], and [onFailed] when the switch
+     * fails; neither runs when the dongle already runs [target], or after [close]. A call while an earlier switch is
+     * pending is ignored.
+     */
+    fun switchProtocol(target: ProtocolCode, onReboot: () -> Unit, onFailed: () -> Unit) =
+        request(Request.Switch, { it.switchProtocol(target) }) { rebooting ->
+            when (rebooting) {
+                null -> onFailed()
+                true -> onReboot()
+                false -> Unit
+            }
+        }
+
+    private fun <T : Any> request(kind: Request, call: (Dongle) -> T, onResult: (T?) -> Unit) {
+        if (!open || !pending.add(kind)) return
         executor.execute {
-            val text = try {
-                dongle?.reportText()
+            val result = try {
+                dongle?.let(call)
             } catch (_: Throwable) {
                 null
             }
             main.post {
-                reportPending = false
-                if (open) onText(text)
+                pending.remove(kind)
+                if (open) onResult(result)
             }
         }
     }
@@ -93,6 +109,8 @@ class Session(
         polling.cancel(false)
         executor.execute { dongle?.close() }
     }
+
+    private enum class Request { Report, Switch }
 
     private companion object {
         // Claiming an interface another connection holds takes its claim away, so a session's open has to queue behind

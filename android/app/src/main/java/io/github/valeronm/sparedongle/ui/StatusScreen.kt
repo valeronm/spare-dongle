@@ -18,11 +18,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Mouse
-import androidx.compose.material.icons.rounded.SettingsInputAntenna
+import androidx.compose.material.icons.rounded.Sensors
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,13 +32,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -61,10 +69,13 @@ import io.github.valeronm.sparedongle.DeviceKind
 import io.github.valeronm.sparedongle.DeviceStatus
 import io.github.valeronm.sparedongle.DongleModel
 import io.github.valeronm.sparedongle.LinkCode
+import io.github.valeronm.sparedongle.Notice
+import io.github.valeronm.sparedongle.ProtocolCode
 import io.github.valeronm.sparedongle.R
 import io.github.valeronm.sparedongle.Signal
 import io.github.valeronm.sparedongle.StatusModel
 import io.github.valeronm.sparedongle.Usb
+import io.github.valeronm.sparedongle.switchTargets
 
 private const val LARGE_FONT_SCALE = 1.5f
 private val TrailingMinWidth = 56.dp
@@ -73,16 +84,48 @@ private val AvatarSize = 40.dp
 
 private enum class DongleRow { Protocol, Details }
 
+/** [notice] is announced once; [onNoticeShown] gets it when its announcement ends or leaves the screen. */
 @Composable
-fun StatusScreen(status: StatusModel, dongle: DongleModel, onDetails: () -> Unit) {
+fun StatusScreen(
+    status: StatusModel,
+    dongle: DongleModel,
+    onDetails: () -> Unit,
+    onSwitch: (ProtocolCode) -> Unit,
+    notice: Notice?,
+    onNoticeShown: (Notice) -> Unit,
+) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val banner = bannerOf(status)
     val trailingWidth = trailingWidth()
+    val snackbar = remember { SnackbarHostState() }
+    var choosing by rememberSaveable { mutableStateOf(false) }
+    val targets = switchTargets(status, dongle)
+    if (notice != null) {
+        val text = noticeText(notice)
+        LaunchedEffect(notice) {
+            try {
+                snackbar.showSnackbar(text)
+            } finally {
+                onNoticeShown(notice)
+            }
+        }
+    }
+    if (choosing) {
+        SwitchDialog(
+            targets,
+            onSwitch = { target ->
+                choosing = false
+                onSwitch(target)
+            },
+            onDismiss = { choosing = false },
+        )
+    }
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(title = { Text(stringResource(R.string.app_name)) }, scrollBehavior = scrollBehavior)
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -110,7 +153,15 @@ fun StatusScreen(status: StatusModel, dongle: DongleModel, onDetails: () -> Unit
             segmented(DongleRow.entries, key = { it }) { row, segment ->
                 val modifier = Modifier.animateItem().then(segment.gap)
                 when (row) {
-                    DongleRow.Protocol -> ProtocolRow(protocolName(status.protocol), segment, modifier)
+                    DongleRow.Protocol ->
+                        ProtocolRow(
+                            protocol = protocolName(status.protocol),
+                            icon = protocolIcon(status.protocol),
+                            canSwitch = targets.isNotEmpty(),
+                            onSwitch = { choosing = true },
+                            segment = segment,
+                            modifier = modifier,
+                        )
                     DongleRow.Details -> DetailsRow(dongle, onDetails, segment, modifier)
                 }
             }
@@ -275,19 +326,27 @@ private fun BatteryReading(battery: BatteryStyle, percent: String?, percentFirst
 }
 
 @Composable
-private fun ProtocolRow(protocol: String, segment: Segment, modifier: Modifier = Modifier) {
+private fun ProtocolRow(
+    protocol: String,
+    icon: ImageVector,
+    canSwitch: Boolean,
+    onSwitch: () -> Unit,
+    segment: Segment,
+    modifier: Modifier = Modifier,
+) {
     val colors = MaterialTheme.colorScheme
+    val label = stringResource(R.string.switch_title)
     ListItem(
-        modifier = modifier,
+        onClick = onSwitch,
+        enabled = canSwitch,
+        modifier = modifier.labeledButton(label, canSwitch, onSwitch),
         shapes = segment.shapes,
         colors = segment.colors,
-        leadingContent = { Avatar(Icons.Rounded.SettingsInputAntenna, colors.surfaceContainerHighest, colors.onSurfaceVariant) },
-        supportingContent = { Text(stringResource(R.string.protocol)) },
-        trailingContent = {
-            OutlinedButton(onClick = {}, enabled = false) { Text(stringResource(R.string.switch_protocol)) }
-        },
+        leadingContent = { Avatar(icon, colors.surfaceContainerHighest, colors.onSurfaceVariant) },
+        supportingContent = { Text(protocol) },
+        trailingContent = { Icon(Icons.Rounded.SwapHoriz, contentDescription = null) },
     ) {
-        Text(protocol)
+        Text(stringResource(R.string.protocol))
     }
 }
 
@@ -298,14 +357,7 @@ private fun DetailsRow(dongle: DongleModel, onDetails: () -> Unit, segment: Segm
     val summary = stringResource(R.string.dongle_summary, versionText(dongle.firmware), uptimeText(dongle.uptimeMs))
     ListItem(
         onClick = onDetails,
-        // The clickable overload takes no click label, and this action replaces the unlabeled one it adds.
-        modifier = modifier.semantics {
-            role = Role.Button
-            onClick(label = label) {
-                onDetails()
-                true
-            }
-        },
+        modifier = modifier.labeledButton(label, enabled = true, onDetails),
         shapes = segment.shapes,
         colors = segment.colors,
         leadingContent = { Avatar(Icons.Rounded.Memory, colors.surfaceContainerHighest, colors.onSurfaceVariant) },
@@ -314,6 +366,22 @@ private fun DetailsRow(dongle: DongleModel, onDetails: () -> Unit, segment: Segm
     ) {
         Text(label)
     }
+}
+
+// The clickable overload takes no click label, and this action replaces the unlabeled one it adds.
+private fun Modifier.labeledButton(label: String, enabled: Boolean, action: () -> Unit): Modifier = semantics {
+    role = Role.Button
+    if (enabled) {
+        onClick(label = label) {
+            action()
+            true
+        }
+    }
+}
+
+private fun protocolIcon(code: ProtocolCode): ImageVector = when (code) {
+    ProtocolCode.Bluetooth -> Icons.Rounded.Bluetooth
+    ProtocolCode.Nuphy, ProtocolCode.Unifying -> Icons.Rounded.Sensors
 }
 
 private fun kindIcon(kind: DeviceKind): ImageVector = when (kind) {

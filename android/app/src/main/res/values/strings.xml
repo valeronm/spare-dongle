@@ -40,6 +40,15 @@
     <string name="radio_failed_hint">Unplug the dongle and plug it back in.</string>
     <string name="dongle">Dongle</string>
     <string name="switch_protocol">Switch</string>
+    <string name="switch_title">Switch protocol</string>
+    <string name="switch_consequence">The dongle restarts and its history starts over.</string>
+    <string name="cancel">Cancel</string>
+    <string name="switch_failed">Couldn\'t switch the protocol</string>
+    <string name="switching_to">Switching to %1$s…</string>
+    <string name="switching_hint">The dongle is restarting.</string>
+    <string name="allow_access">Allow USB access to continue.</string>
+    <string name="switched_to">Switched to %1$s</string>
+    <string name="not_back">The dongle didn\'t come back</string>
     <string name="dongle_summary">Firmware %1$s · up %2$s</string>
     <string name="battery_description">battery %1$s</string>
     <string name="percent">%1$d%%</string>

@@ -171,6 +171,10 @@ pub fn report_text<T: Transport>(dev: &mut Device<T>) -> anyhow::Result<String> 
     Ok(status_lines(&s, &dev.shown(&s)?).join("\n"))
 }
 
+pub fn protocol_named(code: &str) -> Option<Protocol> {
+    serde_json::from_value(serde_json::Value::String(code.to_owned())).ok()
+}
+
 fn status_view(s: &Status, slots: &[SlotStatus]) -> StatusView {
     StatusView {
         protocol: s.protocol(),
@@ -254,6 +258,20 @@ mod tests {
             .find(|d| d["kind"] == "keyboard")
             .unwrap()
             .clone()
+    }
+
+    #[test]
+    fn a_protocol_is_found_by_the_code_the_view_gives_it() {
+        let found: Vec<_> = Protocol::ALL
+            .into_iter()
+            .map(|p| protocol_named(serde_json::to_value(p).unwrap().as_str().unwrap()))
+            .collect();
+        assert_eq!(found, Protocol::ALL.map(Some));
+    }
+
+    #[test]
+    fn an_unknown_code_names_no_protocol() {
+        assert_eq!(protocol_named("zigbee"), None);
     }
 
     #[test]

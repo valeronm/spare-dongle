@@ -202,7 +202,7 @@ codes!(ErrorCode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
-    derive(serde::Serialize),
+    derive(serde::Serialize, serde::Deserialize),
     serde(rename_all = "kebab-case")
 )]
 #[repr(u8)]

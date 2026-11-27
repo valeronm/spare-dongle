@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.sparedongle.MessageKind
+import io.github.valeronm.sparedongle.ProtocolCode
 import io.github.valeronm.sparedongle.R
 import io.github.valeronm.sparedongle.Side
 
@@ -64,6 +65,7 @@ internal data class Message(
     val failed: Boolean,
     val detail: Detail?,
     val retry: Retry?,
+    val headlineArg: ProtocolCode? = null,
 )
 
 internal fun message(kind: MessageKind): Message = when (kind) {
@@ -85,11 +87,16 @@ internal fun message(kind: MessageKind): Message = when (kind) {
         Detail.Versions(kind.mismatch.dongle, kind.mismatch.app),
         null,
     )
+    MessageKind.NotBack -> Message(R.string.not_back, Icons.Rounded.ErrorOutline, true, null, Retry.TryAgain)
+}
+
+internal fun switchingMessage(target: ProtocolCode, askingAccess: Boolean): Message {
+    val detail = Detail.Hint(if (askingAccess) R.string.allow_access else R.string.switching_hint)
+    return Message(R.string.switching_to, null, false, detail, null, headlineArg = target)
 }
 
 @Composable
-fun MessageScreen(kind: MessageKind, onAskAgain: () -> Unit, onTryAgain: () -> Unit) {
-    val message = message(kind)
+internal fun MessageScreen(message: Message, onAskAgain: () -> Unit, onTryAgain: () -> Unit) {
     val onRetry = when (message.retry) {
         Retry.AskAgain -> onAskAgain
         Retry.TryAgain -> onTryAgain
@@ -117,7 +124,8 @@ private fun MessageColumn(message: Message, onRetry: (() -> Unit)?, viewport: Dp
         Spacer(Modifier.weight(FREE_HEIGHT_ABOVE))
         Badge(message)
         Text(
-            stringResource(message.headline),
+            message.headlineArg?.let { stringResource(message.headline, protocolName(it)) }
+                ?: stringResource(message.headline),
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,

@@ -15,6 +15,8 @@ class Dongle private constructor(
 
     fun reportText(): String = Native.reportText(handle)
 
+    fun switchProtocol(target: ProtocolCode): Boolean = Native.switchProtocol(handle, target.code)
+
     override fun close() {
         Native.close(handle)
         connection.releaseInterface(intf)
