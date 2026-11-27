@@ -1,0 +1,19 @@
+[package]
+name = "diagjni"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+name = "sparedongle"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+diagclient = { path = "../../client" }
+anyhow = "1"
+jni = "0.21"
+libc = "0.2"
+
+[dev-dependencies]
+diagclient = { path = "../../client", features = ["testing"] }

@@ -40,6 +40,7 @@ run = [
 	"cmake --build build/tests",
 	"ctest --test-dir build/tests --output-on-failure",
 	"cargo test",
+	"cargo test -p diagjni",
 	"cargo build",
 ]
 
@@ -48,6 +49,8 @@ description = "Check the tool's formatting and lints, and the shell scripts"
 run = [
 	"cargo fmt --all --check",
 	"cargo clippy --all-targets -- -D warnings",
+	"cargo clippy -p diagjni --all-targets -- -D warnings",
+	"cargo check -p diagjni --target aarch64-linux-android",
 	"cargo clippy -p diagwire-ffi --profile ffi -- -D warnings",
 	"shellcheck tools/*.sh",
 ]

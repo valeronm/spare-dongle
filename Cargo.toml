@@ -1,5 +1,5 @@
 [workspace]
-members = ["tool", "wire", "ffi", "client"]
+members = ["tool", "wire", "ffi", "client", "android/rust"]
 default-members = ["tool", "wire", "client"]
 resolver = "3"
 
