@@ -22,14 +22,14 @@ each device's signal over time, its latency through the dongle, and the dongle's
 
 ## Protocols
 
-| Protocol | Security | Support |
+| Protocol | Support | Security |
 |---|---|---|
-| NuPhy 2.4G, QMK keyboards | [❌ no protection](docs/nuphy.md#security) | [🟢 full](docs/nuphy.md) |
-| Logitech Unifying | [🔴 weak at any time](docs/unifying.md#security) | [🟡 partial](docs/unifying.md): up to six keyboards, one at a time |
-| Bluetooth LE | [🔴 to 🟢, by how the device paired](docs/bluetooth.md#security) | [🟡 partial](docs/bluetooth.md): one keyboard and one mouse at a time |
-| NuPhy 2.4G, NuPhyIO keyboards | ❌ no protection | 🔴 none yet |
-| Logi Bolt | [🟡 to 🟢, by how the device paired](docs/bolt.md#security) | [🟡 partial](docs/bolt.md): Bolt mice, in Bluetooth mode |
-| Bluetooth Classic | 🔴 to 🟢, by how the device paired | ❌ not supported: the nRF52840 has no Classic radio |
+| NuPhy 2.4G, QMK keyboards | [🟢 full](docs/nuphy.md) | [❌ no protection](docs/nuphy.md#security) |
+| Logi Bolt | [🟡 partial](docs/bolt.md): Bolt mice, in Bluetooth mode | [🟢 safe even during pairing](docs/bolt.md#security) |
+| Bluetooth LE | [🟡 partial](docs/bluetooth.md): one keyboard and one mouse at a time | [🔴 to 🟢, by how the device paired](docs/bluetooth.md#security) |
+| Logitech Unifying | [🟡 partial](docs/unifying.md): up to six keyboards, one at a time | [🔴 weak at any time](docs/unifying.md#security) |
+| NuPhy 2.4G, NuPhyIO keyboards | 🔴 none yet | ❌ no protection |
+| Bluetooth Classic | ❌ not supported: the nRF52840 has no Classic radio | 🔴 to 🟢, by how the device paired |
 
 Support is compared with the original receiver, or for Bluetooth the PC's own. In Security, 🟢 is
 safe even during pairing, 🟡 weak only during pairing and 🔴 weak at any time.
