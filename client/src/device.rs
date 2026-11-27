@@ -300,6 +300,7 @@ fn first_seq() -> u8 {
 
 pub const VID: u16 = 0x2fe3;
 pub const PID: u16 = 0x4e44;
+pub const USAGE_PAGE: u16 = 0xff00;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing {

@@ -5,4 +5,6 @@ object Native {
     @JvmStatic external fun open(fd: Int, inEndpoint: Int, outEndpoint: Int): Long
     @JvmStatic external fun statusRows(handle: Long): Array<String>
     @JvmStatic external fun close(handle: Long)
+    @JvmStatic external fun isDiagnostic(descriptor: ByteArray): Boolean
+    @JvmStatic external fun reportDescriptorLength(raw: ByteArray, interfaceNumber: Int): Int
 }

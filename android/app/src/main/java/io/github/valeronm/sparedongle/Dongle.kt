@@ -23,19 +23,45 @@ class Dongle private constructor(
     companion object {
         const val VID = 0x2fe3
         const val PID = 0x4e44
+        private const val REQUEST_TYPE_INTERFACE_IN = 0x81
+        private const val GET_DESCRIPTOR = 0x06
+        private const val REPORT_DESCRIPTOR = 0x2200
+        private const val TIMEOUT_MS = 1000
 
-        /** The diagnostic interface is the only HID interface with an OUT endpoint. */
+        /**
+         * The diagnostic interface is the one whose report descriptor sets the diagnostic usage page, checked on the
+         * HID interfaces with 64-byte interrupt IN and OUT endpoints.
+         */
         fun open(manager: UsbManager, device: UsbDevice): Dongle? {
-            val intf = (0 until device.interfaceCount).map(device::getInterface).firstOrNull { i ->
+            val candidates = (0 until device.interfaceCount).map(device::getInterface).filter { i ->
                 i.interfaceClass == UsbConstants.USB_CLASS_HID && endpoint(i, UsbConstants.USB_DIR_IN) != null &&
                     endpoint(i, UsbConstants.USB_DIR_OUT) != null
-            } ?: return null
+            }
+            if (candidates.isEmpty()) return null
             val connection = manager.openDevice(device) ?: return null
-            if (!connection.claimInterface(intf, true)) { connection.close(); return null }
-            val handle = Native.open(connection.fileDescriptor,
-                endpoint(intf, UsbConstants.USB_DIR_IN)!!.address,
-                endpoint(intf, UsbConstants.USB_DIR_OUT)!!.address)
-            return Dongle(connection, intf, handle)
+            for (intf in candidates) {
+                if (!connection.claimInterface(intf, true)) continue
+                if (isDiagnostic(connection, intf)) {
+                    val handle = Native.open(connection.fileDescriptor,
+                        endpoint(intf, UsbConstants.USB_DIR_IN)!!.address,
+                        endpoint(intf, UsbConstants.USB_DIR_OUT)!!.address)
+                    return Dongle(connection, intf, handle)
+                }
+                connection.releaseInterface(intf)
+            }
+            connection.close()
+            return null
+        }
+
+        // usbfs refuses an interface-recipient request while a kernel driver holds that interface.
+        // The dongle's USB stack allocates its reply at the requested length, from a small buffer pool.
+        private fun isDiagnostic(connection: UsbDeviceConnection, intf: UsbInterface): Boolean {
+            val len = Native.reportDescriptorLength(connection.rawDescriptors, intf.id)
+            if (len <= 0) return false
+            val buf = ByteArray(len)
+            val read = connection.controlTransfer(
+                REQUEST_TYPE_INTERFACE_IN, GET_DESCRIPTOR, REPORT_DESCRIPTOR, intf.id, buf, len, TIMEOUT_MS)
+            return read > 0 && Native.isDiagnostic(buf.copyOf(read))
         }
 
         private fun endpoint(i: UsbInterface, dir: Int) = (0 until i.endpointCount).map(i::getEndpoint)

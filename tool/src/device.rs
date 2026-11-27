@@ -8,8 +8,6 @@ use crate::protocol::{REPORT_LEN, Status};
 pub(crate) use diagclient::device::testing as tests;
 pub use diagclient::device::*;
 
-pub const USAGE_PAGE: u16 = 0xff00;
-
 pub struct HidTransport(hidapi::HidDevice);
 
 impl Transport for HidTransport {

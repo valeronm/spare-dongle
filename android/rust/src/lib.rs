@@ -1,10 +1,12 @@
+mod descriptor;
 mod rows;
 mod usbfs;
 
+use descriptor::{is_diagnostic, report_descriptor_length};
 use diagclient::device::Device;
 use jni::JNIEnv;
-use jni::objects::{JClass, JObject};
-use jni::sys::{jint, jlong, jobjectArray};
+use jni::objects::{JByteArray, JClass, JObject};
+use jni::sys::{JNI_FALSE, jboolean, jint, jlong, jobjectArray};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 type Dongle = Device<usbfs::Usbfs>;
@@ -42,6 +44,34 @@ pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_statusRows(
             std::ptr::null_mut()
         }
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_isDiagnostic(
+    env: JNIEnv,
+    _: JClass,
+    descriptor: JByteArray,
+) -> jboolean {
+    let checked = catch_unwind(AssertUnwindSafe(|| {
+        env.convert_byte_array(&descriptor)
+            .is_ok_and(|bytes| is_diagnostic(&bytes))
+    }));
+    checked.map_or(JNI_FALSE, jboolean::from)
+}
+
+/// Returns 0 when the length is unknown.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_valeronm_sparedongle_Native_reportDescriptorLength(
+    env: JNIEnv,
+    _: JClass,
+    raw: JByteArray,
+    interface_number: jint,
+) -> jint {
+    let length = catch_unwind(AssertUnwindSafe(|| {
+        let bytes = env.convert_byte_array(&raw).ok()?;
+        report_descriptor_length(&bytes, u8::try_from(interface_number).ok()?)
+    }));
+    length.ok().flatten().map_or(0, jint::from)
 }
 
 #[unsafe(no_mangle)]
