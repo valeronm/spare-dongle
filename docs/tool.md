@@ -59,18 +59,17 @@ Unifying keyboard's channels are fixed by its firmware, so the command exists on
 
 ## Devices
 
-The dongle reports each device it holds in a numbered slot: NuPhy has one, the keyboard, and so does
-Unifying, whose slot is the stored keyboard it types from, and Bluetooth has four, each holding a
-keyboard or a mouse. `status`, `history` and the live view show every slot that has a device paired
-or connected, each with its own name, signal and counters, and `status` also its last packet; the
-channel, noise, USB and the other link-wide counters are shared. The live view shows the shared
-state in one dongle box, and below it a keyboard's box and chart beside a mouse's, each showing the
-active device of its kind, the one used last. `k` steps the keyboard's box to the next keyboard,
-standby ones first, then those not connected, and `m` does the same for mice; a box stepped away
-from the active device stays on its device until its key wraps back. With more than one device of a
-kind, its box's title gives its place among them, as `keyboard 1 of 2`, the first being the active
-one. A terminal too narrow for both shows one, and `k` or `m` brings up its kind's box before
-stepping it. Event lines name the device they are about.
+The dongle holds one device under NuPhy, the keyboard, and one under Unifying, the stored keyboard
+it types from, and up to four under Bluetooth, each a keyboard or a mouse. `status`, `history` and
+the live view show each device paired or connected, each with its own name, signal and counters, and
+`status` also its last packet; the channel, noise, USB and the other link-wide counters are shared.
+The live view shows the shared state in one dongle box, and below it a keyboard's box and chart
+beside a mouse's, each showing the active device of its kind, the one used last. `k` steps the
+keyboard's box to the next keyboard, standby ones first, then those not connected, and `m` does the
+same for mice; a box stepped away from the active device stays on its device until its key wraps
+back. With more than one device of a kind, its box's title gives its place among them, as
+`keyboard 1 of 2`, the first being the active one. A terminal too narrow for both shows one, and `k`
+or `m` brings up its kind's box before stepping it. Event lines name the device they are about.
 
 Each connected device's latency is the delay from a report's arrival at the dongle to the PC
 fetching it over USB, as its average and maximum since the last `clear`, or "no report yet" before
