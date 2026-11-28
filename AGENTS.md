@@ -18,6 +18,12 @@
   `src/unifying_main.c` start ESB through `src/radio.c`, which first shuts down the Bluetooth
   controller's radio layer.
 
+## Flashing
+
+- Ask before anything that restarts the board or drops its links, such as a flash, a reboot, the
+  bootloader, a protocol switch or a forget, say what it is for, and run it only once the user says
+  they are ready: it drops what the board carries, often the desk's only keyboard and mouse.
+
 ## Diagnostic protocol
 
 - `wire` is the one definition of the protocol's numbers, the records the firmware stores and
