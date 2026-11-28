@@ -1,0 +1,20 @@
+Count channel survey reports as discardable events
+
+A report that finds the event pool full holds up the controller's queue, and the
+host thread that frees the pool may be waiting on a command reply behind it.
+
+diff --git a/subsys/bluetooth/controller/hci_driver.c b/subsys/bluetooth/controller/hci_driver.c
+index 0711e82431..55d4de7a55 100644
+--- a/subsys/bluetooth/controller/hci_driver.c
++++ b/subsys/bluetooth/controller/hci_driver.c
+@@ -586,6 +586,10 @@ static bool event_packet_is_discardable(const uint8_t *hci_buf)
+ 		case SDC_HCI_SUBEVENT_VS_CONN_ANCHOR_POINT_UPDATE_REPORT:
+ 			return true;
+ #endif /* CONFIG_BT_CTLR_SDC_CONN_ANCHOR_POINT_REPORT */
++#ifdef CONFIG_BT_CTLR_SDC_QOS_CHANNEL_SURVEY
++		case SDC_HCI_SUBEVENT_VS_QOS_CHANNEL_SURVEY_REPORT:
++			return true;
++#endif /* CONFIG_BT_CTLR_SDC_QOS_CHANNEL_SURVEY */
+ 		default:
+ 			return false;
+ 		}

@@ -180,8 +180,8 @@ mise run flash [serial]
 cargo install --locked --path tool
 ```
 
-`mise run build` first applies the Zephyr fixes in `patches/zephyr` to the SDK, those not already
-in it, and stops when one no longer applies. `mise run flash` flashes the image it wrote.
+`mise run build` first applies the fixes in `patches` to the SDK, those not already in it, and stops
+when one no longer applies. `mise run flash` flashes the image it wrote.
 
 ## Development
 
