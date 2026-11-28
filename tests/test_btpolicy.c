@@ -1,3 +1,4 @@
+#include "btlist.h"
 #include "btpolicy.h"
 #include "test.h"
 
@@ -716,10 +717,82 @@ static void a_device_without_a_slot_takes_the_least_recent_seeded_one(void)
 	CHECK_EQ(c.slot, DEVICE_SLOTS - 1);
 }
 
+static void a_new_device_that_failed_to_pair_frees_its_slot_before_the_longest_idle(void)
+{
+	struct btpolicy_advert failed = new_advert(8);
+	struct btpolicy_advert fresh = new_advert(9);
+
+	btpolicy_init(&policy);
+	for (uint8_t s = 0; s < DEVICE_SLOTS - 1; s++) {
+		struct btpolicy_advert a = stored_advert(s);
+
+		btpolicy_seed(&policy, a.addr, DEVICE_KIND_KEYBOARD);
+	}
+	btpolicy_connecting(&policy, DEVICE_SLOTS - 1, &failed);
+	btpolicy_disconnected(&policy, DEVICE_SLOTS - 1, 100, false);
+	CHECK_EQ(btpolicy_slot_of(&policy, failed.addr), DEVICE_NO_SLOT);
+	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 200).slot, DEVICE_SLOTS - 1);
+}
+
+static void a_stored_device_of_no_kind_is_not_seeded(void)
+{
+	struct btlist list = {.count = 3};
+	struct btpolicy_advert keyboard = stored_advert(1);
+	struct btpolicy_advert unknown = stored_advert(2);
+	struct btpolicy_advert mouse = stored_advert(3);
+
+	memcpy(list.entries[0].addr, keyboard.addr, BTPOLICY_ADDR_LEN);
+	list.entries[0].kind = DEVICE_KIND_KEYBOARD;
+	memcpy(list.entries[1].addr, unknown.addr, BTPOLICY_ADDR_LEN);
+	list.entries[1].kind = DEVICE_NO_KIND;
+	memcpy(list.entries[2].addr, mouse.addr, BTPOLICY_ADDR_LEN);
+	list.entries[2].kind = DEVICE_KIND_MOUSE;
+	btpolicy_init(&policy);
+	btpolicy_seed_all(&policy, &list);
+	CHECK_EQ(btpolicy_slot_of(&policy, keyboard.addr), 0);
+	CHECK_EQ(btpolicy_slot_of(&policy, unknown.addr), DEVICE_NO_SLOT);
+	CHECK_EQ(btpolicy_slot_of(&policy, mouse.addr), 1);
+	CHECK_EQ(btpolicy_slot_kind(&policy, 1), DEVICE_KIND_MOUSE);
+	CHECK(btpolicy_last_peer(&policy, 2) == NULL);
+}
+
+static void a_forgotten_device_frees_its_slot_before_the_longest_idle(void)
+{
+	struct btpolicy_advert forgotten = stored_advert(1);
+	struct btpolicy_advert fresh = new_advert(9);
+
+	btpolicy_init(&policy);
+	for (uint8_t s = 0; s < DEVICE_SLOTS; s++) {
+		struct btpolicy_advert a = stored_advert(s);
+
+		btpolicy_seed(&policy, a.addr, DEVICE_KIND_KEYBOARD);
+	}
+	btpolicy_forgotten(&policy, forgotten.addr);
+	CHECK_EQ(btpolicy_slot_of(&policy, forgotten.addr), DEVICE_NO_SLOT);
+	CHECK(btpolicy_last_peer(&policy, 1) == NULL);
+	CHECK_EQ(btpolicy_slot_kind(&policy, 1), DEVICE_NO_KIND);
+	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0).slot, 1);
+}
+
+static void a_device_forgotten_while_connected_frees_its_slot_once_disconnected(void)
+{
+	struct btpolicy_advert forgotten = stored_advert(1);
+	struct btpolicy_advert fresh = new_advert(9);
+
+	btpolicy_init(&policy);
+	fill(&forgotten, 0);
+	btpolicy_forgotten(&policy, forgotten.addr);
+	CHECK(btpolicy_is_active(&policy, 0));
+	CHECK_EQ(btpolicy_slot_kind(&policy, 0), DEVICE_KIND_KEYBOARD);
+	btpolicy_disconnected(&policy, 0, 100, false);
+	CHECK_EQ(btpolicy_slot_of(&policy, forgotten.addr), DEVICE_NO_SLOT);
+	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 200).slot, 0);
+}
+
 static void a_device_is_found_in_the_slot_that_last_held_it(void)
 {
 	struct btpolicy_advert seeded = stored_advert(1);
-	struct btpolicy_advert dropped = new_advert(2);
+	struct btpolicy_advert dropped = stored_advert(2);
 	struct btpolicy_advert never = stored_advert(3);
 
 	btpolicy_init(&policy);
@@ -823,6 +896,10 @@ int main(void)
 	RUN(a_seeded_slot_takes_its_device_back);
 	RUN(seeding_stops_once_every_slot_is_used);
 	RUN(a_device_without_a_slot_takes_the_least_recent_seeded_one);
+	RUN(a_new_device_that_failed_to_pair_frees_its_slot_before_the_longest_idle);
+	RUN(a_stored_device_of_no_kind_is_not_seeded);
+	RUN(a_forgotten_device_frees_its_slot_before_the_longest_idle);
+	RUN(a_device_forgotten_while_connected_frees_its_slot_once_disconnected);
 	RUN(a_device_is_found_in_the_slot_that_last_held_it);
 	RUN(the_slot_idle_longest_is_found_whatever_the_uptime);
 	RUN(a_slot_that_failed_long_ago_is_free_again);

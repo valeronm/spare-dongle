@@ -1,5 +1,6 @@
 #include <string.h>
 
+#include "btlist.h"
 #include "btpolicy.h"
 
 enum device_kind btpolicy_kind_of(uint16_t appearance)
@@ -249,6 +250,9 @@ uint8_t btpolicy_disconnected(struct btpolicy *p, uint8_t slot, uint32_t now_ms,
 	s->order = ++p->events;
 	s->state = BTPOLICY_IDLE;
 	s->dropping = false;
+	if (!s->peer_stored) {
+		s->used = false;
+	}
 	if (p->active[s->kind] == slot) {
 		promoted = latest_standby(p, s->kind);
 		p->active[s->kind] = promoted;
@@ -309,6 +313,33 @@ uint8_t btpolicy_seed(struct btpolicy *p, const uint8_t addr[BTPOLICY_ADDR_LEN],
 		}
 	}
 	return DEVICE_NO_SLOT;
+}
+
+void btpolicy_forgotten(struct btpolicy *p, const uint8_t addr[BTPOLICY_ADDR_LEN])
+{
+	uint8_t slot = btpolicy_slot_of(p, addr);
+	struct btpolicy_slot *s;
+
+	if (slot == DEVICE_NO_SLOT) {
+		return;
+	}
+	s = &p->slots[slot];
+	s->peer_stored = false;
+	if (s->state == BTPOLICY_IDLE) {
+		s->used = false;
+	}
+}
+
+void btpolicy_seed_all(struct btpolicy *p, const struct btlist *l)
+{
+	for (uint8_t i = 0; i < l->count; i++) {
+		const struct btlist_entry *e = &l->entries[i];
+
+		if (e->kind != DEVICE_NO_KIND &&
+		    btpolicy_seed(p, e->addr, (enum device_kind)e->kind) == DEVICE_NO_SLOT) {
+			return;
+		}
+	}
 }
 
 struct btpolicy_input_result btpolicy_input(struct btpolicy *p, uint8_t slot, bool pressed)

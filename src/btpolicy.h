@@ -145,17 +145,23 @@ bool btpolicy_is_active(const struct btpolicy *p, uint8_t slot);
 bool btpolicy_is_standby(const struct btpolicy *p, uint8_t slot);
 /* A stored device whose connection ended before it was ready leaves its slot alone for
  * BTPOLICY_RETRY_MS, except for the first BTPOLICY_QUICK_RETRIES in a row that never joined the
- * connection. When the slot was active, the ready device of its kind pressed last, or with none
- * pressed the one ready last, becomes active and is returned; otherwise DEVICE_NO_SLOT. */
+ * connection. A slot whose device is not stored counts as never used. When the slot was active,
+ * the ready device of its kind pressed last, or with none pressed the one ready last, becomes
+ * active and is returned; otherwise DEVICE_NO_SLOT. */
 uint8_t btpolicy_disconnected(struct btpolicy *p, uint8_t slot, uint32_t now_ms, bool never_joined);
 enum btpolicy_security btpolicy_security_failed(struct btpolicy *p, uint8_t slot,
 						enum btpolicy_failure why);
+struct btlist;
+/* Seeds each stored device in the list's order, skipping one whose kind was never learned. */
+void btpolicy_seed_all(struct btpolicy *p, const struct btlist *l);
 /* Marks the first never-used slot as last holding this stored device, so it reconnects there and
  * the slot shows it while idle, and returns that slot, or DEVICE_NO_SLOT once every slot is
  * used; for the boot, before any connection. The caller seeds the most recent device first: each
  * seed counts as idle longer than the one before. */
 uint8_t btpolicy_seed(struct btpolicy *p, const uint8_t addr[BTPOLICY_ADDR_LEN],
 		      enum device_kind kind);
+/* The slot that holds or last held the device counts as never used once it is idle. */
+void btpolicy_forgotten(struct btpolicy *p, const uint8_t addr[BTPOLICY_ADDR_LEN]);
 /* pressed is reports_pressed of what the report translated to. */
 struct btpolicy_input_result btpolicy_input(struct btpolicy *p, uint8_t slot, bool pressed);
 /* Active while a pairing window is open, since a new device may give its appearance only in its

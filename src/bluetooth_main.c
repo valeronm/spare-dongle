@@ -274,6 +274,7 @@ static void on_forgotten(const struct ble_event *ev)
 		return;
 	}
 	save_list(btlist_remove(&list, addr));
+	btpolicy_forgotten(&policy, addr);
 	log_forgotten(ev->slot, addr, ev->forgotten.tag);
 }
 
@@ -743,18 +744,6 @@ static void run_hidpp(uint8_t slot, uint32_t now)
 	}
 }
 
-static void seed_slots(void)
-{
-	for (uint8_t i = 0; i < list.count; i++) {
-		const struct btlist_entry *e = &list.entries[i];
-
-		if (e->kind != DEVICE_NO_KIND &&
-		    btpolicy_seed(&policy, e->addr, (enum device_kind)e->kind) == DEVICE_NO_SLOT) {
-			return;
-		}
-	}
-}
-
 FUNC_NORETURN void bluetooth_run(int store_err)
 {
 	int start_err;
@@ -772,7 +761,7 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 		printk("bluetooth start failed: %d\n", start_err);
 	} else {
 		load_list();
-		seed_slots();
+		btpolicy_seed_all(&policy, &list);
 		printk("bluetooth started, %u stored\n", ble_stored_count());
 	}
 
