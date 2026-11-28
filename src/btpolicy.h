@@ -165,8 +165,10 @@ void btpolicy_forgotten(struct btpolicy *p, const uint8_t addr[BTPOLICY_ADDR_LEN
 /* pressed is reports_pressed of what the report translated to. */
 struct btpolicy_input_result btpolicy_input(struct btpolicy *p, uint8_t slot, bool pressed);
 /* Active while a pairing window is open, since a new device may give its appearance only in its
- * scan response. */
-enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, bool window_open);
+ * scan response; otherwise passive while a slot is free and a stored device of a known kind holds
+ * no link. */
+enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, bool window_open,
+				 const struct btlist *l);
 /* A Bolt mouse demands a passkey once told it pairs with a Bolt receiver, and enters it by
  * clicks; a Bolt keyboard has not been seen to take that. */
 bool btpolicy_pairs_by_clicks(enum device_kind kind, bool bolt);

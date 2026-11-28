@@ -137,10 +137,10 @@ active device per kind and the pairing policy in `src/btpolicy.c`, the report-ma
 
 What the code does not show:
 
-- While a slot is free and pairing is closed, the dongle scans all the time, and while pairing is
-  open it scans actively for 30 ms of every 60. A scan of 11.25 ms every 1.28 s took tens of seconds
-  to hear the Air75 V2, which advertises about every 650 ms; the continuous scan cost a moving mouse
-  no reports it could measure.
+- While a stored device is not connected, a slot is free and pairing is closed, the dongle scans all
+  the time, and while pairing is open it scans actively for 30 ms of every 60. A scan of 11.25 ms
+  every 1.28 s took tens of seconds to hear the Air75 V2, which advertises about every 650 ms; the
+  continuous scan cost a moving mouse no reports it could measure.
 - The MX Keys reconnects to its bonded host with a short burst of directed adverts only, which
   Zephyr's host drops unless the central scans under its identity address. The Air75 V2 reconnects
   with undirected adverts carrying the HID service.

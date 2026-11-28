@@ -791,7 +791,7 @@ FUNC_NORETURN void bluetooth_run(int store_err)
 			run_hidpp(s, now);
 		}
 		if (!core_radio_has_failed()) {
-			int err = ble_scan(btpolicy_scan(&policy, btpair_is_open(&pair, now)));
+			int err = ble_scan(btpolicy_scan(&policy, btpair_is_open(&pair, now), &list));
 
 			if (err) {
 				printk("bluetooth scan not switched: %d\n", err);

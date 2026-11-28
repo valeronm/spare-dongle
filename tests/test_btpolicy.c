@@ -24,6 +24,26 @@ static struct btpolicy_advert new_advert(uint8_t last)
 	};
 }
 
+static void add_entry(struct btlist *l, const uint8_t addr[BTPOLICY_ADDR_LEN],
+		      enum device_kind kind)
+{
+	memcpy(l->entries[l->count].addr, addr, BTPOLICY_ADDR_LEN);
+	l->entries[l->count].kind = kind;
+	l->count++;
+}
+
+static enum btpolicy_scan scan(bool window_open)
+{
+	struct btlist list = {0};
+
+	for (uint8_t i = 0; i < BTPOLICY_STORED_MAX; i++) {
+		struct btpolicy_advert a = stored_advert(i);
+
+		add_entry(&list, a.addr, DEVICE_KIND_KEYBOARD);
+	}
+	return btpolicy_scan(&policy, window_open, &list);
+}
+
 static void a_stored_keyboard_is_wanted_whatever_its_advert_carries(void)
 {
 	struct btpolicy_advert a = stored_advert(1);
@@ -78,15 +98,15 @@ static void a_second_stored_keyboard_connects_beside_a_ready_one(void)
 	struct btpolicy_choice c;
 
 	btpolicy_init(&policy);
-	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(scan(false), BTPOLICY_SCAN_PASSIVE);
 	CHECK(btpolicy_peer(&policy, 0) == NULL);
 	btpolicy_connecting(&policy, 0, &first);
 	CHECK_MEM(btpolicy_peer(&policy, 0), first.addr, BTPOLICY_ADDR_LEN);
-	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(scan(false), BTPOLICY_SCAN_OFF);
 	CHECK_EQ(btpolicy_wants(&policy, &second, false, 0).want, BTPOLICY_IGNORE);
 	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0).want, BTPOLICY_IGNORE);
 	btpolicy_connected(&policy, 0);
-	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(scan(false), BTPOLICY_SCAN_OFF);
 	CHECK_EQ(btpolicy_wants(&policy, &fresh, true, 0).want, BTPOLICY_IGNORE);
 	btpolicy_ready(&policy, 0);
 	CHECK(btpolicy_is_ready(&policy, 0));
@@ -98,7 +118,7 @@ static void a_second_stored_keyboard_connects_beside_a_ready_one(void)
 	CHECK_EQ(c.slot, 1);
 	btpolicy_disconnected(&policy, 0, 500, false);
 	CHECK(!btpolicy_is_ready(&policy, 0));
-	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(scan(false), BTPOLICY_SCAN_PASSIVE);
 	CHECK_EQ(btpolicy_wants(&policy, &second, false, 500).want, BTPOLICY_CONNECT);
 }
 
@@ -318,7 +338,7 @@ static void a_mouse_connects_beside_a_ready_keyboard(void)
 
 	btpolicy_init(&policy);
 	fill(&keyboard, 0);
-	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(scan(false), BTPOLICY_SCAN_PASSIVE);
 	CHECK_EQ(btpolicy_wants(&policy, &mouse, true, 0).want, BTPOLICY_CONNECT);
 	btpolicy_connecting(&policy, 1, &mouse);
 	CHECK_MEM(btpolicy_peer(&policy, 1), mouse.addr, BTPOLICY_ADDR_LEN);
@@ -334,7 +354,7 @@ static void one_device_is_set_up_at_a_time(void)
 
 	btpolicy_init(&policy);
 	btpolicy_connecting(&policy, 0, &keyboard);
-	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(scan(false), BTPOLICY_SCAN_OFF);
 	CHECK_EQ(btpolicy_wants(&policy, &mouse, true, 0).want, BTPOLICY_IGNORE);
 	btpolicy_connected(&policy, 0);
 	CHECK_EQ(btpolicy_wants(&policy, &mouse, true, 0).want, BTPOLICY_IGNORE);
@@ -373,11 +393,45 @@ static void every_slot_ready_scans_only_while_the_window_is_open(void)
 	for (uint8_t s = 0; s < DEVICE_SLOTS; s++) {
 		struct btpolicy_advert a = stored_advert(s);
 
-		CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_PASSIVE);
+		CHECK_EQ(scan(false), BTPOLICY_SCAN_PASSIVE);
 		fill(&a, s);
 	}
-	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_OFF);
-	CHECK_EQ(btpolicy_scan(&policy, true), BTPOLICY_SCAN_ACTIVE);
+	CHECK_EQ(scan(false), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(scan(true), BTPOLICY_SCAN_ACTIVE);
+}
+
+static void the_scan_stops_once_every_stored_device_holds_a_link(void)
+{
+	struct btlist list = {0};
+	struct btpolicy_advert keyboard = stored_advert(1);
+	struct btpolicy_advert mouse = stored_advert(2);
+
+	mouse.kind = DEVICE_KIND_MOUSE;
+	btpolicy_init(&policy);
+	CHECK_EQ(btpolicy_scan(&policy, false, &list), BTPOLICY_SCAN_OFF);
+	add_entry(&list, keyboard.addr, DEVICE_KIND_KEYBOARD);
+	add_entry(&list, mouse.addr, DEVICE_KIND_MOUSE);
+	CHECK_EQ(btpolicy_scan(&policy, false, &list), BTPOLICY_SCAN_PASSIVE);
+	fill(&keyboard, 0);
+	CHECK_EQ(btpolicy_scan(&policy, false, &list), BTPOLICY_SCAN_PASSIVE);
+	fill(&mouse, 1);
+	CHECK_EQ(btpolicy_scan(&policy, false, &list), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(btpolicy_scan(&policy, true, &list), BTPOLICY_SCAN_ACTIVE);
+	btpolicy_disconnected(&policy, 1, 500, false);
+	CHECK_EQ(btpolicy_scan(&policy, false, &list), BTPOLICY_SCAN_PASSIVE);
+}
+
+static void a_stored_device_of_no_kind_keeps_no_scan_on(void)
+{
+	struct btlist list = {0};
+	struct btpolicy_advert keyboard = stored_advert(1);
+	struct btpolicy_advert unknown = stored_advert(2);
+
+	add_entry(&list, keyboard.addr, DEVICE_KIND_KEYBOARD);
+	add_entry(&list, unknown.addr, DEVICE_NO_KIND);
+	btpolicy_init(&policy);
+	fill(&keyboard, 0);
+	CHECK_EQ(btpolicy_scan(&policy, false, &list), BTPOLICY_SCAN_OFF);
 }
 
 static void a_failed_keyboard_leaves_the_mouse_slot_free_to_connect(void)
@@ -398,11 +452,11 @@ static void a_pairing_window_scans_actively_for_scan_responses(void)
 	struct btpolicy_advert keyboard = stored_advert(1);
 
 	btpolicy_init(&policy);
-	CHECK_EQ(btpolicy_scan(&policy, true), BTPOLICY_SCAN_ACTIVE);
+	CHECK_EQ(scan(true), BTPOLICY_SCAN_ACTIVE);
 	btpolicy_connecting(&policy, 0, &keyboard);
-	CHECK_EQ(btpolicy_scan(&policy, true), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(scan(true), BTPOLICY_SCAN_OFF);
 	btpolicy_disconnected(&policy, 0, 0, false);
-	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(scan(false), BTPOLICY_SCAN_PASSIVE);
 }
 
 static void a_device_reconnects_into_the_slot_it_last_held(void)
@@ -472,12 +526,12 @@ static void a_stored_device_is_ignored_while_every_link_is_held(void)
 	struct btpolicy_advert extra = stored_advert(9);
 
 	CHECK_EQ(btpolicy_wants(&policy, &extra, false, 0).want, BTPOLICY_IGNORE);
-	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_OFF);
+	CHECK_EQ(scan(false), BTPOLICY_SCAN_OFF);
 	btpolicy_disconnected(&policy, 1, 100, false);
 	c = btpolicy_wants(&policy, &extra, false, 100);
 	CHECK_EQ(c.want, BTPOLICY_CONNECT);
 	CHECK_EQ(c.slot, 1);
-	CHECK_EQ(btpolicy_scan(&policy, false), BTPOLICY_SCAN_PASSIVE);
+	CHECK_EQ(scan(false), BTPOLICY_SCAN_PASSIVE);
 }
 
 static void pairing_with_every_link_held_drops_the_standby_with_the_oldest_input(void)
@@ -736,17 +790,14 @@ static void a_new_device_that_failed_to_pair_frees_its_slot_before_the_longest_i
 
 static void a_stored_device_of_no_kind_is_not_seeded(void)
 {
-	struct btlist list = {.count = 3};
+	struct btlist list = {0};
 	struct btpolicy_advert keyboard = stored_advert(1);
 	struct btpolicy_advert unknown = stored_advert(2);
 	struct btpolicy_advert mouse = stored_advert(3);
 
-	memcpy(list.entries[0].addr, keyboard.addr, BTPOLICY_ADDR_LEN);
-	list.entries[0].kind = DEVICE_KIND_KEYBOARD;
-	memcpy(list.entries[1].addr, unknown.addr, BTPOLICY_ADDR_LEN);
-	list.entries[1].kind = DEVICE_NO_KIND;
-	memcpy(list.entries[2].addr, mouse.addr, BTPOLICY_ADDR_LEN);
-	list.entries[2].kind = DEVICE_KIND_MOUSE;
+	add_entry(&list, keyboard.addr, DEVICE_KIND_KEYBOARD);
+	add_entry(&list, unknown.addr, DEVICE_NO_KIND);
+	add_entry(&list, mouse.addr, DEVICE_KIND_MOUSE);
 	btpolicy_init(&policy);
 	btpolicy_seed_all(&policy, &list);
 	CHECK_EQ(btpolicy_slot_of(&policy, keyboard.addr), 0);
@@ -876,6 +927,8 @@ int main(void)
 	RUN(one_device_is_set_up_at_a_time);
 	RUN(a_slot_being_dropped_wants_nothing_until_it_is_idle);
 	RUN(every_slot_ready_scans_only_while_the_window_is_open);
+	RUN(the_scan_stops_once_every_stored_device_holds_a_link);
+	RUN(a_stored_device_of_no_kind_keeps_no_scan_on);
 	RUN(a_failed_keyboard_leaves_the_mouse_slot_free_to_connect);
 	RUN(a_pairing_window_scans_actively_for_scan_responses);
 	RUN(a_device_reconnects_into_the_slot_it_last_held);

@@ -24,6 +24,12 @@ void btpolicy_init(struct btpolicy *p)
 	p->events = DEVICE_SLOTS;
 }
 
+/* btpolicy_wants refuses an advert of no kind. */
+static bool can_reconnect(const struct btlist_entry *e)
+{
+	return e->kind != DEVICE_NO_KIND;
+}
+
 static bool setting_up(const struct btpolicy *p)
 {
 	for (int s = 0; s < DEVICE_SLOTS; s++) {
@@ -272,7 +278,15 @@ enum btpolicy_security btpolicy_security_failed(struct btpolicy *p, uint8_t slot
 	return why == BTPOLICY_FAILURE_REFUSAL ? BTPOLICY_PAIRING_REFUSED : BTPOLICY_SECURITY_FAILED;
 }
 
-enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, bool window_open)
+static bool holds_link(const struct btpolicy *p, const uint8_t addr[BTPOLICY_ADDR_LEN])
+{
+	uint8_t slot = btpolicy_slot_of(p, addr);
+
+	return slot != DEVICE_NO_SLOT && btpolicy_peer(p, slot) != NULL;
+}
+
+enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, bool window_open,
+				 const struct btlist *l)
 {
 	bool slot_free = false;
 
@@ -285,7 +299,15 @@ enum btpolicy_scan btpolicy_scan(const struct btpolicy *p, bool window_open)
 	for (int s = 0; s < DEVICE_SLOTS; s++) {
 		slot_free |= p->slots[s].state == BTPOLICY_IDLE;
 	}
-	return slot_free ? BTPOLICY_SCAN_PASSIVE : BTPOLICY_SCAN_OFF;
+	if (!slot_free) {
+		return BTPOLICY_SCAN_OFF;
+	}
+	for (uint8_t i = 0; i < l->count; i++) {
+		if (can_reconnect(&l->entries[i]) && !holds_link(p, l->entries[i].addr)) {
+			return BTPOLICY_SCAN_PASSIVE;
+		}
+	}
+	return BTPOLICY_SCAN_OFF;
 }
 
 bool btpolicy_pairs_by_clicks(enum device_kind kind, bool bolt)
@@ -335,7 +357,7 @@ void btpolicy_seed_all(struct btpolicy *p, const struct btlist *l)
 	for (uint8_t i = 0; i < l->count; i++) {
 		const struct btlist_entry *e = &l->entries[i];
 
-		if (e->kind != DEVICE_NO_KIND &&
+		if (can_reconnect(e) &&
 		    btpolicy_seed(p, e->addr, (enum device_kind)e->kind) == DEVICE_NO_SLOT) {
 			return;
 		}
